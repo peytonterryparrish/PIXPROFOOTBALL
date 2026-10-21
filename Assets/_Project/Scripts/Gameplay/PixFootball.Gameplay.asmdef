@@ -1,0 +1,23 @@
+{
+    "name": "PixFootball.Gameplay",
+    "rootNamespace": "PixFootball.Gameplay",
+    "references": [
+        "PixFootball.Core",
+        "PixFootball.League",
+        "PixFootball.Art",
+        "PixFootball.Sim",
+        "Unity.InputSystem",
+        "Unity.Cinemachine",
+        "Unity.RenderPipelines.HighDefinition.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

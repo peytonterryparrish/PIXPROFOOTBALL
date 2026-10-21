@@ -1,0 +1,24 @@
+{
+    "name": "PixFootball.UI",
+    "rootNamespace": "PixFootball.UI",
+    "references": [
+        "PixFootball.Core",
+        "PixFootball.League",
+        "PixFootball.Art",
+        "PixFootball.Gameplay",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
+        "Unity.RenderPipelines.HighDefinition.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
