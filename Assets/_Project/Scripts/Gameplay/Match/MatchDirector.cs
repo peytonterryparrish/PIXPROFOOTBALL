@@ -29,6 +29,8 @@ namespace PixFootball.Gameplay
         public static Func<MatchFlow, KeyValuePair<Play, Play>?> ForcedCall;
         /// <summary>Autotest hook: the autopilot ball carrier uses this move (Juke, Spin, StiffArm, Truck, Hurdle) whenever a defender is close ahead.</summary>
         public static string AutoMove;
+        /// <summary>Autotest hook: seconds the autopilot waits at the line before it snaps (the broadcast shots need a few seconds of pre-snap to be seen).</summary>
+        public static float AutopilotSnapDelay = 0.9f;
 
         public Camera MainCamera;
         public LightingController Lighting;
@@ -59,6 +61,12 @@ namespace PixFootball.Gameplay
         public bool PenaltyOpen { get; private set; }
         public PenaltyPanelData PenaltyData { get; private set; }
         public string StatusText { get; private set; } = "";
+
+        /// <summary>v0.5 broadcast layer (replays, camera director, TV overlays, shows); null in tests or when the Presentation assembly is not in the scene.</summary>
+        public IBroadcast Broadcast { get; private set; }
+        /// <summary>Set by the broadcast layer while a replay owns the pad: the pause controller does not poll.</summary>
+        public bool InputLocked;
+        bool BroadcastBusy { get { return Broadcast != null && Broadcast.Busy; } }
 
         public event Action<PlaySimulation> PlayStarted;
         public event Action<PlayOutcome> PlayFinished;
@@ -124,8 +132,16 @@ namespace PixFootball.Gameplay
                 Ui.LightingToggleRequested += () => { if (Lighting != null) Lighting.Toggle(); };
             }
             if (Ui != null) Ui.SetScore(InitialScore(league));
+            foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)) { var b = mb as IBroadcast; if (b != null) { Broadcast = b; break; } }
+            if (Broadcast != null)
+            {
+                Broadcast.Attach(this);
+                if (Ui != null) Ui.ReplayRequested += () => { if (Broadcast != null) Broadcast.RequestManualReplay(); };
+            }
             yield return null;
             yield return CoinToss();
+            if (_quit) yield break;
+            if (Broadcast != null) yield return Broadcast.GameIntro();
             if (_quit) yield break;
             yield return GameLoop();
         }
@@ -252,6 +268,7 @@ namespace PixFootball.Gameplay
             _prevLT = _prevRT = true;
             while (model.Chosen == null && !_quit)
             {
+                if (BroadcastBusy) { yield return null; continue; }   // a replay owns the screen and the pad
                 float dtU = Time.unscaledDeltaTime;
                 if (Autopilot)
                 {
@@ -361,6 +378,7 @@ namespace PixFootball.Gameplay
             ApplyCameraTarget(true);
             Cams.Cut();
             if (Ui != null) Ui.SetScore(MakeScore(false));
+            if (Broadcast != null) Broadcast.OnPlayPrepared(Sim, _frame);
         }
 
         MatchInputFrame MatchInputIdle { get { return _idle; } }
@@ -446,7 +464,7 @@ namespace PixFootball.Gameplay
                     }
                     if (t > cpuDelay && _ps == PsMode.None) snap = true;
                 }
-                if (Autopilot && t > 0.9f) snap = true;
+                if (Autopilot && t > AutopilotSnapDelay) snap = true;
                 if (playClock <= 0f && !snap)
                 {
                     // delay of game: the user's offense let the clock run out
@@ -462,6 +480,7 @@ namespace PixFootball.Gameplay
                 Sim.Tick(dt, default(ControlInput), -1);
                 Stage.Present(dt);
                 PresentFrame(dt, 0f, t);
+                if (Broadcast != null) Broadcast.OnPreSnapFrame(dt, t, playClock, snap);
                 UpdatePreSnapHud(playClock);
                 if (Ui != null) Ui.SetScore(MakeScore(false, playClock, t));
                 yield return null;
@@ -483,6 +502,7 @@ namespace PixFootball.Gameplay
             if (!delayFoul) Sim.Tick(0.0167f, new ControlInput { Snap = true }, -1);
             Note("snap " + Sim.OffPlay.Name + " vs " + Sim.DefPlay.Name + (delayFoul ? " (delay of game)" : ""));
             if (PlayStarted != null) PlayStarted(Sim);
+            if (Broadcast != null) Broadcast.OnSnap(Sim);
             yield return null;
         }
 
@@ -520,6 +540,7 @@ namespace PixFootball.Gameplay
                 Stage.Present(dt);
                 HandleEvents();
                 PresentFrame(dt, t, 0f);
+                if (Broadcast != null) Broadcast.OnPlayFrame(dt, true);
                 if (Ui != null) Ui.SetScore(MakeScore(true));
                 yield return null;
             }
@@ -542,6 +563,7 @@ namespace PixFootball.Gameplay
             Markers.SetRing(null); Ui?.SetReceiverIcons(null, MainCamera);
             React(outcome);
             if (PlayFinished != null) PlayFinished(outcome);
+            if (Broadcast != null) Broadcast.BeginPostPlay(outcome, sim);
             float wind = outcome.Headline == Headline.Touchdown ? 4.2f : (sim.Kind == PlayKind.Scrimmage && sim.Result != null && sim.Result.Type == PlayType.Penalty ? 1.6f : 2.9f);
             float w = 0f;
             while (w < wind && !_quit)
@@ -553,9 +575,11 @@ namespace PixFootball.Gameplay
                 Stage.Present(dt);
                 HandleEvents();
                 PresentFrame(dt, 0f, 0f);
+                if (Broadcast != null) Broadcast.OnPlayFrame(dt, false);
                 if (Ui != null) Ui.SetScore(MakeScore(false));
                 yield return null;
             }
+            if (Broadcast != null && !_quit) yield return Broadcast.FinishPostPlay();
             // ---- period / game transitions ----
             if (outcome.PeriodChanged || outcome.GameOver)
             {
@@ -663,7 +687,7 @@ namespace PixFootball.Gameplay
             float w = 0f; float dur = pc.Halftime ? 3.8f : 2.6f;
             if (Sim != null) { }
             while (w < dur && !_quit) { if (!Paused) w += Time.deltaTime; if (Ui != null) Ui.SetScore(MakeScore(false)); yield return null; }
-            if (pc.Halftime) { Note("halftime"); }
+            if (pc.Halftime) { Note("halftime"); if (Broadcast != null && !_quit) yield return Broadcast.Halftime(); }
             Note("period change to Q" + s.Quarter);
             if (!afterPlay) { }
         }
@@ -678,6 +702,16 @@ namespace PixFootball.Gameplay
             var s = Flow.State;
             Note("final " + Flow.Summary());
             Audio.Whistle(); Audio.Cheer(1f);
+            if (Broadcast != null)
+            {
+                yield return Broadcast.Postgame();
+                if (Broadcast.PostgameShown)
+                {
+                    // the postgame show ends with the return to the menu: nothing else to present
+                    if (!_quit) { _quit = true; if (!Autopilot) GameSession.QuitToMenu(); }
+                    yield break;
+                }
+            }
             var d = new FinalData
             {
                 HomeName = HomeInfo.Name, AwayName = AwayInfo.Name, HomeAbbr = Flow.Abbr(CoreTeam.Home), AwayAbbr = Flow.Abbr(CoreTeam.Away),
@@ -713,7 +747,7 @@ namespace PixFootball.Gameplay
 
         void PauseFrame()
         {
-            if (Autopilot) return;
+            if (Autopilot || InputLocked) return;
             var inp = MatchInput.Instance.Poll(Time.unscaledDeltaTime);
             if (inp.Menu && Ui != null && !Ui.PauseOpen) { }
             else if (inp.Menu) SetPaused(false);
@@ -872,6 +906,7 @@ namespace PixFootball.Gameplay
         {
             bool user = !Config.CpuVsCpu && UserAgent >= 0 && (c.AgentA == UserAgent || c.AgentB == UserAgent);
             if (Feel != null) Feel.OnImpact(c, user);
+            if (Broadcast != null) Broadcast.OnImpact(c);
         }
 
         void HandleEvents()
@@ -879,6 +914,7 @@ namespace PixFootball.Gameplay
             foreach (var e in Stage.Fresh)
             {
                 Audio.OnEvent(e);
+                if (Broadcast != null) Broadcast.OnPlayEvent(e);
                 if (Feel != null && e.Type == SimEventType.Catch && UserAgent >= 0 && e.AgentA == UserAgent) Feel.Rumble(0.15f, 0.35f, 0.12f);   // the user hauls one in
                 if (SimEvent != null) SimEvent(e);
             }
@@ -956,6 +992,25 @@ namespace PixFootball.Gameplay
             if (Officials != null) Officials.Tick(dt, Sim, Sim.Phase == PlayPhase.Live);
             if (Ui != null) Ui.SetCameraLabel(Cams.Mode == CameraMode.Broadcast ? "BROADCAST" : Cams.Mode == CameraMode.Behind ? "BEHIND PLAYER" : "FIRST PERSON");
             if (!Config.CpuVsCpu && Sim.Phase == PlayPhase.Live) SetLiveHint();
+            if (Ui != null && Broadcast != null) Ui.SetReplayAvailable(Broadcast.HasReplay);
+            UpdateFirstPerson();
+        }
+
+        /// <summary>First-person polish: minimal HUD and the look-to-ball assist (ball in the air or the carrier in view; offense and defense).</summary>
+        void UpdateFirstPerson()
+        {
+            bool fp = Cams.Mode == CameraMode.FirstPerson && !Cams.Overridden && !Config.CpuVsCpu;
+            if (Ui != null) Ui.SetHudMinimal(fp);
+            if (!fp || Sim == null || UserAgent < 0) { Cams.SetLookAssist(false, Vector3.zero, 0f); return; }
+            var ball = Sim.Ball;
+            bool userHasBall = Sim.Agents[UserAgent].HasBall;
+            if (userHasBall && !(UserAgent == 0 && Sim.Kind == PlayKind.Scrimmage && !Sim.PassIsThrown)) { Cams.SetLookAssist(false, Vector3.zero, 0f); return; }   // the carrier looks where he runs
+            if (UserAgent == 0 && Sim.Kind == PlayKind.Scrimmage && !Sim.PassIsThrown && Sim.Phase == PlayPhase.Live) { Cams.SetLookAssist(false, Vector3.zero, 0f); return; }   // the quarterback reads downfield
+            Vector3 p; float weight;
+            if (ball.State == BallState.Pass || ball.State == BallState.Kick || ball.State == BallState.Pitch) { p = Stage.Ball.Position; weight = 0.9f; }
+            else if (ball.Holder >= 0 && ball.Holder != UserAgent) { p = Stage.WorldPos(ball.Holder) + Vector3.up * 1.2f; weight = Sim.Phase == PlayPhase.Live ? 0.55f : 0.3f; }
+            else { p = Stage.Ball.Position; weight = 0.4f; }
+            Cams.SetLookAssist(true, p, weight);
         }
 
         void SetLiveHint()

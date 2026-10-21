@@ -88,6 +88,7 @@ namespace PixFootball.Gameplay
             Init();
             End();
             Sim = sim; Frame = frame; _logIdx = 0; _playIndex = playIndex; _fresh.Clear(); _tackled.Clear(); _tackler.Clear();
+            OffenseKit = offense; DefenseKit = defense; ClearWalks();
             Contacts.Reset();
             var qbForm = sim.OffForm != null && sim.OffForm.Slots.Length > 0 ? sim.OffForm.Slots[0] : null;
             _shotgun = qbForm != null && qbForm.Y < -2.5f;
@@ -116,6 +117,68 @@ namespace PixFootball.Gameplay
         }
 
         public Vector3 WorldPos(int agent) { return Frame.ToUnity(Sim.Agents[agent].Pos); }
+
+        // ------------------------------------------------------------------------------------------ v0.5 broadcast choreography
+        /// <summary>The kits of the play on the field (the replay recorder stores them so a replay dresses its players the same way).</summary>
+        public UniformSet OffenseKit, DefenseKit;
+
+        struct Walk { public bool Active; public Vector3 Pos, Target, Look; public float Speed; }
+        readonly Walk[] _walks = new Walk[22];
+        bool _anyWalk;
+
+        /// <summary>After the whistle a player jogs to a spot (celebration huddle around the scorer) and then faces <paramref name="look"/>; the simulation keeps owning everything else.</summary>
+        public void WalkTo(int agent, Vector3 target, float speed, Vector3 look)
+        {
+            if (agent < 0 || agent >= 22 || _views[agent] == null) return;
+            var w = _walks[agent];
+            if (!w.Active) w.Pos = _views[agent].transform.position;
+            w.Active = true; w.Target = target; w.Speed = speed; w.Look = look;
+            _walks[agent] = w; _anyWalk = true;
+        }
+
+        public void ClearWalks() { System.Array.Clear(_walks, 0, _walks.Length); _anyWalk = false; }
+
+        public bool WalkArrived(int agent)
+        {
+            if (agent < 0 || agent >= 22 || !_walks[agent].Active) return true;
+            Vector3 d = _walks[agent].Target - _walks[agent].Pos; d.y = 0f;
+            return d.sqrMagnitude < 0.04f;
+        }
+
+        void StepWalk(int i, float dt, ref Vector3 pos, ref Vector3 vel, ref Vector3 face)
+        {
+            var w = _walks[i];
+            Vector3 to = w.Target - w.Pos; to.y = 0f;
+            float d = to.magnitude;
+            vel = Vector3.zero;
+            if (d > 0.18f)
+            {
+                float step = Mathf.Min(d, w.Speed * Mathf.Max(dt, 0.0001f));
+                w.Pos += to / d * step;
+                vel = to / d * Mathf.Min(w.Speed, d / Mathf.Max(dt, 0.0167f));
+                face = to / d;
+            }
+            else
+            {
+                Vector3 lk = w.Look - w.Pos; lk.y = 0f;
+                if (lk.sqrMagnitude > 0.01f) face = lk.normalized;
+            }
+            pos = new Vector3(w.Pos.x, pos.y, w.Pos.z);
+            _walks[i] = w;
+        }
+
+        /// <summary>Plays a one-shot or looping reaction clip over the player (cheer, frustration ...). The contact director flag keeps the match animation logic off him until the next play.</summary>
+        public bool PlayReaction(int agent, string clipKey, int seed, bool loop)
+        {
+            if (agent < 0 || agent >= 22) return false;
+            var v = _views[agent];
+            if (v == null || v.Rig == null || !v.Rig.Valid) return false;
+            var plan = AnimKit.Reaction(clipKey, seed, loop);
+            if (!plan.Valid) return false;
+            v.ContactDriven = true;
+            v.Rig.Play(plan.Clip, plan.Start, plan.End, plan.Speed, plan.FadeIn, plan.FadeOut, plan.Loop, plan.Hold);
+            return true;
+        }
 
         void ScanLog()
         {
@@ -157,6 +220,7 @@ namespace PixFootball.Gameplay
                     lat = Vector3.Dot(Vector3.Cross(Vector3.up, v.Forward), md);
                     if (a.Move == CarrierMove.JukeLeft) lat = -1f; else if (a.Move == CarrierMove.JukeRight) lat = 1f;
                 }
+                if (_anyWalk && _walks[i].Active) StepWalk(i, dt, ref pos, ref vel, ref face);
                 v.ApplyMatch(pos, vel, face, a.Action, h, lat, specials, _shotgun, dt);
             }
             if (Contacts != null) Contacts.Tick(dt);

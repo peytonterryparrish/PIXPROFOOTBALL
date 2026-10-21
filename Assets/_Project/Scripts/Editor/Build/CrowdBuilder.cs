@@ -290,7 +290,7 @@ namespace PixFootball.EditorTools
             foreach (var s in seats)
             {
                 if (rnd.NextDouble() > fill) continue;
-                long key = ((long)Mathf.FloorToInt(s.Pos.x / 40f) << 20) ^ (long)(Mathf.FloorToInt(s.Pos.z / 40f) & 0xFFFFF) ^ ((long)Mathf.FloorToInt(s.Pos.y / 12f) << 44);
+                long key = ((long)Mathf.FloorToInt(s.Pos.x / 18f) << 20) ^ (long)(Mathf.FloorToInt(s.Pos.z / 18f) & 0xFFFFF) ^ ((long)Mathf.FloorToInt(s.Pos.y / 12f) << 44);
                 List<Seat> l; if (!chunks.TryGetValue(key, out l)) chunks[key] = l = new List<Seat>();
                 l.Add(s);
             }

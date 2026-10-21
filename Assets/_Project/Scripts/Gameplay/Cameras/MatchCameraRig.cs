@@ -143,6 +143,29 @@ namespace PixFootball.Gameplay
             Close.Priority.Value = 50;
         }
 
+        // ------------------------------------------------------------------------------------------ v0.5 broadcast hand-over
+        /// <summary>True while the broadcast layer drives the main camera itself (replays, establishing shots, post-play cuts): the Cinemachine brain is off and the live cameras keep tracking underneath.</summary>
+        public bool Overridden { get; private set; }
+
+        /// <summary>Hands the main camera to the broadcast layer (on) or takes it back (off): the live cameras jump to the current focus so the cut back never shows a swing.</summary>
+        public void SetOverride(bool on)
+        {
+            if (Overridden == on) return;
+            Overridden = on;
+            if (Brain != null) Brain.enabled = !on;
+            if (!on)
+            {
+                Broadcast.PreviousStateIsValid = false; Behind.PreviousStateIsValid = false; FirstPerson.PreviousStateIsValid = false; Close.PreviousStateIsValid = false;
+                UpdateProxies(0.0167f, true);
+                if (Brain != null) Brain.ManualUpdate();
+            }
+        }
+
+        // ---- first-person polish: look-to-ball assist and stride head bob
+        bool _hasAssist; Vector3 _assistPoint; float _assistWeight, _assistWeightS, _fpPitch, _bobPhase;
+        /// <summary>The first-person camera leans toward a point of interest (the ball in the air, the carrier) inside a wide cone; weight 0..1.</summary>
+        public void SetLookAssist(bool on, Vector3 point, float weight) { _hasAssist = on; _assistPoint = point; _assistWeight = on ? Mathf.Clamp01(weight) : 0f; }
+
         public void SetFocus(Vector3 point, Vector3 velocity) { _focus = point; _focusVel = velocity; }
         public void SetUserVelocity(Vector3 v) { _userVel = v; }
 
@@ -182,9 +205,32 @@ namespace PixFootball.Gameplay
                 Transform head = _user.Avatar != null ? _user.Avatar.Head : null;
                 Vector3 hp = head != null ? head.position : p + Vector3.up * 1.7f;
                 if (snap) _fpYaw = _behindYaw;
-                _fpYaw = Mathf.MoveTowardsAngle(_fpYaw, _behindYaw, 220f * dt);
-                Vector3 fl = Quaternion.Euler(0f, _fpYaw, 0f) * Vector3.forward;
-                _fpAnchor.SetPositionAndRotation(new Vector3(hp.x, hp.y + 0.03f, hp.z) + fl * 0.12f, Quaternion.Euler(0f, _fpYaw, 0f));
+                // look-to-ball assist: inside a wide cone the view leans toward the ball / carrier (more when the player is not sprinting), and tilts up for a pass in the air
+                float wantYaw = _behindYaw, wantPitch = 0f;
+                _assistWeightS = Mathf.MoveTowards(_assistWeightS, _assistWeight, dt * 1.6f);
+                if (_hasAssist && _assistWeightS > 0.01f)
+                {
+                    Vector3 to = _assistPoint - hp; Vector3 flat = new Vector3(to.x, 0f, to.z);
+                    if (flat.sqrMagnitude > 2.25f)
+                    {
+                        float aYaw = Mathf.Atan2(flat.x, flat.z) * Mathf.Rad2Deg;
+                        float diff = Mathf.DeltaAngle(_behindYaw, aYaw);
+                        float cone = Mathf.Clamp01(1.25f - Mathf.Abs(diff) / 95f);
+                        float w = _assistWeightS * cone * (1f - 0.35f * Mathf.Clamp01(speed / 8f));
+                        wantYaw = _behindYaw + diff * w;
+                        wantPitch = Mathf.Clamp(-Mathf.Atan2(to.y, flat.magnitude) * Mathf.Rad2Deg * w, -26f, 14f);   // negative pitch looks up
+                    }
+                }
+                _fpYaw = Mathf.MoveTowardsAngle(_fpYaw, wantYaw, 220f * dt);
+                _fpPitch = snap ? wantPitch : Mathf.Lerp(_fpPitch, wantPitch, 1f - Mathf.Exp(-dt * 6f));
+                // stride head bob: the phase advances with the distance run (about 1.9 m per stride), tiny amplitude that grows with speed
+                float bobAmp = Mathf.Clamp01(speed / 6.5f);
+                if (speed > 0.6f) _bobPhase += speed * dt / 1.9f * Mathf.PI * 2f;
+                Quaternion fyaw = Quaternion.Euler(0f, _fpYaw, 0f);
+                Vector3 fl = fyaw * Vector3.forward, fr = fyaw * Vector3.right;
+                Vector3 bob = Vector3.up * (Mathf.Sin(_bobPhase * 2f) * 0.016f * bobAmp) + fr * (Mathf.Sin(_bobPhase) * 0.011f * bobAmp);
+                float roll = Mathf.Sin(_bobPhase) * 0.55f * bobAmp;
+                _fpAnchor.SetPositionAndRotation(new Vector3(hp.x, hp.y + 0.03f, hp.z) + fl * 0.12f + bob, Quaternion.Euler(_fpPitch, _fpYaw, roll));
             }
 
             switch (Mode)

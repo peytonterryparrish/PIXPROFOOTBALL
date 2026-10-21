@@ -29,6 +29,7 @@ namespace PixFootball.Art
         [Header("Match materials (v0.2)")]
         public Material lineLos, lineFirstDown, ringMarker;
         [Header("College hash marks (v0.3)")] public Material hashMark;
+        [Header("Broadcast (v0.5)")] public Material flashMaterial;
         public float[] clipSpeeds = new float[0];
         public TextAsset teamsCsv;
 

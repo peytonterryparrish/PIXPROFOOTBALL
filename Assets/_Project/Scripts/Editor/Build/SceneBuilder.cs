@@ -273,6 +273,7 @@ namespace PixFootball.EditorTools
                 var mg = new GameObject("Match");
                 var md = mg.AddComponent<MatchDirector>();
                 md.MainCamera = cam; md.Lighting = lc; md.UiBehaviour = hud;
+                mg.AddComponent<PixFootball.Presentation.BroadcastDirector>();
                 EditorSceneManager.SaveScene(scene, MatchScenePath);
                 Debug.Log("[PIX] saved " + MatchScenePath);
                 return;

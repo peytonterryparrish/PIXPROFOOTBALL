@@ -300,6 +300,14 @@ namespace PixFootball.Gameplay
             return c == null ? default(ClipPlan) : P(c, 0f, Mathf.Min(c.length, 2.0f), 1f, 0.08f, 0.3f, false, true);
         }
 
+        /// <summary>v0.5 sideline / end-zone reactions from the broadcast layer: teammates cheer ("cheer", "celebrate_td*"), defenders hang their heads ("frustration").</summary>
+        public static ClipPlan Reaction(string key, int seed, bool loop)
+        {
+            var c = V(key, seed);
+            if (c == null || c.length > 14f) return default(ClipPlan);
+            return P(c, 0f, 0f, 1f, 0.2f, 0.3f, loop, !loop);
+        }
+
         public static ClipPlan Celebrate(int seed)
         {
             var c = (seed & 1) == 0 ? V("celebrate_td_2", seed) : V("celebrate_td_3", seed);

@@ -6,6 +6,7 @@
         public static void Scenes() { RuntimeAssetsBuilder.Build(); SceneBuilder.BuildAll(); }
         public static void RuntimeAssets() { RuntimeAssetsBuilder.Build(); }
         public static void Crowd() { CrowdBuilder.BuildAll(); }
+        public static void CrowdMeshes() { CrowdBuilder.BuildMeshesOnly(); }
     }
 }
 

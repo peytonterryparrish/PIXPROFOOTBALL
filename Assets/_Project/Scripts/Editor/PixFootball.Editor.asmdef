@@ -8,6 +8,7 @@
         "PixFootball.Sim",
         "PixFootball.Gameplay",
         "PixFootball.UI",
+        "PixFootball.Presentation",
         "Unity.InputSystem",
         "Unity.Cinemachine",
         "Unity.TextMeshPro",

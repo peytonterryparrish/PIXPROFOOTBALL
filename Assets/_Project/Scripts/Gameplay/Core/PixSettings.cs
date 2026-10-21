@@ -26,6 +26,18 @@ namespace PixFootball.Gameplay
         /// <summary>v0.4: subtle camera shake on big hits.</summary>
         public static bool CameraShake { get { return PlayerPrefs.GetInt(K + "shake", 1) == 1; } set { PlayerPrefs.SetInt(K + "shake", value ? 1 : 0); } }
         public static float LookSensitivity { get { return PlayerPrefs.GetFloat(K + "look", 1f); } set { PlayerPrefs.SetFloat(K + "look", Mathf.Clamp(value, 0.2f, 3f)); } }
+        /// <summary>v0.5 broadcast cinematics: 0 Full (establishing shots, post-play cuts, auto replays, shows), 1 Minimal (big plays only), 2 Off (live camera only).</summary>
+        public static int Cinematics { get { return PlayerPrefs.GetInt(K + "cine", 0); } set { PlayerPrefs.SetInt(K + "cine", Mathf.Clamp(value, 0, 2)); } }
+        public static readonly string[] CinematicsNames = { "Full", "Minimal", "Off" };
+        /// <summary>v0.5: automatic instant replays after big plays.</summary>
+        public static bool AutoReplay { get { return PlayerPrefs.GetInt(K + "autoreplay", 1) == 1; } set { PlayerPrefs.SetInt(K + "autoreplay", value ? 1 : 0); } }
+        /// <summary>v0.5: TV overlays (lower thirds, drive summaries, stat cards).</summary>
+        public static bool TvOverlays { get { return PlayerPrefs.GetInt(K + "tvov", 1) == 1; } set { PlayerPrefs.SetInt(K + "tvov", value ? 1 : 0); } }
+        /// <summary>v0.5: subtle helmet facemask overlay in the first-person camera.</summary>
+        public static bool FirstPersonMask { get { return PlayerPrefs.GetInt(K + "fpmask", 1) == 1; } set { PlayerPrefs.SetInt(K + "fpmask", value ? 1 : 0); } }
+        /// <summary>v0.5: 0 Off, 1 DLSS, 2 FSR.</summary>
+        public static int Upscaler { get { return PlayerPrefs.GetInt(K + "upscaler", 0); } set { PlayerPrefs.SetInt(K + "upscaler", Mathf.Clamp(value, 0, 2)); } }
+        public static readonly string[] UpscalerNames = { "Off", "DLSS", "FSR" };
 
         public static void Save() { PlayerPrefs.Save(); }
 

@@ -13,6 +13,8 @@ namespace PixFootball.Gameplay
         public readonly bool[] Down = new bool[6], Up = new bool[6], Held = new bool[6];
         public readonly float[] HeldTime = new float[6];
         public bool DPadUp, DPadDown, DPadLeft, DPadRight, View, Menu, Back, Confirm, Cancel;
+        /// <summary>v0.5 replay scrubbing: the D-pad left / right (keyboard Q / E) held down.</summary>
+        public bool DPadLeftHeld, DPadRightHeld;
         public bool LookFlickLeft, LookFlickRight, LookFlickUp, LookHeldDown;
         public bool UsingGamepad = true;
         /// <summary>Navigation (menus / overlays): stick or D-pad, one step per press.</summary>
@@ -23,7 +25,7 @@ namespace PixFootball.Gameplay
         {
             Move = Look = Vector2.zero; Sprint = LT = false;
             for (int i = 0; i < 6; i++) { Down[i] = Up[i] = Held[i] = false; HeldTime[i] = 0f; }
-            DPadUp = DPadDown = DPadLeft = DPadRight = View = Menu = Back = Confirm = Cancel = false;
+            DPadUp = DPadDown = DPadLeft = DPadRight = View = Menu = Back = Confirm = Cancel = false; DPadLeftHeld = DPadRightHeld = false;
             LookFlickLeft = LookFlickRight = LookFlickUp = LookHeldDown = false; NavX = NavY = 0;
         }
     }
@@ -69,6 +71,7 @@ namespace PixFootball.Gameplay
                 Set(4, pad.leftShoulder, press, rel, held); Set(5, pad.rightShoulder, press, rel, held);
                 f.DPadUp |= pad.dpad.up.wasPressedThisFrame; f.DPadDown |= pad.dpad.down.wasPressedThisFrame;
                 f.DPadLeft |= pad.dpad.left.wasPressedThisFrame; f.DPadRight |= pad.dpad.right.wasPressedThisFrame;
+                f.DPadLeftHeld |= pad.dpad.left.isPressed; f.DPadRightHeld |= pad.dpad.right.isPressed;
                 f.View |= pad.selectButton.wasPressedThisFrame; f.Menu |= pad.startButton.wasPressedThisFrame;
                 f.Confirm |= pad.buttonSouth.wasPressedThisFrame; f.Cancel |= pad.buttonEast.wasPressedThisFrame;
             }
@@ -85,6 +88,7 @@ namespace PixFootball.Gameplay
                 Set(0, kb.spaceKey, press, rel, held); Set(1, kb.fKey, press, rel, held); Set(2, kb.cKey, press, rel, held); Set(3, kb.rKey, press, rel, held);
                 Set(4, kb.zKey, press, rel, held); Set(5, kb.xKey, press, rel, held);
                 f.DPadDown |= kb.tKey.wasPressedThisFrame; f.DPadUp |= kb.gKey.wasPressedThisFrame; f.DPadLeft |= kb.qKey.wasPressedThisFrame; f.DPadRight |= kb.eKey.wasPressedThisFrame;
+                f.DPadLeftHeld |= kb.qKey.isPressed; f.DPadRightHeld |= kb.eKey.isPressed;
                 f.View |= kb.tabKey.wasPressedThisFrame; f.Menu |= kb.escapeKey.wasPressedThisFrame;
                 f.Confirm |= kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame; f.Cancel |= kb.backspaceKey.wasPressedThisFrame || kb.fKey.wasPressedThisFrame;
             }

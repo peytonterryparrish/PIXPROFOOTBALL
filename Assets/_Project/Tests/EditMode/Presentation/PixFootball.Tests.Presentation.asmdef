@@ -1,0 +1,30 @@
+{
+    "name": "PixFootball.Tests.Presentation",
+    "rootNamespace": "PixFootball.Tests",
+    "references": [
+        "PixFootball.Core",
+        "PixFootball.League",
+        "PixFootball.Art",
+        "PixFootball.Sim",
+        "PixFootball.Gameplay",
+        "PixFootball.UI",
+        "PixFootball.Presentation",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

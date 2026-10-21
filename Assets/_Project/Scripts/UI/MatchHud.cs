@@ -17,8 +17,12 @@ namespace PixFootball.UI
     public class MatchHud : MonoBehaviour, IMatchPresentation
     {
         // ---- interface events ----
-        public event Action ResumeRequested, QuitRequested, CameraCycleRequested, LightingToggleRequested;
+        public event Action ResumeRequested, QuitRequested, CameraCycleRequested, LightingToggleRequested, ReplayRequested;
         public bool PauseOpen { get { return _pauseRoot != null && _pauseRoot.activeSelf; } }
+        public Transform HudRoot { get { return _root; } }
+        bool _replayMode, _hudMinimal;
+        Button _pauseReplay;
+        OptionSelector _pauseCine;
 
         MatchDirector _dir;
         Canvas _canvas; RectTransform _root;
@@ -555,9 +559,11 @@ namespace PixFootball.UI
             var title = UiKit.Label(root, "PAUSED", 120, Color.white, true, TextAlignmentOptions.BottomLeft, "Title");
             UiKit.Anchor(title.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(100, -80), new Vector2(700, 140)); title.characterSpacing = 4f;
             var rule = UiKit.Panel(root, "Rule", UiColors.Gold); UiKit.Anchor(rule.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(108, -228), new Vector2(220, 8));
-            var col = UiKit.Rect(root, "Items"); UiKit.Anchor(col, new Vector2(0, 1), new Vector2(0, 1), new Vector2(100, -270), new Vector2(720, 520));
+            var col = UiKit.Rect(root, "Items"); UiKit.Anchor(col, new Vector2(0, 1), new Vector2(0, 1), new Vector2(100, -270), new Vector2(720, 720));
             var v = col.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 14; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false;
             _pauseResume = UiKit.MenuButton(col, "RESUME", () => { if (ResumeRequested != null) ResumeRequested(); }, 720, 84, 38);
+            _pauseReplay = UiKit.MenuButton(col, "INSTANT REPLAY", () => { if (ReplayRequested != null) ReplayRequested(); }, 720, 84, 38);
+            _pauseCine = UiControls.Selector(col, "Cinematics", PixSettings.CinematicsNames, PixSettings.Cinematics, i => { PixSettings.Cinematics = i; PixSettings.Save(); }, 720, 84);
             _pauseCam = UiControls.Selector(col, "Camera", new[] { "Broadcast", "Behind player", "First person" }, 0, i => { if (CameraCycleRequested != null && _dir != null && _dir.Cams != null) { _dir.Cams.SetMode((CameraMode)i, false); PixSettings.DefaultCamera = (CameraMode)i; } }, 720, 84);
             _pauseLight = UiControls.Selector(col, "Lighting", new[] { "Night game", "Day game" }, 0, i => { if (LightingToggleRequested != null) LightingToggleRequested(); }, 720, 84);
             UiKit.MenuButton(col, "QUIT TO MENU", () => { if (QuitRequested != null) QuitRequested(); }, 720, 84, 38);
@@ -568,12 +574,36 @@ namespace PixFootball.UI
             _pauseRoot.SetActive(false);
         }
 
+        bool _replayAvailable;
+        public void SetReplayAvailable(bool available) { _replayAvailable = available; if (_pauseReplay != null && PauseOpen) _pauseReplay.gameObject.SetActive(available); }
+
+        public void SetReplayMode(bool on)
+        {
+            _replayMode = on;
+            if (on) { if (_hintBar != null) _hintBar.SetActive(false); SetReceiverIcons(null, null); if (_flagStrip != null) _flagStrip.gameObject.SetActive(false); if (_banner != null) _banner.gameObject.SetActive(false); }
+            if (_scorebugRoot != null) _scorebugRoot.localScale = Vector3.one * (_hudMinimal && !on ? 0.66f : 1f);
+        }
+
+        public void SetHudVisible(bool visible) { if (_canvas != null) _canvas.enabled = visible; }
+
+        /// <summary>First-person camera: a small scorebug and a quiet hint bar.</summary>
+        public void SetHudMinimal(bool minimal)
+        {
+            if (_hudMinimal == minimal) return;
+            _hudMinimal = minimal;
+            if (_scorebugRoot != null) _scorebugRoot.localScale = Vector3.one * (minimal && !_replayMode ? 0.66f : 1f);
+            if (_camLabel != null) _camLabel.gameObject.SetActive(!minimal);
+            if (_hint != null) _hint.alpha = minimal ? 0.55f : 1f;
+        }
+
         public void SetPaused(bool paused)
         {
             if (_pauseRoot == null) return;
             _pauseRoot.SetActive(paused);
             if (paused)
             {
+                if (_pauseCine != null) _pauseCine.SetOptions(_pauseCine.Options, PixSettings.Cinematics);
+                if (_pauseReplay != null) _pauseReplay.gameObject.SetActive(_replayAvailable);
                 if (_dir != null && _dir.Cams != null) _pauseCam.SetOptions(_pauseCam.Options, (int)_dir.Cams.Mode);
                 if (_dir != null && _dir.Lighting != null) _pauseLight.SetOptions(_pauseLight.Options, (int)_dir.Lighting.Current);
                 StartCoroutine(SelectLater(_pauseResume.gameObject));

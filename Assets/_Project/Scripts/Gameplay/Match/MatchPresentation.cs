@@ -124,5 +124,17 @@ namespace PixFootball.Gameplay
         bool PauseOpen { get; }
         /// <summary>Raised by the pause menu.</summary>
         event Action ResumeRequested, QuitRequested, CameraCycleRequested, LightingToggleRequested;
+        /// <summary>v0.5: the pause menu's "Instant Replay" entry.</summary>
+        event Action ReplayRequested;
+        /// <summary>v0.5: a replay owns the screen: the hint bar, receiver icons and flag strip step aside.</summary>
+        void SetReplayMode(bool on);
+        /// <summary>v0.5: first-person camera: the scorebug shrinks and the hint bar goes quiet.</summary>
+        void SetHudMinimal(bool minimal);
+        /// <summary>v0.5: hides (or shows) the whole in-game HUD canvas (the halftime and postgame shows draw their own score strip).</summary>
+        void SetHudVisible(bool visible);
+        /// <summary>v0.5: whether the pause menu offers Instant Replay (a play has been recorded).</summary>
+        void SetReplayAvailable(bool available);
+        /// <summary>The root RectTransform of the match HUD canvas (the TV overlays are built next to it).</summary>
+        UnityEngine.Transform HudRoot { get; }
     }
 }

@@ -85,6 +85,40 @@ namespace PixFootball.EditorTools
             return m;
         }
 
+        /// <summary>v0.5: additive unlit material for the camera flashes in the stands (a soft round sprite drawn procedurally).</summary>
+        static Material MakeFlashMaterial(string path)
+        {
+            var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (m == null) { m = new Material(Shader.Find("HDRP/Unlit")); AssetDatabase.CreateAsset(m, path); }
+            m.shader = Shader.Find("HDRP/Unlit");
+            // a soft radial star: white centre, falling off to transparent
+            const string texPath = PixDir + "/Textures/PIX_Flash.png";
+            if (!File.Exists(Path.GetFullPath(texPath)))
+            {
+                MaterialFactory.EnsureFolder(PixDir + "/Textures");
+                var t = new Texture2D(64, 64, TextureFormat.RGBA32, false);
+                for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++)
+                {
+                    float dx = (x - 31.5f) / 32f, dy = (y - 31.5f) / 32f; float r = Mathf.Sqrt(dx * dx + dy * dy);
+                    float core = Mathf.Clamp01(1f - r * 1.15f); core *= core;
+                    float star = Mathf.Clamp01(1f - Mathf.Min(Mathf.Abs(dx), Mathf.Abs(dy)) * 9f) * Mathf.Clamp01(1f - r);
+                    float a = Mathf.Clamp01(core + star * 0.8f);
+                    t.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+                File.WriteAllBytes(Path.GetFullPath(texPath), t.EncodeToPNG());
+                Object.DestroyImmediate(t);
+                AssetDatabase.ImportAsset(texPath, ImportAssetOptions.ForceUpdate);
+            }
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            m.SetColor("_UnlitColor", Color.white); m.SetTexture("_UnlitColorMap", tex);
+            m.SetColor("_EmissiveColor", Color.black);
+            m.SetFloat("_SurfaceType", 1f); m.SetFloat("_BlendMode", 1f); m.SetFloat("_ZWrite", 0f); m.SetFloat("_AlphaCutoffEnable", 0f); m.SetFloat("_DoubleSidedEnable", 1f);
+            m.renderQueue = 3000;
+            UnityEditor.Rendering.HighDefinition.HDShaderUtils.ResetMaterialKeywords(m);
+            EditorUtility.SetDirty(m);
+            return m;
+        }
+
         [MenuItem("PIX Football/Build/Build Runtime Assets")]
         public static void Build()
         {
@@ -166,6 +200,7 @@ namespace PixFootball.EditorTools
             rt.lineFirstDown = MakeUnlit(PixDir + "/Materials/PIX_LineFirstDown.mat", new Color(1f, 0.86f, 0.1f, 1f), null);
             rt.hashMark = MakeUnlit(PixDir + "/Materials/PIX_HashMark.mat", new Color(0.93f, 0.95f, 0.93f, 1f), null);
             rt.ringMarker = MakeUnlit(PixDir + "/Materials/PIX_RingMarker.mat", new Color(0.7f, 0.35f, 1f, 1f), AssetDatabase.LoadAssetAtPath<Texture2D>(UiRoot + "/HUD/Markers/marker_ring_a.png"));
+            rt.flashMaterial = MakeFlashMaterial(PixDir + "/Materials/PIX_CameraFlash.mat");
 
             // animator
             var speeds = new float[5];

@@ -223,6 +223,20 @@ namespace PixFootball.Gameplay
             if (s == OfficialSignal.Touchdown) CoachCheer(homeTeamInvolved ? 0 : 1);
         }
 
+        /// <summary>The i-th sideline coach of a team (0 home, 1 away) for the broadcast reaction shots; null when not built.</summary>
+        public Transform CoachTransform(int team, int index)
+        {
+            int n = 0;
+            foreach (var c in _coaches) if (c.Team == team) { if (n == index) return c.Tr; n++; }
+            return null;
+        }
+
+        /// <summary>Hides (or shows) the seven-man crew (a replay of an older play would show them where the current play put them); the sideline coaches stay.</summary>
+        public void SetCrewVisible(bool visible)
+        {
+            foreach (var p in _crew) if (p.Tr != null) p.Tr.gameObject.SetActive(visible && _hasFrame);
+        }
+
         public void CoachCheer(int team)
         {
             if (_clapC == null) return;

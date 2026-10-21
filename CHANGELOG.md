@@ -2,6 +2,41 @@
 
 All notable changes to PIX Football. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [SemVer](https://semver.org/).
 
+## [0.5.0] - 2026-10-21 - "Broadcast"
+
+The 2K5-style presentation pass: a TV broadcast around the game. Every play is recorded for instant replay (free camera, slow motion, depth of field), a camera director cuts like a TV truck, TV overlays and statistics appear when they matter, halftime and postgame shows run the highlights, the crowd and the sidelines react, and the first-person camera got a helmet, head bob and a look-to-ball assist.
+
+### Fixed
+- **"Packages with Errors" dialog when opening the project in the Unity editor.** `Packages/manifest.json` carried five packages from the editor's default template that the game never uses (`com.unity.analytics`, `com.unity.purchasing`, `com.unity.collab-proxy`, `com.unity.multiplayer.center`, `com.unity.xr.legacyinputhelpers`, with the Unity Services packages they pull in). The Package Manager listed the project as having packages with errors and showed a modal dialog that blocked play mode (batchmode never showed it). They are removed; the project opens cleanly (verified by launching the editor GUI on the project and listing its windows: before the change a "Packages with Errors" window was open, after it only the HDRP wizard and the editor window).
+
+### Added
+- **`PixFootball.Presentation` assembly** (`Scripts/Presentation`): the broadcast layer, driven through `IBroadcast` hooks in `MatchDirector` (the game plays like v0.4 without it).
+- **Instant replay.** Every play is recorded at 30 Hz (root pose of the 22 players, every animated bone packed to 4 bytes, the ball): re-simulating from the seed would not reproduce what was watched (contact warps, ragdolls, view state), so the recorder stores what was shown (about 2-3 MB a play, 0.2 ms a sample). Replay UI in the UI-kit style: play / pause, scrub, rewind and fast forward on the D-pad, 1x / 0.5x / 0.25x slow motion, cinematic letterbox, a transport bar with the key moment marked, **free camera** (orbit, pan, zoom, ground level, switch the target player), preset angles (sideline, end zone, high, behind the QB, follow the ball) and **depth of field** focused on the target (HDRP physical camera). Pause menu: **Instant Replay**. Browse the last plays with View.
+- **Automatic replays** after big plays (touchdown, turnover, sack, long gain of 20+ yards, big hit): two broadcast angles with slow motion through the key moment and the key player in focus, skippable with A. Setting: Automatic replays.
+- **Broadcast camera director**: sky-cam swoop for the game's first play, establishing shots for drives (sky cam, low sideline angle on the quarterback, end-zone view), tight shots on the carrier and the pile after the whistle, touchdown celebration close-ups with teammates running in, the coach after a turnover, the crowd. Cuts never hide the start of a play (they end when the snap happens and need at least 0.6 s of live view). Setting: **Cinematics: Full / Minimal / Off**.
+- **TV overlays** (animated in and out, four screen slots so cards never overlap): drive summary (plays, yards, time of possession, result), player stat lower-third (`#12 J. DOE - 18/24, 231 YDS, 2 TD`), play-by-play ticker, team stat comparison, score update card, two-minute warning, "next play" down-and-distance card, penalty lower-third, stadium and kickoff-temperature card, and the **game intro** (sky camera over the stadium, matchup card with both crests, records and key players). Setting: TV overlays.
+- **Halftime show and postgame show**: first-half team comparison, top performers (passing, rushing, receiving, defense), a highlights reel of the best plays by excitement score with slow motion and depth of field; postgame adds the final score card, player of the game, box score and returns to the menu. Skippable (B), A advances.
+- **Live box score** (`GameTracker`): player lines, team box scores, drives with time of possession, scoring events - engine-free and tested.
+- **Crowd and sideline reactions**: on big home plays the crowd jumps up in a wave around the bowl and camera flashes pop in the stands; coaches clap for touchdowns, takeaways and big sacks; after a touchdown teammates run to the scorer and cheer while the beaten defenders hang their heads.
+- **First-person polish**: optional helmet facemask overlay, head bob tied to the stride, look-to-ball assist (the view leans toward the ball in the air and the carrier, on offense and defense), a small scorebug and a quiet hint bar.
+- **Play-by-play commentary hook** (`ICommentaryHook`, `CommentaryBus`, `CommentaryWriter`): play events become text lines for the ticker; a voice layer can subscribe later (no commentary audio in v0.5).
+- **Upscaler setting** (Settings > Video): Off / DLSS / FSR (HDRP 17.6 advanced upscalers; the NVIDIA and AMD modules are in the manifest; falls back to the engine upscaler where unsupported).
+- Settings now has four pages (Video, Gameplay, Broadcast, Audio).
+- Autotest: `-pixAutotest` now also runs the broadcast segment (`-pixAutotestBroadcastOnly` runs only it): game intro, establishing shots, a staged touchdown with its automatic replay at both angles, a manual replay with the free camera at every preset angle and ground level, every overlay, first person on offense and defense, halftime and postgame shows; `bc_*.png` screenshots plus FPS for live play and for replays. `-pixUpscaler 0|1|2`.
+
+### Changed
+- Crowd meshes are built in 18 m chunks (228 draw chunks, was 160) so the crowd can react in a wave.
+- **Performance** (autotest broadcast game, 2560x1440, High, RTX 5090 laptop, Upscaler Off): live play 101 FPS average, 87 1%-low, 70 minimum with the whole broadcast layer on; replays, cinematics and shows 119 average, 71 1%-low. The recorder costs 0.24 ms per sample (30 Hz). With DLSS (Balanced) live play was about 16 percent faster.
+- `ArtLibrary` slim build whitelist adds `celebrate_td`, `celebrate_qb`, `cheer`, `frustration`, `salute`, `dance`, `idle_conversation`, `fumble`.
+- `MatchInputFrame` has `DPadLeftHeld` / `DPadRightHeld` (replay scrubbing).
+
+### Known Issues
+- Replays show players the live camera was not rendering (off screen, `CullUpdateTransforms`) in the last pose they had; the broadcast camera frames all 22 so this rarely shows.
+- The crowd wave swaps whole 18 m chunks between the seated and the arms-up pose, so a very close crowd shot shows blocks of fans moving together; fans cannot bob individually without a custom crowd shader.
+- DLSS needs an NVIDIA RTX GPU and FSR 2 a D3D12 GPU; the option falls back silently on other hardware.
+- Referees are hidden during replays of older plays (they would stand where the current play put them).
+- No commentary audio.
+
 ## [0.4.0] - 2026-10-21 - "Contact"
 
 The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers who lean and plant, a quarterback who reads your hot route, hits you can feel in the camera and the controller, and a frame rate 75 percent higher.

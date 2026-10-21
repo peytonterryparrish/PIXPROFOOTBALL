@@ -46,6 +46,17 @@ namespace PixFootball.Gameplay
 
         void Log(string s) { _log.AppendLine(s); Debug.Log("[AutoTest] " + s); }
 
+        // ---- v0.5: the Presentation assembly (replays, shows, overlays) registers its own autotest segment here
+        public static readonly List<Func<AutoTest, IEnumerator>> ExtraParts = new List<Func<AutoTest, IEnumerator>>();
+        public static bool BroadcastOnly { get { return Flag("-pixAutotestBroadcastOnly"); } }
+        public IEnumerator Capture(string name) { return Shot(name); }
+        public void LogLine(string s) { Log(s); }
+        public int ErrorCount { get { return _errors; } }
+        public void StartFpsCapture() { _frames.Clear(); _recording = true; }
+        public void StopFpsCapture(string label) { _recording = false; ReportFps(label); }
+        public string OutputDirectory { get { return _out; } }
+        public int LastCaptureFrame { get; private set; }
+
         void Awake()
         {
             string[] args = Environment.GetCommandLineArgs();
@@ -55,7 +66,8 @@ namespace PixFootball.Gameplay
             Directory.CreateDirectory(_out);
             for (int i = 0; i < args.Length - 1; i++)
             {
-                int tier; float scale;
+                int tier; float scale; int upscaler;
+                if (args[i] == "-pixUpscaler" && int.TryParse(args[i + 1], out upscaler)) UpscalerControl.Override(upscaler);
                 if (args[i] == "-pixTier" && int.TryParse(args[i + 1], out tier)) { QualityTiers.Override(tier, -1f); }
                 if (args[i] == "-pixRenderScale" && float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out scale)) { QualityTiers.Override(-1, scale); }
             }
@@ -89,6 +101,14 @@ namespace PixFootball.Gameplay
                 Finish(_errors > 0 ? 3 : 0);
                 yield break;
             }
+            if (BroadcastOnly)
+            {
+                yield return new WaitForSeconds(1.0f);
+                foreach (var part in ExtraParts.ToArray()) yield return part(this);
+                Log("errors/exceptions logged: " + _errors);
+                Finish(_errors > 0 ? 3 : 0);
+                yield break;
+            }
             if (!Flag("-pixAutotestMatchOnly"))
             {
                 yield return new WaitForSeconds(3.0f);
@@ -105,6 +125,7 @@ namespace PixFootball.Gameplay
             if (!Flag("-pixAutotestCollegeOnly") && !Flag("-pixAutotestNoV3")) yield return V3Part();
             if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestNoV3")) yield return CollegePart();
             if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestNoV3") && !Flag("-pixAutotestNoContact")) yield return ContactPart(true);
+            if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestNoV3") && !Flag("-pixAutotestNoBroadcast")) foreach (var part in ExtraParts.ToArray()) yield return part(this);
             Log("errors/exceptions logged: " + _errors);
             Finish(_errors > 0 ? 3 : 0);
         }
@@ -380,7 +401,7 @@ namespace PixFootball.Gameplay
             string path = Path.Combine(_out, name + ".png");
             File.WriteAllBytes(path, tex.EncodeToPNG());
             Destroy(tex);
-            _skipFrames = 6;
+            _skipFrames = 6; LastCaptureFrame = Time.frameCount;
             Log("screenshot " + path);
         }
 
