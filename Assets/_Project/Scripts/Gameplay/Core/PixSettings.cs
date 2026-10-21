@@ -19,6 +19,12 @@ namespace PixFootball.Gameplay
         public static float MasterVolume { get { return PlayerPrefs.GetFloat(K + "vol_master", 0.9f); } set { PlayerPrefs.SetFloat(K + "vol_master", Mathf.Clamp01(value)); } }
         public static float MusicVolume { get { return PlayerPrefs.GetFloat(K + "vol_music", 0.7f); } set { PlayerPrefs.SetFloat(K + "vol_music", Mathf.Clamp01(value)); } }
         public static float CrowdVolume { get { return PlayerPrefs.GetFloat(K + "vol_crowd", 0.8f); } set { PlayerPrefs.SetFloat(K + "vol_crowd", Mathf.Clamp01(value)); } }
+        /// <summary>v0.4: controller rumble on hits, sacks and catches in traffic.</summary>
+        /// <summary>v0.4: HDRP dynamic resolution scale (1 = native).</summary>
+        public static float RenderScale { get { return PlayerPrefs.GetFloat(K + "scale", 1f); } set { PlayerPrefs.SetFloat(K + "scale", Mathf.Clamp(value, 0.5f, 1f)); } }
+        public static bool Rumble { get { return PlayerPrefs.GetInt(K + "rumble", 1) == 1; } set { PlayerPrefs.SetInt(K + "rumble", value ? 1 : 0); } }
+        /// <summary>v0.4: subtle camera shake on big hits.</summary>
+        public static bool CameraShake { get { return PlayerPrefs.GetInt(K + "shake", 1) == 1; } set { PlayerPrefs.SetInt(K + "shake", value ? 1 : 0); } }
         public static float LookSensitivity { get { return PlayerPrefs.GetFloat(K + "look", 1f); } set { PlayerPrefs.SetFloat(K + "look", Mathf.Clamp(value, 0.2f, 3f)); } }
 
         public static void Save() { PlayerPrefs.Save(); }

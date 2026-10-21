@@ -142,6 +142,9 @@ namespace PixFootball.Gameplay
             var p = new Person { Tr = go.transform, Role = role, Coach = coach, Team = team };
             var anim = go.GetComponentInChildren<Animator>(true);
             p.Anim = new MiniAnim(anim, name);
+            // v0.4 performance: sideline people are not posed when off screen, skin with two bones, and the coaches (far from the action) cast no shadows
+            if (anim != null) anim.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+            foreach (var smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true)) { smr.quality = SkinQuality.Bone2; smr.updateWhenOffscreen = false; if (coach) smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; }
             if (coach) p.Anim.Play(role == "C1" ? _clipboard ?? _headset : _headset ?? _idle, true, 0f);
             else p.Anim.Play(_idle, true, 0f);
             go.SetActive(false);

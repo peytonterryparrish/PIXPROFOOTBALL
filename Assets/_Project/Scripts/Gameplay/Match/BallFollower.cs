@@ -9,6 +9,7 @@ namespace PixFootball.Gameplay
     /// and is attached to the carrier's arm (tucked) or the quarterback's hands while held. Poses are applied in LateUpdate so they
     /// follow the animated bones.
     /// </summary>
+    [DefaultExecutionOrder(150)]
     public sealed class BallFollower : MonoBehaviour
     {
         enum Mode { Free, Carry, QbHold, Tee }

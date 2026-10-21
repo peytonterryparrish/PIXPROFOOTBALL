@@ -279,6 +279,16 @@ namespace PixFootball.Sim
             return Math.Max(0.45f, th);
         }
 
+        /// <summary>How much easier (openness threshold) and how much more attractive (ranking) a hot-routed receiver is to the quarterback.</summary>
+        public const float HotReadEdge = 0.10f, HotReadBonus = 0.18f;
+
+        /// <summary>True for a receiver the user gave a hot route at the line.</summary>
+        public static bool IsHotRead(SimAgent r)
+        {
+            var ra = r != null ? r.Assign as RouteAssignment : null;
+            return ra != null && ra.IsHot;
+        }
+
         private void HandleReads(SimAgent q, bool onRun)
         {
             q.ReadTimer -= PlaySimulation.Dt;
@@ -318,9 +328,11 @@ namespace PixFootball.Sim
             int upTo = (hot || S.Time > 1.8f) ? _reads.Count - 1 : Math.Min(q.ReadIdx, _reads.Count - 1);
             int pick = -1; ThrowStyle pickStyle = ThrowStyle.Auto; float pickOpen = -1f; float pickScore = -9f;
             float bestOpen = -1f; int bestIdx = -1; ThrowStyle bestStyle = ThrowStyle.Auto;
-            for (int i = 0; i <= upTo; i++)
+            for (int i = 0; i < _reads.Count; i++)
             {
                 SimAgent r = S.Agents[_reads[i]];
+                bool hotRead = IsHotRead(r);   // v0.4: the receiver the user hot-routed is read from the snap on, whatever the progression says
+                if (i > upTo && !hotRead) continue;
                 if (r.State == AgentState.Down) continue;
                 float earliest = EarliestThrow(r);
                 if (hot) earliest = Math.Min(earliest, 0.85f);
@@ -333,8 +345,9 @@ namespace PixFootball.Sim
                 // misjudgement noise for low-awareness quarterbacks
                 open += S.Rng.Gaussian(0f, 0.16f * (1f - aw));
                 if (open > bestOpen) { bestOpen = open; bestIdx = i; bestStyle = st; }
-                float th = Threshold(q, i, press) - (hot ? 0.10f : 0f);
-                if (open >= th && (pick < 0 || open - 0.05f * i > pickScore)) { pick = i; pickStyle = st; pickOpen = open; pickScore = open - 0.05f * i; }
+                float th = Threshold(q, i, press) - (hot ? 0.10f : 0f) - (hotRead ? HotReadEdge : 0f);
+                float rank = open - 0.05f * i + (hotRead ? HotReadBonus : 0f);
+                if (open >= th && (pick < 0 || rank > pickScore)) { pick = i; pickStyle = st; pickOpen = open; pickScore = rank; }
             }
             if (pick >= 0)
             {
@@ -345,6 +358,7 @@ namespace PixFootball.Sim
 
             // advance the progression
             float dwell = 0.32f + 0.26f * (1f - aw);
+            if (IsHotRead(S.Agents[_reads[Math.Min(q.ReadIdx, _reads.Count - 1)]]) && press < 0.5f) dwell += 0.45f;   // stay on the hot read a beat longer
             float curEarliest = EarliestThrow(S.Agents[_reads[Math.Min(q.ReadIdx, _reads.Count - 1)]]);
             if (q.ReadIdx < _reads.Count - 1 && S.Time - Math.Max(q.QbLastAdvance, curEarliest) >= dwell)
             {

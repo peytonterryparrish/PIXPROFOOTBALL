@@ -194,6 +194,11 @@ namespace PixFootball.EditorTools
         // Secondary keys: a clip that already won a primary rule can also be offered under these (gameplay-facing synonyms).
         static readonly Rule[] AliasRules =
         {
+            // v0.4 contact pairs: all authored two-actor takes (the A actor under the key, the B actor under <key>_b)
+            new Rule(ArtKeys.ContactTackle, @"^tackle(wrap|broken)", null, 400),
+            new Rule(ArtKeys.ContactSack, @"^sack(wrap|broken)", null, 400),
+            new Rule(ArtKeys.ContactBigHit, @"^bighit", null, 100),
+            new Rule(ArtKeys.ContactCollision, @"^collision.*_(a|b)$", null, 60),
             new Rule(ArtKeys.JukeRight, @"^avoid(45|90)degr|boxstepright|rockerstepright", null, 6),
             new Rule(ArtKeys.CatchSide, @"^catchnormalright", null, 6),
             new Rule(ArtKeys.TackleSuccess, @"bighit1_(critical)?success", null, 6),

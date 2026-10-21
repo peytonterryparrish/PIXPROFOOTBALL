@@ -25,6 +25,10 @@ namespace PixFootball.Gameplay
         public static bool ForceAutopilot;
         /// <summary>Autotest hook: the next snap is blown dead by this pre-snap foul (committed by the given team).</summary>
         public static PenaltyType? ForceFoul; public static CoreTeam ForceFoulBy = CoreTeam.Away;
+        /// <summary>Autotest hook: dictates the offensive and defensive call of the next snaps (skips the play-call screen); return null for the normal flow.</summary>
+        public static Func<MatchFlow, KeyValuePair<Play, Play>?> ForcedCall;
+        /// <summary>Autotest hook: the autopilot ball carrier uses this move (Juke, Spin, StiffArm, Truck, Hurdle) whenever a defender is close ahead.</summary>
+        public static string AutoMove;
 
         public Camera MainCamera;
         public LightingController Lighting;
@@ -37,6 +41,7 @@ namespace PixFootball.Gameplay
         public MatchCameraRig Cams { get; private set; }
         public FieldMarkers Markers { get; private set; }
         public MatchAudio Audio { get; private set; }
+        public CollisionFeel Feel { get; private set; }
         public MatchOfficials Officials { get; private set; }
         public IMatchPresentation Ui { get; private set; }
         public MatchPhase Phase { get; private set; } = MatchPhase.Booting;
@@ -90,6 +95,7 @@ namespace PixFootball.Gameplay
         {
             Ui = UiBehaviour as IMatchPresentation;
             if (MainCamera == null) MainCamera = Camera.main;
+            PlayerLod.ViewCamera = MainCamera;
             Config = MatchData.Current.Clone();
             if (Config.CpuVsCpu || ForceAutopilot) Autopilot = true;
             var league = MatchData.League;
@@ -104,6 +110,8 @@ namespace PixFootball.Gameplay
             Stage.Init();
             Stage.Warm(8, 8, 9);
             Cams = MatchCameraRig.Create(transform, MainCamera);
+            Feel = CollisionFeel.Create(MainCamera);
+            if (Stage.Contacts != null) Stage.Contacts.Impact += OnContactImpact;
             Markers = FieldMarkers.Create(transform);
             Audio = gameObject.AddComponent<MatchAudio>(); Audio.Init();
             try { Officials = MatchOfficials.Create(transform, HomeInfo, AwayInfo); } catch (Exception e) { Debug.LogWarning("[PIX] officials unavailable: " + e.Message); }
@@ -222,6 +230,7 @@ namespace PixFootball.Gameplay
             var state = Flow.State;
             Play cpuOff, cpuDef;
             Flow.CpuCalls(out cpuOff, out cpuDef);
+            if (ForcedCall != null) { var fc = ForcedCall(Flow); if (fc.HasValue) { _offCall = fc.Value.Key; _defCall = fc.Value.Value; yield return null; yield break; } }
             _offCall = cpuOff; _defCall = cpuDef;
             if (Config.CpuVsCpu) yield break;
             bool userOff = state.Possession == Config.UserTeam;
@@ -858,9 +867,21 @@ namespace PixFootball.Gameplay
         }
 
         // ============================================================================================ events, camera, hud
+        /// <summary>A collision from the contact director: camera shake for everybody, rumble when the user's own player is in it.</summary>
+        void OnContactImpact(ContactImpact c)
+        {
+            bool user = !Config.CpuVsCpu && UserAgent >= 0 && (c.AgentA == UserAgent || c.AgentB == UserAgent);
+            if (Feel != null) Feel.OnImpact(c, user);
+        }
+
         void HandleEvents()
         {
-            foreach (var e in Stage.Fresh) { Audio.OnEvent(e); if (SimEvent != null) SimEvent(e); }
+            foreach (var e in Stage.Fresh)
+            {
+                Audio.OnEvent(e);
+                if (Feel != null && e.Type == SimEventType.Catch && UserAgent >= 0 && e.AgentA == UserAgent) Feel.Rumble(0.15f, 0.35f, 0.12f);   // the user hauls one in
+                if (SimEvent != null) SimEvent(e);
+            }
         }
 
         void React(PlayOutcome o)
@@ -1051,7 +1072,30 @@ namespace PixFootball.Gameplay
             float s = Mathf.Sin(yaw), c = Mathf.Cos(yaw);
             f.Move = new Vector2(w2.x * c - w2.y * s, w2.x * s + w2.y * c);
             f.Sprint = true;
-            if (a.HasBall && Time.time > _autoNextMove) { _autoNextMove = Time.time + 1.4f; if (_autoRng.Next(2) == 0) { f.LookFlickLeft = true; f.Look = new Vector2(-1f, 0f); } else { f.LookFlickRight = true; f.Look = new Vector2(1f, 0f); } }
+            if (a.HasBall && AutoMove != null && a.Pos.Y > sim.LosY + 3f)
+            {
+                if (Time.time > _autoNextMove)
+                {
+                    float nd = float.MaxValue;
+                    for (int i = 0; i < 22; i++) { var o = sim.Agents[i]; if (o.Side == a.Side || o.IsDown) continue; float dd = (o.Pos - a.Pos).Length; if (dd < nd) nd = dd; }
+                    float need = 2.8f;
+                    if (nd < need)
+                    {
+                        _autoNextMove = Time.time + 1.6f;
+                        switch (AutoMove)
+                        {
+                            case "Truck": f.Down[(int)Btn.Y] = true; break;
+                            case "Spin": f.Down[(int)Btn.B] = true; break;
+                            case "StiffArm": f.Down[(int)Btn.RB] = true; break;
+                            case "Hurdle": f.Down[(int)Btn.A] = true; break;
+                            case "JukeLeft": f.LookFlickLeft = true; f.Look = new Vector2(-1f, 0f); break;
+                            case "JukeRight": f.LookFlickRight = true; f.Look = new Vector2(1f, 0f); break;
+                        }
+                    }
+                }
+            }
+            else
+            if (AutoMove == null && a.HasBall && Time.time > _autoNextMove) { _autoNextMove = Time.time + 1.4f; if (_autoRng.Next(2) == 0) { f.LookFlickLeft = true; f.Look = new Vector2(-1f, 0f); } else { f.LookFlickRight = true; f.Look = new Vector2(1f, 0f); } }
             return f;
         }
     }

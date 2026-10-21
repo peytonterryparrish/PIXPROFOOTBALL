@@ -37,6 +37,11 @@ namespace PixFootball.Gameplay
         RushMove _lastRush;
         bool _ownsClip;
         float _kickT = -1f;
+        /// <summary>The contact director owns this player right now (an authored pair take, a ragdoll or a get-up): ApplyMatch keeps its hands off the clip layer.</summary>
+        public bool ContactDriven;
+        public RagdollRig Ragdoll;
+        /// <summary>Lean, foot lock and stiff-arm IK over the animation (v0.4).</summary>
+        public BodyMotion Motion;
 
         public static SimAgentView Create(Transform parent, PlayerSize size, TeamColors colors, string name = "AgentView")
         {
@@ -65,6 +70,8 @@ namespace PixFootball.Gameplay
             v.Anim = go.AddComponent<LocomotionAnimator>();
             v.Rig = go.AddComponent<ActionAnimator>();
             if (v.Avatar.Animator != null) v.Avatar.Animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;   // players outside the camera are not posed
+            v.Ragdoll = go.AddComponent<RagdollRig>(); v.Ragdoll.Setup(v.Avatar.Animator);
+            v.Motion = new BodyMotion(v.Avatar);
             if (v.Avatar.Animator != null)
             {
                 var rt = PixRuntimeAssets.Load();
@@ -97,6 +104,18 @@ namespace PixFootball.Gameplay
             }
         }
 
+        /// <summary>Contact director: places the view root and yaw for an authored take (after ApplyMatch has set the simulation pose).</summary>
+        public void SetContactPose(Vector3 position, float yaw)
+        {
+            transform.position = position; _yaw = yaw; transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        }
+
+        /// <summary>Puts the view root under a ragdoll that could not be recovered with a get-up take.</summary>
+        public void SnapToGround(Vector2 xz, float yaw)
+        {
+            transform.position = new Vector3(xz.x, transform.position.y, xz.y); _yaw = yaw; transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        }
+
         public void SnapYaw(float yaw) { _yaw = yaw; }
         public float Yaw { get { return _yaw; } }
         public Vector3 Forward { get { return new Vector3(Mathf.Sin(_yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(_yaw * Mathf.Deg2Rad)); } }
@@ -105,7 +124,9 @@ namespace PixFootball.Gameplay
         public void ResetForPlay(Vector3 position, float yaw)
         {
             transform.position = position; _yaw = yaw; transform.rotation = Quaternion.Euler(0f, yaw, 0f);
-            _lastAction = (AgentAction)(-1); _ownsClip = false; _kickT = -1f; _lastRush = RushMove.None;
+            _lastAction = (AgentAction)(-1); _ownsClip = false; _kickT = -1f; _lastRush = RushMove.None; ContactDriven = false;
+            if (Ragdoll != null) Ragdoll.Cancel();
+            if (Motion != null) Motion.Cancel();
             if (Rig != null) Rig.StopImmediate();
             if (Anim != null) Anim.Drive(Vector3.zero, Forward, 1f);
         }
@@ -121,7 +142,13 @@ namespace PixFootball.Gameplay
             Vector3 f = Forward;
             Anim.Drive(velocity, f, dt);
             if (Rig != null && !Rig.Valid) return;   // the pooled player was just re-activated: wait for his graph
+            if (Motion != null)
+            {
+                Motion.Sample(velocity, f, dt);
+                Motion.LocomotionWeight = (ContactDriven || (Ragdoll != null && Ragdoll.Active)) ? 0f : 1f - (Rig != null ? Mathf.Clamp01(Rig.Weight) : 0f);
+            }
 
+            if (ContactDriven) { _lastAction = action; _lastRush = h.Rush; return; }   // an authored take / ragdoll / get-up is running
             bool changed = action != _lastAction || (action == AgentAction.Engaged && h.Rush != _lastRush);
             if (!changed) return;
             _lastAction = action; _lastRush = h.Rush;
@@ -138,6 +165,7 @@ namespace PixFootball.Gameplay
                 case AgentAction.Throw: plan = AnimKit.Throw(h); break;
                 case AgentAction.Handoff: plan = AnimKit.Handoff(h); break;
                 case AgentAction.Jump: plan = AnimKit.Jump(h.Seed); break;
+                case AgentAction.Spin: plan = AnimKit.Spin(h.Seed); break;
                 case AgentAction.TackleWrapUp: case AgentAction.TackleBigHit: case AgentAction.TackleShoestring: case AgentAction.TackleDive: case AgentAction.TackleGang:
                     plan = AnimKit.Tackle(h, false); break;
                 case AgentAction.Tackled: plan = h.Tackle != TackleType.None || h.Sack ? AnimKit.Tackle(h, true) : AnimKit.Fall(h.Seed); break;
@@ -147,7 +175,7 @@ namespace PixFootball.Gameplay
                 default: owns = false; break;
             }
             var mv = MoveFor(action, lateralHint);
-            if (mv != PlayerMove.None) { Anim.Trigger(mv); owns = false; }
+            if (mv != PlayerMove.None && !(action == AgentAction.Spin && plan.Valid)) { Anim.Trigger(mv); owns = false; }
             if (plan.Valid && Rig != null) { Rig.Play(plan.Clip, plan.Start, plan.End, plan.Speed, plan.FadeIn, plan.FadeOut, plan.Loop, plan.Hold); _ownsClip = true; }
             else if (_ownsClip && Rig != null) { Rig.Stop(0.18f); _ownsClip = false; }
         }
@@ -164,8 +192,11 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>Procedural leg swing for kicks and punts (no kicking mocap exists in the source set): hip and knee of the right leg are driven in LateUpdate over the running animation.</summary>
+        int _lodTick;
         void LateUpdate()
         {
+            if (Avatar != null && Avatar.Lod != null && ((++_lodTick + AgentId) & 3) == 0) Avatar.Lod.Update(transform.position);
+            if (Motion != null) Motion.Late(Time.deltaTime);
             if (_kickT < 0f || Avatar == null || Avatar.RightUpperLeg == null || Avatar.RightLowerLeg == null) return;
             _kickT += Time.deltaTime;
             float t = _kickT;

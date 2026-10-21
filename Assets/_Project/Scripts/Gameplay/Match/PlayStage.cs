@@ -39,6 +39,8 @@ namespace PixFootball.Gameplay
         struct TackleInfo { public int Tackler; public TackleType Type; public bool Sack; }
 
         public BallFollower Ball;
+        /// <summary>v0.4 contact director: authored tackle takes, gang tackles, ragdoll hit reactions and get-ups.</summary>
+        public ContactDirector Contacts;
         public PlaySimulation Sim { get; private set; }
         public PlayFrame Frame { get; private set; }
         public SimAgentView[] Views { get { return _views; } }
@@ -51,6 +53,7 @@ namespace PixFootball.Gameplay
         public void Init()
         {
             if (Ball == null) Ball = BallFollower.Create(transform);
+            if (Contacts == null) Contacts = new ContactDirector(this);
         }
 
         SimAgentView Acquire(PlayerSize size)
@@ -85,6 +88,7 @@ namespace PixFootball.Gameplay
             Init();
             End();
             Sim = sim; Frame = frame; _logIdx = 0; _playIndex = playIndex; _fresh.Clear(); _tackled.Clear(); _tackler.Clear();
+            Contacts.Reset();
             var qbForm = sim.OffForm != null && sim.OffForm.Slots.Length > 0 ? sim.OffForm.Slots[0] : null;
             _shotgun = qbForm != null && qbForm.Y < -2.5f;
             for (int i = 0; i < 22; i++)
@@ -120,6 +124,7 @@ namespace PixFootball.Gameplay
             {
                 var e = ev[_logIdx++];
                 _fresh.Add(e);
+                if (Contacts != null) Contacts.OnEvent(e, _logIdx < ev.Count && ev[_logIdx].Type == SimEventType.Sack);
                 if ((e.Type == SimEventType.Tackle || e.Type == SimEventType.Sack) && e.AgentA >= 0 && e.AgentB >= 0)
                 {
                     TackleInfo ti;
@@ -154,6 +159,7 @@ namespace PixFootball.Gameplay
                 }
                 v.ApplyMatch(pos, vel, face, a.Action, h, lat, specials, _shotgun, dt);
             }
+            if (Contacts != null) Contacts.Tick(dt);
             ApplyContacts();
             UpdateBall(dt);
         }
@@ -172,6 +178,7 @@ namespace PixFootball.Gameplay
                 var vc = _views[c]; var vt = _views[t];
                 if (vc == null || vt == null) continue;
                 SimAgent ac = Sim.Agents[c], at = Sim.Agents[t];
+                if (vc.ContactDriven || vt.ContactDriven) continue;   // an authored pair take places both views itself
                 if (ac.Action != AgentAction.Tackled || !IsTackleAction(at.Action)) continue;
                 Pull(vc, vt, Mathf.Min(ac.ActionTime, at.ActionTime), 0.8f, 0.18f, false, true);
             }
@@ -290,6 +297,7 @@ namespace PixFootball.Gameplay
                         _carrySideAt[h.Id] = Time.time;
                     }
                     Ball.SetCarry(v, _carrySide[h.Id]);
+                    if (v.Motion != null) v.Motion.SetProtect(h.Protecting, _carrySide[h.Id]);
                     return;
                 }
             }

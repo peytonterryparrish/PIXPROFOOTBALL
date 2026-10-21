@@ -20,6 +20,8 @@ namespace PixFootball.Gameplay
         public Transform Root;
         public Transform Head, RightHand, LeftHand, RightForearm, LeftForearm, Chest, RightUpperLeg, RightLowerLeg, LeftFoot, RightFoot;
         public Material HelmetInstance;
+        /// <summary>Distance based helmet / face mask level of detail (v0.4 performance).</summary>
+        public PlayerLod Lod;
         readonly List<Renderer> _helmetRenderers = new List<Renderer>();
         public Material UniformInstance;
         readonly List<Renderer> _headRenderers = new List<Renderer>();
@@ -92,6 +94,9 @@ namespace PixFootball.Gameplay
             LeftFoot = Animator.GetBoneTransform(HumanBodyBones.LeftFoot);
             RightFoot = Animator.GetBoneTransform(HumanBodyBones.RightFoot);
             if (Head != null) foreach (var r in Head.GetComponentsInChildren<Renderer>(true)) if (!_headRenderers.Contains(r)) _headRenderers.Add(r);
+            Lod = new PlayerLod(Head);
+            foreach (var smr in inst.GetComponentsInChildren<SkinnedMeshRenderer>(true)) if (smr.name.StartsWith("Torso") || smr.name.StartsWith("Legs") || smr.name.StartsWith("Arms") || smr.name.StartsWith("Hands") || smr.name.StartsWith("Shoes") || smr.name.StartsWith("Head")) Lod.AddSkinned(smr); else if (smr.name.StartsWith("Eyes")) Lod.AddFarHidden(smr);
+            foreach (var smr in inst.GetComponentsInChildren<SkinnedMeshRenderer>(true)) { smr.quality = SkinQuality.Bone4; smr.updateWhenOffscreen = false; }
         }
 
         public void SetVisualYaw(float offsetDegrees)

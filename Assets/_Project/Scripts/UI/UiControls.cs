@@ -57,7 +57,7 @@ namespace PixFootball.UI
 
     public static class UiControls
     {
-        public static OptionSelector Selector(Transform parent, string name, string[] options, int index, Action<int> onChanged, float width = 760f, float height = 62f)
+        public static OptionSelector Selector(Transform parent, string name, string[] options, int index, Action<int> onChanged, float width = 760f, float height = 50f)
         {
             var r = UiKit.Rect(parent, "Opt_" + name);
             r.sizeDelta = new Vector2(width, height);
@@ -74,7 +74,7 @@ namespace PixFootball.UI
             return sel;
         }
 
-        public static Slider SliderRow(Transform parent, string name, float value, Action<float> onChanged, float width = 760f, float height = 62f)
+        public static Slider SliderRow(Transform parent, string name, float value, Action<float> onChanged, float width = 760f, float height = 50f)
         {
             var r = UiKit.Rect(parent, "Slider_" + name);
             r.sizeDelta = new Vector2(width, height);

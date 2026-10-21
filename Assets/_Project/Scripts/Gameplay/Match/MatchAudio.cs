@@ -8,14 +8,14 @@ namespace PixFootball.Gameplay
     /// <summary>Stadium audio for a match: crowd bed that swells with the action, roars and boos on big plays, whistles, hits, catches and kicks.</summary>
     public sealed class MatchAudio : MonoBehaviour
     {
-        AudioSource _bed, _roar, _sfx, _whistle;
+        AudioSource _bed, _roar, _sfx, _whistle, _crack;
         PixRuntimeAssets _rt;
         float _bedTarget = 0.4f, _roarLeft, _boo;
 
         public void Init()
         {
             _rt = PixRuntimeAssets.Load();
-            _bed = Make(true); _roar = Make(false); _sfx = Make(false); _whistle = Make(false);
+            _bed = Make(true); _roar = Make(false); _sfx = Make(false); _whistle = Make(false); _crack = Make(false);
             AudioClip bed = _rt != null && _rt.sfxBeds.Count > 0 ? _rt.sfxBeds[0] : (_rt != null ? _rt.crowdAmbience : null);
             _bed.clip = bed; _bed.volume = 0.4f * PixSettings.CrowdVolume;
             if (bed != null) _bed.Play();
@@ -36,10 +36,27 @@ namespace PixFootball.Gameplay
             if (c != null) { _whistle.pitch = Random.Range(0.97f, 1.03f); _whistle.PlayOneShot(c, 0.55f); }
         }
 
+        /// <summary>
+        /// Hit sound by impact energy (0..1): a pad crack always, a body thud layered under it from a medium hit up, a second heavy thud and a lower pitch on the big ones.
+        /// The pitch drops and the volume rises with the energy; the crack is scheduled a few milliseconds ahead of the thud like the real sound.
+        /// </summary>
         public void Hit(float intensity)
         {
-            var c = _rt != null ? (intensity > 0.6f ? Pick(_rt.sfxTackle) : (Pick(_rt.sfxHit) ?? Pick(_rt.sfxTackle))) : null;
-            if (c != null) { _sfx.pitch = Random.Range(0.92f, 1.06f); _sfx.PlayOneShot(c, Mathf.Lerp(0.5f, 1f, intensity)); }
+            intensity = Mathf.Clamp01(intensity);
+            if (_rt == null) return;
+            var crack = Pick(_rt.sfxHit) ?? Pick(_rt.sfxTackle);
+            var thud = intensity > 0.3f ? Pick(_rt.sfxTackle) : null;
+            if (crack != null)
+            {
+                _crack.clip = crack; _crack.pitch = Random.Range(0.96f, 1.08f) - 0.12f * intensity; _crack.volume = Mathf.Lerp(0.35f, 0.95f, intensity);
+                _crack.Play();
+            }
+            if (thud != null)
+            {
+                _sfx.pitch = Random.Range(0.92f, 1.04f) - 0.16f * intensity;
+                _sfx.PlayOneShot(thud, Mathf.Lerp(0.4f, 1f, intensity));
+                if (intensity > 0.72f) { var t2 = Pick(_rt.sfxTackle); if (t2 != null && t2 != thud) _sfx.PlayOneShot(t2, 0.55f * intensity); }
+            }
         }
 
         public void Catch() { var c = _rt != null ? Pick(_rt.sfxCatch) : null; if (c != null) { _sfx.pitch = Random.Range(0.95f, 1.05f); _sfx.PlayOneShot(c, 0.7f); } }

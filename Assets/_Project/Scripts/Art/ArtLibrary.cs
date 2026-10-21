@@ -36,6 +36,7 @@ namespace PixFootball.Art
         public List<FontEntry> fonts = new List<FontEntry>();
 
         [NonSerialized] Dictionary<string, List<AnimationClip>> _clipMap;
+        [NonSerialized] Dictionary<string, AnimationClip> _nameMap;
         [NonSerialized] Dictionary<string, GameObject> _prefabMap;
         [NonSerialized] Dictionary<string, Material> _matMap;
         [NonSerialized] Dictionary<string, Sprite> _spriteMap;
@@ -65,6 +66,7 @@ namespace PixFootball.Art
 
         public void BuildMaps()
         {
+            _nameMap = null;
             _clipMap = new Dictionary<string, List<AnimationClip>>(StringComparer.OrdinalIgnoreCase);
             foreach (var e in clips)
             {
@@ -130,6 +132,18 @@ namespace PixFootball.Art
         }
 
         public IEnumerable<string> ClipKeys { get { EnsureMaps(); return _clipMap.Keys; } }
+
+        /// <summary>Clip by exact asset name (any key); null when it is not registered.</summary>
+        public AnimationClip ClipByName(string name)
+        {
+            EnsureMaps();
+            if (_nameMap == null)
+            {
+                _nameMap = new Dictionary<string, AnimationClip>(StringComparer.Ordinal);
+                foreach (var l in _clipMap.Values) foreach (var c in l) if (c != null && !_nameMap.ContainsKey(c.name)) _nameMap[c.name] = c;
+            }
+            AnimationClip r; return _nameMap.TryGetValue(name, out r) ? r : null;
+        }
 
         // ---- everything else -------------------------------------------------------------------------------
         public GameObject Prefab(string key) { EnsureMaps(); GameObject g; return _prefabMap.TryGetValue(key, out g) ? g : null; }
@@ -198,6 +212,8 @@ namespace PixFootball.Art
         public const string TackleWrap = "tackle_wrap", TackleBigHit = "tackle_big_hit", TackleDive = "tackle_dive", TackleStrip = "tackle_strip",
             TackleSuccess = "tackle_success", TackleFail = "tackle_fail", TackleArm = "tackle_arm", BeTackled = "be_tackled",
             BeTruck = "be_trucked", Gang = "tackle_gang", Fall = "fall", GetUp = "get_up", Injury = "injury", InjuredIdle = "injury_idle";
+        // v0.4 contact pairs: every authored two-actor take (A = first actor, B = second actor registered as <key>_b), no per-key cap
+        public const string ContactTackle = "contact_tackle", ContactSack = "contact_sack", ContactBigHit = "contact_bighit", ContactCollision = "contact_collision";
         // celebrations / ambient
         public const string CelebrateTd = "celebrate_td", CelebrateTd2 = "celebrate_td_2", CelebrateTd3 = "celebrate_td_3",
             CelebrateQb = "celebrate_qb", Cheer = "cheer", Spike = "spike", Frustration = "frustration", IdleConversation = "idle_conversation",

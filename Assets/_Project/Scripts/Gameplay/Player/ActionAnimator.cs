@@ -19,7 +19,7 @@ namespace PixFootball.Gameplay
 
         AnimationClip _clipAsset;
         float _t, _start, _end, _speed = 1f, _fadeIn = 0.1f, _fadeOut = 0.15f, _w;
-        bool _loop, _hold, _ending;
+        bool _loop, _hold, _ending, _frozen;
         float _endingT, _endingFade;
 
         public AnimatorControllerPlayable Loco { get { return _loco; } }
@@ -27,6 +27,9 @@ namespace PixFootball.Gameplay
         public bool IsPlaying { get { return _hasClip && !_ending; } }
         public float Weight { get { return _w; } }
         public float Time01 { get { return _hasClip && _end > _start ? Mathf.Clamp01((_t - _start) / (_end - _start)) : 0f; } }
+        public float ClipTime { get { return _t; } }
+        /// <summary>Pauses the take where it is (the pose is held, the weight is kept).</summary>
+        public void SetFrozen(bool on) { _frozen = on; }
         public string CurrentClipName { get { return _hasClip && _clipAsset != null ? _clipAsset.name : ""; } }
 
         Animator _animator; RuntimeAnimatorController _controller; bool _wantGraph;
@@ -69,7 +72,7 @@ namespace PixFootball.Gameplay
             _clip.SetApplyFootIK(false);
             _clip.SetSpeed(0.0);
             _graph.Connect(_clip, 0, _mixer, 1);
-            _hasClip = true; _ending = false;
+            _hasClip = true; _ending = false; _frozen = false;
             _start = Mathf.Clamp(start, 0f, Mathf.Max(0f, clip.length - 0.02f));
             _end = end <= 0f || end > clip.length ? clip.length : Mathf.Max(end, _start + 0.05f);
             _t = _start; _speed = Mathf.Max(0.05f, speed);
@@ -105,7 +108,7 @@ namespace PixFootball.Gameplay
             if (dt <= 0f) return;
             if (!_ending)
             {
-                _t += dt * _speed;
+                if (!_frozen) _t += dt * _speed;
                 if (_t >= _end)
                 {
                     if (_loop) _t = _start + Mathf.Repeat(_t - _start, Mathf.Max(0.05f, _end - _start));

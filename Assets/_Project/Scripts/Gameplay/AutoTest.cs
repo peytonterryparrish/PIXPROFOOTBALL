@@ -53,6 +53,12 @@ namespace PixFootball.Gameplay
             for (int i = 0; i < args.Length - 1; i++) if (args[i] == "-pixAutotestOut") _out = args[i + 1];
             if (string.IsNullOrEmpty(_out)) _out = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Logs", "autotest"));
             Directory.CreateDirectory(_out);
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                int tier; float scale;
+                if (args[i] == "-pixTier" && int.TryParse(args[i + 1], out tier)) { QualityTiers.Override(tier, -1f); }
+                if (args[i] == "-pixRenderScale" && float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out scale)) { QualityTiers.Override(-1, scale); }
+            }
             if (!Flag("-pixAutotestVsync")) { QualitySettings.vSyncCount = 0; Application.targetFrameRate = -1; }   // measure real frame cost, not the display refresh
             Application.logMessageReceived += (c, st, t) => { if (t == LogType.Exception || t == LogType.Error) { _errors++; if (_errors < 40) _log.AppendLine("  ! " + t + ": " + c + (t == LogType.Exception ? "\n" + st : "")); } };
         }
@@ -76,6 +82,13 @@ namespace PixFootball.Gameplay
         {
             Log("PIX autotest starting. " + Screen.width + "x" + Screen.height + " fullscreen=" + Screen.fullScreen + " gpu=" + SystemInfo.graphicsDeviceName + " api=" + SystemInfo.graphicsDeviceType + " quality=" + QualitySettings.names[QualitySettings.GetQualityLevel()]);
             Log("scene: " + SceneManager.GetActiveScene().name);
+            if (Flag("-pixAutotestContactOnly"))
+            {
+                yield return ContactPart();
+                Log("errors/exceptions logged: " + _errors);
+                Finish(_errors > 0 ? 3 : 0);
+                yield break;
+            }
             if (!Flag("-pixAutotestMatchOnly"))
             {
                 yield return new WaitForSeconds(3.0f);
@@ -91,6 +104,7 @@ namespace PixFootball.Gameplay
             if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestCollegeOnly")) yield return MatchPart();
             if (!Flag("-pixAutotestCollegeOnly") && !Flag("-pixAutotestNoV3")) yield return V3Part();
             if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestNoV3")) yield return CollegePart();
+            if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestNoV3") && !Flag("-pixAutotestNoContact")) yield return ContactPart(true);
             Log("errors/exceptions logged: " + _errors);
             Finish(_errors > 0 ? 3 : 0);
         }
@@ -325,6 +339,16 @@ namespace PixFootball.Gameplay
             var spotShadow = new List<Light>(); foreach (var l in shadowLights) if (l.type == LightType.Spot) spotShadow.Add(l);
             add("spot shadows off (moon stays)", () => { foreach (var l in spotShadow) l.shadows = LightShadows.None; }, () => { foreach (var l in spotShadow) l.shadows = LightShadows.Soft; });
             add("shadow cascades 2", () => SetCascades(vols, 2), () => SetCascades(vols, 4));
+            // v0.4: where do the 22 players spend their GPU time? hide one body part group at a time / swap the materials for a plain lit one
+            var parts = new List<Renderer>(dir.Stage.GetComponentsInChildren<Renderer>(false));
+            Func<string[], List<Renderer>> pick = names => { var l = new List<Renderer>(); foreach (var r in parts) foreach (var n in names) if (r.name.StartsWith(n)) { l.Add(r); break; } return l; };
+            var handsShoes = pick(new[] { "Hands", "Shoes" }); var faceParts = pick(new[] { "Head", "Eyes" }); var helmets = pick(new[] { "Basic_Helmet", "FM_", "visor" }); var uniform = pick(new[] { "Torso", "Legs", "Arms" });
+            add("hide hands+shoes", () => { foreach (var r in handsShoes) r.enabled = false; }, () => { foreach (var r in handsShoes) r.enabled = true; });
+            add("hide head+eyes", () => { foreach (var r in faceParts) r.enabled = false; }, () => { foreach (var r in faceParts) r.enabled = true; });
+            add("hide helmets", () => { foreach (var r in helmets) r.enabled = false; }, () => { foreach (var r in helmets) r.enabled = true; });
+            add("hide torso+legs+arms", () => { foreach (var r in uniform) r.enabled = false; }, () => { foreach (var r in uniform) r.enabled = true; });
+            var saved = new Dictionary<Renderer, Material[]>(); Material plain = null;
+            add("all player materials plain lit", () => { plain = new Material(Shader.Find("HDRP/Lit")); foreach (var r in parts) { saved[r] = r.sharedMaterials; var m = new Material[r.sharedMaterials.Length]; for (int i = 0; i < m.Length; i++) m[i] = plain; r.sharedMaterials = m; } }, () => { foreach (var kv in saved) kv.Key.sharedMaterials = kv.Value; });
             foreach (var kv in list)
             {
                 kv.Value.Key();

@@ -25,7 +25,10 @@ namespace PixFootball.EditorTools
             "qb_throw_bullet", "qb_throw_lob_short", "qb_throw_lob_long", "handoff", "handoff_b",
             "catch_high", "catch_low", "catch_run", "catch_jump", "catch_side", "interception",
             "tackle_wrap", "tackle_wrap_b", "tackle_success", "tackle_success_b", "tackle_dive", "tackle_dive_b", "tackle_arm", "tackle_arm_b", "qb_sack", "qb_sack_b", "fall",
-            "celebrate_td_2", "celebrate_td_3"
+            "celebrate_td_2", "celebrate_td_3",
+            // v0.4 contact: every authored two-actor take (A = carrier, B = tackler) plus the pair clips the carrier moves and catches use
+            "contact_tackle", "contact_tackle_b", "contact_sack", "contact_sack_b", "contact_bighit", "contact_bighit_b", "contact_collision", "contact_collision_b",
+            "stiff_arm", "stiff_arm_b", "spin_move", "spin_move_b", "truck", "truck_b", "juke_right", "juke_right_b", "juke_tempo", "juke_tempo_b", "juke_box", "juke_box_b", "rocker_step", "rocker_step_b", "catch_contested", "catch_contested_b"
         };
 
         static bool _swapped;
@@ -49,7 +52,8 @@ namespace PixFootball.EditorTools
             {
                 if (c == null || c.clip == null || !(SlimClipKeys.Contains(c.key) || c.key.StartsWith("ref_") || c.key.StartsWith("coach_"))) continue;
                 int n; perKey.TryGetValue(c.key, out n);
-                if (n >= SlimClipVariants || c.clip.length > (c.key.Contains("stance") ? 50f : SlimClipMaxSeconds)) continue;
+                int cap = c.key.StartsWith("contact_") ? 400 : SlimClipVariants;
+                if (n >= cap || c.clip.length > (c.key.Contains("stance") ? 50f : (c.key == "spin_move" ? 25f : SlimClipMaxSeconds))) continue;
                 perKey[c.key] = n + 1;
                 slim.clips.Add(new ArtLibrary.ClipEntry { key = c.key, clip = c.clip, source = c.source, length = c.length, loop = c.loop });
             }

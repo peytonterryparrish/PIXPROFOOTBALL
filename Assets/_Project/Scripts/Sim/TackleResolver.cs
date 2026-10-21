@@ -107,6 +107,8 @@ namespace PixFootball.Sim
 
             // sack bookkeeping
             bool sackCandidate = c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown && c.Pos.Y <= S.LosY + 0.01f && S.BallSide == SimSide.Offense;
+            if (S.Options.ForceTackleAfter > 0f && !sackCandidate && c.Pos.Y < S.LosY + S.Options.ForceTackleAfter) return;   // test hook: open-field contact only
+            if (S.Options.ForceTackle.HasValue) { ForceOutcome(d, c, S.Options.ForceTackle.Value, diving, closing, category, sackCandidate); return; }
 
             if (margin > 0f)
             {
@@ -149,6 +151,21 @@ namespace PixFootball.Sim
 
         // ---------------------------------------------------------------- outcomes
 
+        /// <summary>Test hook (<see cref="PlaySimOptions.ForceTackle"/>): resolves the contact to a chosen outcome instead of the rating contest.</summary>
+        private void ForceOutcome(SimAgent d, SimAgent c, TackleType type, bool diving, float closing, int category, bool sack)
+        {
+            switch (type)
+            {
+                case TackleType.Drag:
+                    if (c.DragMass <= 0f && !sack) StartDrag(d, c); else BringDown(d, c, TackleType.WrapUp, closing, category, sack);
+                    break;
+                case TackleType.Shoestring: Shoestring(d, c, diving); break;
+                case TackleType.BrokenTackle: BrokenTackle(d, c, diving); break;
+                case TackleType.PushOutOfBounds: FinishTackle(d, c, TackleType.PushOutOfBounds, false, false, closing); break;
+                default: BringDown(d, c, type == TackleType.None ? TackleType.WrapUp : type, closing, category, sack); break;
+            }
+        }
+
         private void BringDown(SimAgent d, SimAgent c, TackleType type, float closing, int category, bool sack)
         {
             // push out of bounds
@@ -171,7 +188,7 @@ namespace PixFootball.Sim
             if (qbPass) pFum = 0.05f * (1.55f - SimMath.Rating01(c.R.Carrying)) * (0.8f + d.R.Strength / 200f);
             if (c.Move == CarrierMove.Spin || c.Move == CarrierMove.Truck) pFum *= 1.6f;
             pFum *= 0.7f;
-            bool fumble = S.Rng.NextFloat() < pFum;
+            bool fumble = S.Rng.NextFloat() < pFum && !S.Options.ForceTackle.HasValue;
 
             FinishTackle(d, c, type, sack, fumble, closing);
         }

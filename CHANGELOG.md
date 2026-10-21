@@ -2,6 +2,38 @@
 
 All notable changes to PIX Football. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [SemVer](https://semver.org/).
 
+## [0.4.0] - 2026-10-21 - "Contact"
+
+The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers who lean and plant, a quarterback who reads your hot route, hits you can feel in the camera and the controller, and a frame rate 75 percent higher.
+
+### Added
+- **Physics-blended tackles** (`ContactDirector`, `ContactSession`, `ContactMath`, `TackleVariants`). Every authored two-actor take in the mocap set (112 pairs: standing wraps, low wraps, tackle-broken takes, sacks, big hits, contested catches) is aligned to the simulated bodies by its authored root offsets: the carrier's hips land on the simulated carrier, the tackler comes in from where he really came from, the views warp from the simulation onto the animation root motion over 0.18 s, follow it through the hit and hand back to the simulation, which still owns where the carrier ends and the forward progress. The take is chosen from the sim's tackle type (wrap-up, big hit, dive, shoestring, broken tackle, drag, gang, push out of bounds, sack), the contact angle (front / side / behind), the carrier's speed and the closing speed.
+- **Drags and gang tackles**: a drag plays the wrap up to the grab and holds it while the carrier churns on with the defender attached; the tackle that finally brings him down releases the same take, and extra defenders join with the tackler half of another take. Broken tackles show the carrier stumbling on while the defender whiffs and falls; sacks use the paired sack takes.
+- **Active ragdoll** (`RagdollRig`, `RagdollStateMachine`): Humanoid-bone bodies, colliders and character joints built from the bind pose on demand; a pose blend from the animation (0.12 s), 0.4 to 1.2 s of simulation with capped velocities on a ground collider, then the settled pose is blended into a get-up take cut from the authored tackles (chosen by face up / face down). Used for trucked defenders, pancaked linemen and won stiff-arms.
+- **Carrier polish** (`BodyMotion`, `LimbIK`): the spine banks into turns and pitches into accelerations, the stance foot is locked to the ground with two-bone IK while it is planted (no sliding), the stiff arm reaches for the defender's chest, protect-ball (LT) folds the ball high and tight, and the spin is now a real mocap spin cut from the BoNES spin / dodge takes. Trucks knock the defender back through the ragdoll.
+- **Catching in traffic**: a catch with a defender on the receiver plays the authored contested-catch pair (both players go up for the ball).
+- **Quarterback reads the hot route**: a receiver you hot-route is read from the snap and favoured when he is open (`OffenseAI.HotReadEdge` / `HotReadBonus`).
+- **Collision feel** (`CollisionFeel`): trauma-based camera shake on hits (subtle, only big hits are felt), Xbox controller rumble on your own hits, sacks, trucks and catches, and hit sounds layered by impact energy (pad crack, body thud, second thud and a lower pitch on the big ones). Settings: Controller rumble, Camera shake on hits.
+- **Graphics tiers and render scale**: Low / Medium / High / Ultra (`QualityTiers`: player LOD bias, volumetric fog, ambient occlusion, reflections, contact shadows, motion blur, stadium spot-light shadows, shadow distance) and a Render scale option (100 / 90 / 80 / 67 percent) on HDRP dynamic resolution.
+- **Contact gallery autotest**: `-pixAutotestContactOnly [-pixAutotestContactCases wrap,bighit,...]` plays a scripted play for every tackle type, each carrier move, a contested catch, a sack and a big-hit ragdoll and saves a close-up screenshot sequence of each to `Logs/autotest`. New test hooks: `PlaySimOptions.ForceTackle` / `ForceTackleAfter`, `MatchDirector.ForcedCall` / `AutoMove`, `-pixTier`, `-pixRenderScale`.
+- Editor tools: `Build Contact Table`, `Build Move Takes`, `Render Contact Sheet`, `Build Player Mesh LODs`, `Enable HDRP Dynamic Resolution`; `ArtLibrary` registers every authored pair (`contact_tackle`, `contact_sack`, `contact_bighit`, `contact_collision`) without the six-variant cap and can look a clip up by name.
+
+### Changed
+- **Performance**: the match player was an 80,000-vertex model (26,000-vertex helmet, 11,000 vertices of hands and shoes) drawn 22 times into every shadow cascade. The gear now uses its authored LODs and the body meshes simplified LODs by camera distance (`PlayerLod`, `PlayerMeshLodTable`), skinning is capped at four bones, coaches and officials are not posed off screen and coaches cast no shadows. Live play at 2560x1440 on the RTX 5090 laptop: 61 avg / 42 min / 50 1%-low FPS (v0.3) -> 107 avg / 79 min / 90 1%-low (Ultra, a full autotest game; GPU 15.8 -> 9.4 ms). Static 22-player formation at 2560x1440: Low 124, Medium 106, High 102, Ultra 89 FPS; Ultra at 67 percent render scale 110 FPS.
+- Tackles no longer play the carrier's clip on the tackler and vice versa: in the Draft Fever pairs `_A` is the offense and `_B` the defender (v0.2 and v0.3 had them swapped).
+- Hit sounds scale with impact energy; the settings screen has a graphics tier selector instead of the six Unity quality levels and rows are tighter to fit the new options.
+
+### Fixed
+- Players popping to a new pose when a tackle clip started: the take now starts from the simulation pose and warps.
+- Tacklers and carriers interpenetrating after the hit: the pair keeps its authored layout and ends where the simulation says the carrier is.
+
+### Known Issues
+- Gang tackles with three or more defenders use the tackler half of a different take for the extras, so the wrap on the pile is approximate.
+- The ragdoll is an animation-blended active ragdoll (pose pull-in, limits, capped velocities), not a fully motor-driven one; big-hit carriers use the authored pair rather than the ragdoll.
+- Foot lock and lean are tuned for running and cuts; they fade out while an authored take, ragdoll or one-shot clip owns the body.
+- Sideline toe-tap catches use the side-catch clips; there is no dedicated toe-tap take in the mocap set.
+- DLSS / FSR are not wired: the Render scale option uses HDRP dynamic resolution with the asset's CAS upscaler.
+
 ## [0.3.0] - 2026-10-21 - "Playbook"
 
 ### Added

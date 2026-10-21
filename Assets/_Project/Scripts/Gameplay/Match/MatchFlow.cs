@@ -93,6 +93,8 @@ namespace PixFootball.Gameplay
         public readonly GameState State;
         public readonly Rng Rng;
         public readonly Playbook Book;
+        /// <summary>Test hook (autotest contact gallery): adjusts the options of every play simulation this flow creates.</summary>
+        public static System.Action<PlaySimOptions> SimOptionsHook;
         public readonly LeagueTeam Home, Away;
         public readonly PhysicalGameSim Cpu;
         public readonly TeamStats HomeStats = new TeamStats(), AwayStats = new TeamStats();
@@ -290,7 +292,9 @@ namespace PixFootball.Gameplay
             Dictionary<int, Ratings> sro = IsUser(offTeam) ? null : Boost(ro, delta);
             Dictionary<int, Ratings> srd = IsUser(offTeam.Opponent()) ? null : Boost(rd, delta);
             var sim = new PlaySimulation();
-            sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), new PlaySimOptions { Playbook = Book, Hash = _nextHash, AutoSnap = autoSnap, AutoSnapDelay = autoSnapDelay, Penalties = true });
+            var simOptions = new PlaySimOptions { Playbook = Book, Hash = _nextHash, AutoSnap = autoSnap, AutoSnapDelay = autoSnapDelay, Penalties = true };
+            if (SimOptionsHook != null) SimOptionsHook(simOptions);
+            sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions);
             if (sro != null) Restore(ro, sro);
             if (srd != null) Restore(rd, srd);
             return sim;

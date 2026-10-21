@@ -89,3 +89,28 @@ UI:        PlayCallScreen + PlayDiagramGraphic, PreSnapPanel, PenaltyPanel, UiPr
 - **College rules**: `PlayFrame.For(GameState)` keeps both overtime possessions at one end zone; hash X comes from `FieldGeometry.HashX(hash, rules)` in the sim; `FieldMarkers.SetHashMarks` paints the 40-foot hashes.
 - **Playbook review**: `PIX Football > Tools > Render Playbook Atlas` (or `PlayCardPainter` in a console harness) renders every play to `Docs/Playbook/*.png`.
 - **Autotest**: `MatchInput.ScriptMode` + `Enqueue` feed scripted frames through the real input path (`AutoTest.V3.cs`).
+
+## v0.4 contact, ragdoll and performance
+```
+Art:       ContactTable (PixContact.asset)      measured root / hips / heading paths of every authored two-actor take + contact moment, approach geometry, get-up timing
+           MoveTakeTable (PixMoveTakes.asset)   usable windows inside the long BoNES takes (the spin)
+           PlayerMeshLodTable (PixMeshLods.asset) simplified torso / legs / arms / hands / shoes / head meshes
+Editor:    ContactClipBuilder (Build Contact Table / Build Move Takes / contact sheets), PlayerMeshLodBuilder, HdrpTuning, PerfDiagnostics
+Gameplay/Contact:
+           ContactMath      Rigid2 alignment, bearing, warp / authority weights, array sampling (pure, tested)
+           TackleVariants   TackleType + contact angle + speed -> best authored pair (pure, tested)
+           ContactSession   one pair played against the simulation: align at contact, warp in, follow the animation root motion, hand back to the sim (pure)
+           ContactDirector  sim events -> sessions, gang tacklers / drags (hold), contested catches, stiff-arm IK, truck / pancake knock-backs, get-up takes
+           RagdollStateMachine (pure) + RagdollRig (bodies, joints, ground plane, blend)
+Gameplay/Player:
+           BodyMotion       spine lean / pitch, stance-foot lock, stiff-arm and protect-ball arm IK (LimbIK = analytic two-bone solver, pure)
+           PlayerLod        distance LOD of helmet / mask / body meshes
+Gameplay:  CollisionFeel (camera trauma shake + Xbox rumble), QualityTiers (Low / Medium / High / Ultra + render scale)
+```
+- **Authored pairs.** Every Draft Fever tackle / sack / big-hit / contested-catch take is two clips (`_A` = the offense: ball carrier, quarterback, receiver; `_B` = the defender). The default import re-bases each clip to its own start, which throws the authored layout away, so `ContactClipBuilder` imports the pair clips once with "Root Transform Position (XZ) Based Upon: Original", records where each actor starts in the shared mocap scene, reverts to Center of Mass (the clips still play in place at the view origin) and stores `root(t)` and `hips(t)` of both actors in that shared frame. v0.2 / v0.3 played the A clip on the tackler and the B clip on the carrier; v0.4 has the roles right.
+- **Alignment.** At a tackle event `ContactDirector` picks the pair with `TackleVariants.Choose` (kind from the sim's `TackleType`, bearing of the tackler in the carrier's frame, carrier speed, closing speed), builds a `ContactSession` that puts the authored carrier hips on the simulated carrier (position exact, heading blended with the contact axis) and plays both clips from 0.18 s before the authored contact. The views warp from the simulation onto the animation root path over that lead-in (`ContactMath.WarpIn`), follow it exactly for 0.3 s after the hit and then blend back to the simulation (`ContactMath.Authority`) so the carrier ends where the sim says he is.
+- **Gang tackles and drags.** A `Drag` event plays the pair up to 0.5 s after contact and freezes it (`ActionAnimator.SetFrozen`) while the sim carrier churns on; the next tackle event for that carrier releases it. Extra defenders play the B clip of another pair aligned to the carrier's pose.
+- **Ragdoll.** `RagdollRig` builds Humanoid-bone rigid bodies, capsule / box colliders and character joints lazily from the avatar's bind pose; bodies sit on a layer that only collides with an invisible ground plane. Animation to ragdoll is a 0.12 s pose blend (the animated pose pulls the bodies), 0.4 to 1.2 s of simulation with capped velocities, then the settled pose is blended into a get-up take cut from the lying-and-rising part of the authored tackle takes, chosen by the face up / down test.
+- **Performance.** The 80,000-vertex match player was the cost: the 26,000-vertex helmet and the 11,000 vertices of hands and shoes drew into every shadow cascade 22 times. `PlayerLod` swaps the gear to its authored LOD01 / LOD02 and the body to clustered meshes by distance; coaches and officials are not posed off screen and the coaches cast no shadows.
+- **Autotest.** `-pixAutotestContactOnly [-pixAutotestContactCases wrap,bighit,...]` scripts one play per case with the `PlaySimOptions.ForceTackle` / `ForceTackleAfter` test hooks, `MatchDirector.ForcedCall` / `AutoMove` and takes a close-up screenshot sequence of each contact into `Logs/autotest`.
+- **Sim changes** are engine-free and deterministic: the quarterback reads a hot-routed receiver from the snap and favours him (`OffenseAI.HotReadEdge` / `HotReadBonus`); the two test hooks default to off.

@@ -232,6 +232,23 @@ namespace PixFootball.Gameplay
             return P(c, Mathf.Max(0f, t - 0.14f), Mathf.Min(c.length, t + 0.85f), 1f, 0.06f, 0.25f);
         }
 
+        static readonly System.Collections.Generic.List<MoveTakeTable.Take> _spinTakes = new System.Collections.Generic.List<MoveTakeTable.Take>();
+
+        /// <summary>The ball carrier's spin: a window of the BoNES spin / dodge takes (found by the move take builder), sped up to fit the simulation's spin. Empty plan = use the procedural spin.</summary>
+        public static ClipPlan Spin(int seed)
+        {
+            var t = MoveTakeTable.Load(); var l = Lib;
+            if (t == null || l == null) return default(ClipPlan);
+            t.Of(ArtKeys.Spin, _spinTakes);
+            if (_spinTakes.Count == 0) return default(ClipPlan);
+            var take = _spinTakes[((seed % _spinTakes.Count) + _spinTakes.Count) % _spinTakes.Count];
+            var clip = l.ClipByName(take.clip);
+            if (clip == null) return default(ClipPlan);
+            float dur = Mathf.Max(0.3f, take.t1 - take.t0);
+            float speed = Mathf.Clamp(dur / 0.5f, 1f, 1.8f);
+            return P(clip, Mathf.Max(0f, take.t0 - 0.18f * speed), Mathf.Min(clip.length, take.t1 + 0.3f * speed), speed, 0.06f, 0.2f);
+        }
+
         public static ClipPlan Jump(int seed)
         {
             var c = V("catch_jump", seed);

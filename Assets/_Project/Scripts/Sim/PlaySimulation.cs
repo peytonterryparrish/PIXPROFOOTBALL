@@ -24,6 +24,10 @@ namespace PixFootball.Sim
         public bool Penalties = true;
         /// <summary>Test hook: the quarterback never throws or scrambles (used to measure pass protection in isolation).</summary>
         public bool QbHoldsBall;
+        /// <summary>Test hook (contact gallery): every tackle attempt resolves to this outcome.</summary>
+        public TackleType? ForceTackle;
+        /// <summary>Test hook: defenders only attempt tackles once the carrier is this many yards past the line of scrimmage (clean open-field contact).</summary>
+        public float ForceTackleAfter;
     }
 
     /// <summary>

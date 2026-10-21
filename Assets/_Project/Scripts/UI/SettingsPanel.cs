@@ -23,8 +23,8 @@ namespace PixFootball.UI
             sp.OnBack = onBack;
             UiKit.Stretch(root);
             var col = UiKit.Rect(root, "Column");
-            UiKit.Anchor(col, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(110, 10), new Vector2(800, 880));
-            var v = col.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 8; v.childAlignment = TextAnchor.UpperLeft; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false;
+            UiKit.Anchor(col, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(110, 0), new Vector2(800, 1000));
+            var v = col.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 6; v.childAlignment = TextAnchor.UpperLeft; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false;
 
             var title = UiKit.Label(col, "SETTINGS", 64, UiColors.TextPrimary, true, TextAlignmentOptions.BottomLeft, "Title");
             title.rectTransform.sizeDelta = new Vector2(760, 80); var tle = title.gameObject.AddComponent<LayoutElement>(); tle.preferredHeight = 80; tle.preferredWidth = 760;
@@ -39,15 +39,18 @@ namespace PixFootball.UI
             var resSel = UiControls.Selector(col, "Resolution", sp._res.Select(r => r.x + " x " + r.y).ToArray(), curRes, i => { PixSettings.ResolutionWidth = sp._res[i].x; PixSettings.ResolutionHeight = sp._res[i].y; PixSettings.Save(); PixSettings.Apply(); if (!Application.isEditor) Screen.SetResolution(sp._res[i].x, sp._res[i].y, PixSettings.Fullscreen ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed); });
             sp.First = resSel;
             UiControls.Selector(col, "Display mode", new[] { "Fullscreen", "Windowed" }, PixSettings.Fullscreen ? 0 : 1, i => { PixSettings.Fullscreen = i == 0; PixSettings.Save(); if (!Application.isEditor) Screen.fullScreenMode = i == 0 ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed; });
-            int q = PixSettings.Quality >= 0 ? PixSettings.Quality : QualitySettings.GetQualityLevel();
-            UiControls.Selector(col, "Quality", QualitySettings.names, Mathf.Clamp(q, 0, QualitySettings.names.Length - 1), i => { PixSettings.Quality = i; PixSettings.Save(); QualitySettings.SetQualityLevel(i, true); });
+            int rsIdx = 0; for (int i = 0; i < QualityTiers.RenderScales.Length; i++) if (Mathf.Abs(QualityTiers.RenderScales[i] - PixSettings.RenderScale) < 0.02f) rsIdx = i;
+            UiControls.Selector(col, "Graphics quality", QualityTiers.Names, QualityTiers.Current, i => QualityTiers.Select(i));
+            UiControls.Selector(col, "Render scale", QualityTiers.RenderScaleNames, rsIdx, i => { PixSettings.RenderScale = QualityTiers.RenderScales[i]; PixSettings.Save(); QualityTiers.ApplyRenderScale(); });
             UiControls.Selector(col, "Invert look Y", new[] { "Off", "On" }, PixSettings.InvertLookY ? 1 : 0, i => { PixSettings.InvertLookY = i == 1; PixSettings.Save(); });
             UiControls.Selector(col, "Default camera", new[] { "Broadcast", "Behind player", "First person" }, (int)PixSettings.DefaultCamera, i => { PixSettings.DefaultCamera = (CameraMode)i; PixSettings.Save(); });
             UiControls.Selector(col, "Lighting", new[] { "Night game", "Day game" }, (int)PixSettings.Lighting, i => { PixSettings.Lighting = (LightingPreset)i; PixSettings.Save(); });
+            UiControls.Selector(col, "Controller rumble", new[] { "On", "Off" }, PixSettings.Rumble ? 0 : 1, i => { PixSettings.Rumble = i == 0; PixSettings.Save(); });
+            UiControls.Selector(col, "Camera shake on hits", new[] { "On", "Off" }, PixSettings.CameraShake ? 0 : 1, i => { PixSettings.CameraShake = i == 0; PixSettings.Save(); });
             UiControls.SliderRow(col, "Master volume", PixSettings.MasterVolume, x => { PixSettings.MasterVolume = x; AudioListener.volume = x; PixSettings.Save(); });
             UiControls.SliderRow(col, "Music volume", PixSettings.MusicVolume, x => { PixSettings.MusicVolume = x; PixSettings.Save(); });
             UiControls.SliderRow(col, "Crowd volume", PixSettings.CrowdVolume, x => { PixSettings.CrowdVolume = x; PixSettings.Save(); });
-            UiKit.MenuButton(col, "BACK", () => { if (sp.OnBack != null) sp.OnBack(); }, 760, 62, 30);
+            UiKit.MenuButton(col, "BACK", () => { if (sp.OnBack != null) sp.OnBack(); }, 760, 54, 30);
             return sp;
         }
 
