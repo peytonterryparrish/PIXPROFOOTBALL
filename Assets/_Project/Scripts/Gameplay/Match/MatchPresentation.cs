@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using PixFootball.Core;
 using UnityEngine;
 
 namespace PixFootball.Gameplay
@@ -18,21 +19,8 @@ namespace PixFootball.Gameplay
         public bool ClockRunning;
         public bool TwoMinute;
         public bool InPlay;
-    }
-
-    public struct PlayCallItem
-    {
-        public string Label, Tag;
-        public Btn Button;
-    }
-
-    public sealed class PlayCallData
-    {
-        public string Title = "", Subtitle = "";
-        public bool Offense = true;
-        public List<PlayCallItem> Items = new List<PlayCallItem>();
-        public float Seconds = 20f;
-        public string TeamName = "";
+        /// <summary>Flag text shown in the yellow strip under the scorebug (penalty announcements).</summary>
+        public string FlagText = "";
     }
 
     public struct ReceiverIcon
@@ -41,6 +29,8 @@ namespace PixFootball.Gameplay
         public Btn Button;
         public string Label;
         public bool Highlight;
+        /// <summary>Show an arrow instead of a button glyph (motion candidates).</summary>
+        public bool Arrow;
     }
 
     public sealed class FinalData
@@ -54,9 +44,61 @@ namespace PixFootball.Gameplay
         public bool UserWon, Tie;
     }
 
+    /// <summary>One "glyph + label" pair in the bottom prompt bar.</summary>
+    public struct HintPair
+    {
+        public string Glyph, Text;
+        public HintPair(string glyph, string text) { Glyph = glyph; Text = text; }
+    }
+
+    public struct MenuRow
+    {
+        public Btn Button;
+        public string Label, Tag;
+        public bool Selected, Dim;
+    }
+
+    public struct WheelOption
+    {
+        /// <summary>Compass slot 0-7: 0 up, 1 up-right, 2 right, 3 down-right, 4 down, 5 down-left, 6 left, 7 up-left (screen frame).</summary>
+        public int Slot;
+        public string Label;
+        public bool Selected;
+    }
+
+    /// <summary>What the pre-snap overlay shows: prompt bar, active adjustments, the audible menu, the hot-route wheel and the receiver icons.</summary>
+    public sealed class PreSnapHud
+    {
+        public string Mode = "";
+        public string PlayName = "", Formation = "";
+        public List<HintPair> Hints = new List<HintPair>();
+        public List<string> Adjustments = new List<string>();
+        public string MenuTitle = "";
+        public List<MenuRow> Menu = new List<MenuRow>();
+        public string WheelTitle = "";
+        public List<WheelOption> Wheel = new List<WheelOption>();
+        public List<ReceiverIcon> Icons = new List<ReceiverIcon>();
+        public bool OffenseSide = true;
+        public int Seconds = -1;
+    }
+
+    /// <summary>The penalty accept / decline panel.</summary>
+    public sealed class PenaltyPanelData
+    {
+        public string Headline = "", Referee = "";
+        public string Team = "", Player = "", Yards = "", Rule = "";
+        public string AcceptTitle = "ACCEPT", AcceptText = "", DeclineTitle = "DECLINE", DeclineText = "";
+        public bool UserDecides = true, Recommended = true;
+        /// <summary>0 = accept highlighted, 1 = decline highlighted.</summary>
+        public int Selected;
+        public bool DeadBall;
+        public Color Accent = new Color(1f, 0.918f, 0f);
+        public float Seconds;
+    }
+
     /// <summary>
     /// What the MatchDirector needs from the UI layer (implemented by PixFootball.UI.MatchHud; the Gameplay assembly cannot reference UI).
-    /// All interactive screens report back through callbacks; the director waits on them from its coroutine.
+    /// The director polls the input and owns every model; the UI only draws what it is handed.
     /// </summary>
     public interface IMatchPresentation
     {
@@ -66,8 +108,13 @@ namespace PixFootball.Gameplay
         void ShowToast(string text, float seconds);
         void ShowCoinTossCall(string userTeam, string cpuTeam, Action<bool> onCallHeads);
         void ShowCoinTossResult(bool resultHeads, bool userWon, string winnerName, Action<bool> onReceive);
-        void ShowPlayCall(PlayCallData data, Action<int> onPick);
+        /// <summary>Shows (or refreshes) the full play-call screen for the model; <paramref name="playClock"/> is the seconds left.</summary>
+        void ShowPlayCall(PlayCallModel model, float playClock);
         void HidePlayCall();
+        void SetPreSnap(PreSnapHud hud);
+        void ShowPenalty(PenaltyPanelData data, Action<bool> onDecision);
+        void RefreshPenalty(PenaltyPanelData data);
+        void HidePenalty();
         void ShowFinal(FinalData data, Action onContinue);
         void SetReceiverIcons(List<ReceiverIcon> icons, Camera cam);
         void SetHint(string hint);

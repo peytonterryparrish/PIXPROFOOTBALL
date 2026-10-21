@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using PixFootball.Core;
 using PixFootball.League;
@@ -49,7 +49,7 @@ namespace PixFootball.Sim
             _zoneDefs = new List<Play>(), _manDefs = new List<Play>(), _blitzDefs = new List<Play>(), _goalLineDefs = new List<Play>(),
             _preventDefs = new List<Play>(), _kickoffs = new List<Play>(), _onsides = new List<Play>(), _kickReturns = new List<Play>(),
             _puntReturns = new List<Play>(), _fgBlocks = new List<Play>(), _goalLineOff = new List<Play>();
-        private Play _punt, _fieldGoal, _extraPoint, _kneel, _sneak;
+        private Play _punt, _fieldGoal, _extraPoint, _kneel, _sneak, _spike;
 
         public PhysicalGameSim(LeagueTeam home, LeagueTeam away, RuleSet rules, Rng rng, Playbook book = null, CoreTeam openingKicker = CoreTeam.Away)
         {
@@ -82,6 +82,7 @@ namespace PixFootball.Sim
                         break;
                     case PlayCategory.Screen: _screens.Add(p); break;
                     case PlayCategory.Kneel: if (_kneel == null) _kneel = p; break;
+                    case PlayCategory.Spike: if (_spike == null) _spike = p; break;
                     case PlayCategory.ZoneCoverage: _zoneDefs.Add(p); break;
                     case PlayCategory.ManCoverage: _manDefs.Add(p); break;
                     case PlayCategory.Blitz: _blitzDefs.Add(p); break;
@@ -132,6 +133,7 @@ namespace PixFootball.Sim
             };
             Play off, def;
             ChoosePlays(out off, out def);
+            Remember(State.Possession, off);
             rec.OffensePlayName = off.Name; rec.DefensePlayName = def.Name;
 
             CoreTeam offTeam = State.Possession;
@@ -213,26 +215,53 @@ namespace PixFootball.Sim
                 }
             }
 
-            // scrimmage downs
-            int toGoal = 100 - State.BallSpot;
-            int scoreDiff = State.PossessionScoreDiff;
-            bool late = State.Quarter == 4 && State.ClockSeconds < 240f;
-            bool closing = State.Quarter == 4 && State.ClockSeconds < 130f && scoreDiff > 0 && State.Down <= 3 && State.TimeoutsOf(State.Possession.Opponent()) == 0;
-            if (closing && _kneel != null) { off = _kneel; def = DefenseFor(false); return; }
-
+            // scrimmage downs: situational calling from the whole playbook (down, distance, field zone, score, clock, coach tendencies)
+            CoreTeam team = State.Possession;
+            CoachProfile oc = ProfileOf(team), dc = ProfileOf(team.Opponent());
+            if (PlayCaller.ShouldKneel(State) && _kneel != null) { off = _kneel; def = DefenseResponseTo(off); return; }
+            if (_spike != null && PlayCaller.ShouldSpike(State)) { off = _spike; def = DefenseResponseTo(off); return; }
             if (State.Down == 4)
             {
-                int fgDist = toGoal + 17;
-                bool fgRange = fgDist <= (Rules.CollegeStyle ? 50 : 54);
-                bool desperate = late && scoreDiff < 0;
-                if (State.Distance <= 2 && toGoal <= 45 && (Rng.Chance(0.45f) || desperate && toGoal > 20)) { PickScrimmageCall(out off, out def); return; }
-                if (desperate && State.Distance > 3 && State.BallSpot > 35 && !fgRange) { PickScrimmageCall(out off, out def); return; }
-                if (fgRange && !(desperate && scoreDiff < -3)) { off = _fieldGoal; def = Pick(_fgBlocks); return; }
-                if (State.BallSpot >= 35 || !desperate) { off = _punt; def = Pick(_puntReturns); return; }
+                switch (Caller.FourthDown(State, oc))
+                {
+                    case PlayCaller.FourthCall.FieldGoal: off = _fieldGoal; def = Pick(_fgBlocks); return;
+                    case PlayCaller.FourthCall.Punt: off = _punt; def = Pick(_puntReturns); return;
+                }
             }
-            PickScrimmageCall(out off, out def);
+            off = Caller.CallOffense(State, oc, Recent(team));
+            def = Caller.CallDefense(State, dc, Book.FindFormation(off.FormationName));
         }
 
+        // ---- coaches ----
+        private PlayCaller _caller;
+        private readonly List<Play>[] _recent = { new List<Play>(), new List<Play>() };
+        public PlayCaller Caller { get { return _caller ?? (_caller = new PlayCaller(Book, Rng.Fork())); } }
+
+        /// <summary>The recent offensive calls of a team (newest last), used to avoid repeating.</summary>
+        public List<Play> Recent(CoreTeam t) { return _recent[(int)t]; }
+
+        public void Remember(CoreTeam t, Play p)
+        {
+            var l = _recent[(int)t];
+            l.Add(p);
+            while (l.Count > 5) l.RemoveAt(0);
+        }
+
+        /// <summary>The CPU coach's tendencies for a team (head coach, offensive coordinator and scheme).</summary>
+        public static CoachProfile ProfileOf(LeagueTeam t)
+        {
+            var c = CoachProfile.Neutral;
+            if (t == null) return c;
+            Coach hc = t.HeadCoach, oc = t.OffensiveCoordinator, dcoord = t.DefensiveCoordinator;
+            c.PassTendency = oc != null ? oc.PassTendency : (hc != null ? hc.PassTendency : 50);
+            c.Aggression = hc != null ? hc.Aggression : 50;
+            if (dcoord != null) c.Aggression = (c.Aggression + dcoord.Aggression) / 2 + (dcoord.DefScheme == DefenseScheme.Aggressive ? 12 : 0);
+            c.Aggression = Math.Max(0, Math.Min(100, c.Aggression));
+            c.Style = oc != null ? (PlayStyle)(int)oc.OffScheme : PlayStyle.Balanced;
+            return c;
+        }
+
+        public CoachProfile ProfileOf(CoreTeam t) { return ProfileOf(TeamOf(t)); }
         private bool WantsTwoPoint()
         {
             int diff = State.ScoreOf(State.Possession) - State.ScoreOf(State.Possession.Opponent());
@@ -241,45 +270,7 @@ namespace PixFootball.Sim
             return Rng.Chance(0.02f);
         }
 
-        private void PickScrimmageCall(out Play off, out Play def)
-        {
-            int toGoal = 100 - State.BallSpot;
-            bool shortYardage = State.Distance <= 2;
-            bool goalLine = toGoal <= 3;
-            float pPass;
-            if (State.Down == 1) pPass = 0.48f;
-            else if (State.Distance >= 8) pPass = 0.78f;
-            else if (State.Distance >= 4) pPass = 0.58f;
-            else pPass = 0.34f;
-            int scoreDiff = State.PossessionScoreDiff;
-            if (State.Quarter == 4 && scoreDiff < -7 && State.ClockSeconds < 600f) pPass = Math.Max(pPass, 0.8f);
-            if (State.Quarter == 4 && scoreDiff > 7 && State.ClockSeconds < 600f) pPass = Math.Min(pPass, 0.28f);
-
-            if (goalLine && shortYardage && _sneak != null && Rng.Chance(0.25f)) { off = _sneak; def = DefenseFor(true); return; }
-            bool pass = Rng.Chance(pPass);
-            if (goalLine && !pass && _goalLineOff.Count > 0) { off = Pick(_goalLineOff); def = DefenseFor(true); return; }
-            if (pass)
-            {
-                float r = Rng.NextFloat();
-                if (r < 0.07f && _screens.Count > 0) off = Pick(_screens);
-                else
-                {
-                    var pool = new List<Play>();
-                    foreach (Play p in _passes)
-                    {
-                        // shape the mix by distance
-                        if (State.Distance <= 4 && (p.Category == PlayCategory.DeepPass) && !goalLine) continue;
-                        if (State.Distance >= 10 && p.Category == PlayCategory.ShortPass && Rng.Chance(0.4f)) continue;
-                        pool.Add(p);
-                    }
-                    off = pool.Count > 0 ? Pick(pool) : Pick(_passes);
-                }
-            }
-            else off = Pick(_runs);
-            def = DefenseFor(goalLine);
-        }
-
-        /// <summary>CPU defensive call that answers a chosen offensive/special-teams play (used when the human picks the offense).</summary>
+        /// <summary>CPU defensive call that answers a chosen offensive/special-teams play (used when the human picks the offense): personnel match the offense's formation.</summary>
         public Play DefenseResponseTo(Play off)
         {
             switch (off.Category)
@@ -288,21 +279,9 @@ namespace PixFootball.Sim
                 case PlayCategory.Punt: return Pick(_puntReturns);
                 case PlayCategory.FieldGoal: case PlayCategory.PointAfter: return Pick(_fgBlocks);
             }
-            bool goal = State.Phase == GamePhase.PointAfter || 100 - State.BallSpot <= 3;
-            return DefenseFor(goal);
-        }
-
-        private Play DefenseFor(bool goalLineCall)
-        {
-            if (goalLineCall && _goalLineDefs.Count > 0 && Rng.Chance(0.7f)) return Pick(_goalLineDefs);
-            bool late = State.Quarter == 4 && State.ClockSeconds < 100f;
-            int scoreDiff = State.PossessionScoreDiff; // offense perspective
-            if (late && scoreDiff < 0 && State.BallSpot < 70 && _preventDefs.Count > 0 && Rng.Chance(0.4f)) return Pick(_preventDefs);
-            float r = Rng.NextFloat();
-            float pBlitz = State.Distance >= 7 ? 0.20f : 0.12f;
-            if (r < pBlitz) return Pick(_blitzDefs);
-            if (r < pBlitz + 0.28f) return Pick(_manDefs);
-            return Pick(_zoneDefs);
+            if (State.Phase == GamePhase.PointAfter) return _goalLineDefs.Count > 0 ? Pick(_goalLineDefs) : Pick(_zoneDefs);
+            return Caller.CallDefense(State, ProfileOf(State.Possession.Opponent()), Book.FindFormation(off.FormationName));
         }
     }
 }
+

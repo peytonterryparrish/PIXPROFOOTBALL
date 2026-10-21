@@ -32,6 +32,7 @@ namespace PixFootball.Core
             { RouteKind.OutAndUp, new[] { 0f, 8f, 5f, 8.5f, 7f, 32f } },
             { RouteKind.Corner2, new[] { 0f, 12f, 8f, 22f, 14f, 36f } },
             { RouteKind.Delay, new[] { 0f, -1f, 4f, 2f, 8f, 6f } },
+            { RouteKind.In, new[] { 0f, 6f, -8f, 6.5f } },
         };
 
         public const float RouteSpeed = 7f;
@@ -312,7 +313,33 @@ namespace PixFootball.Core
             list.Add(new Formation(Trips, PlaySide.Offense, "11", OffSlots(
                 S(Position.QB, 0, -5, "QB"), S(Position.RB, -2f, -5, "HB"),
                 S(Position.TE, -4.5f, 0, "Y"), S(Position.WR, 18f, 0, "Z"), S(Position.WR, 12f, -1, "H"), S(Position.WR, 7.5f, -1, "W"))));
+
+            // ---- v0.3 alignment / personnel variants (the second play-call screen). They reuse the labels of the base family so every concept builds. ----
+            list.Add(new Formation("Shotgun Doubles", PlaySide.Offense, "11", OffSlots(
+                S(Position.QB, 0, -5, "QB"), S(Position.RB, 2f, -5, "HB"),
+                S(Position.TE, 4.5f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"), S(Position.WR, -8f, -1, "H")), ShotgunF, "Doubles"));
+            list.Add(new Formation("Shotgun Bunch", PlaySide.Offense, "11", OffSlots(
+                S(Position.QB, 0, -5, "QB"), S(Position.RB, -2f, -5, "HB"),
+                S(Position.TE, 13f, -1.2f, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 14.5f, 0, "Z"), S(Position.WR, 16.5f, -1.2f, "H")), ShotgunF, "Bunch"));
+            list.Add(new Formation("Singleback Ace", PlaySide.Offense, "12", OffSlots(
+                S(Position.QB, 0, -1, "QB"), S(Position.RB, 0, -6, "HB"),
+                S(Position.TE, 4.5f, 0, "Y"), S(Position.TE, -4.5f, 0, "Y2"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z")), Singleback, "Ace (12)"));
+            list.Add(new Formation("I-Form Slot", PlaySide.Offense, "20", OffSlots(
+                S(Position.QB, 0, -1, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.FB, 0, -4, "F"), S(Position.WR, 8f, -1, "H"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z")), IForm, "Slot (20)"));
+            list.Add(new Formation("Pistol Trips", PlaySide.Offense, "11", OffSlots(
+                S(Position.QB, 0, -4, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.TE, 4.5f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"), S(Position.WR, 10f, -1, "H")), Pistol, "Trips"));
             return list;
+        }
+
+        /// <summary>The formation names plus every variant formation whose family is one of them (so each concept also builds for the variants).</summary>
+        private static string[] Expand(string[] names)
+        {
+            var all = new List<string>(names);
+            foreach (Formation v in OffensiveFormations())
+                if (v.Family != v.Name && Array.IndexOf(names, v.Family) >= 0 && !all.Contains(v.Name)) all.Add(v.Name);
+            return all.ToArray();
         }
 
         private static Vec2 P(float x, float y) { return new Vec2(x, y); }
@@ -328,7 +355,7 @@ namespace PixFootball.Core
 
         private static void AddRun(Playbook pb, string name, PlayCategory cat, string[] formations, bool twoWay, RunBuild build)
         {
-            foreach (string fn in formations)
+            foreach (string fn in Expand(formations))
             {
                 Formation f = pb.FindFormation(fn);
                 int[] dirs = twoWay ? new[] { 1, -1 } : new[] { 1 };
@@ -464,7 +491,7 @@ namespace PixFootball.Core
         private static void AddPass(Playbook pb, string name, PlayCategory cat, string[] formations, string spec,
             QbAction action = QbAction.QuickPass, int steps = 3, int roll = 0, bool screen = false, bool fakeRun = false)
         {
-            foreach (string fn in formations)
+            foreach (string fn in Expand(formations))
             {
                 Formation f = pb.FindFormation(fn);
                 var b = new OffBuilder(f, true);

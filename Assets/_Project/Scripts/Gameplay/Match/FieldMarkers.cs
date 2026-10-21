@@ -1,4 +1,5 @@
-using PixFootball.Art;
+﻿using PixFootball.Art;
+using PixFootball.Core;
 using UnityEngine;
 
 namespace PixFootball.Gameplay
@@ -42,6 +43,39 @@ namespace PixFootball.Gameplay
             return q.transform;
         }
 
+        GameObject _collegeHashes;
+
+        /// <summary>College rules put the hash marks 40 feet apart (the stadium is painted with the pro 18.5-foot hashes): draw the college ticks on every yard line.</summary>
+        public void SetHashMarks(RuleSet rules)
+        {
+            bool college = rules != null && rules.HashWidthFeet > 30f;
+            if (!college) { if (_collegeHashes != null) _collegeHashes.SetActive(false); return; }
+            if (_collegeHashes == null)
+            {
+                var go = new GameObject("CollegeHashes"); go.transform.SetParent(transform, false); _collegeHashes = go;
+                var verts = new System.Collections.Generic.List<Vector3>(); var tris = new System.Collections.Generic.List<int>();
+                float hx = FieldGeometry.HashOffsetFromCenter(rules) * PlayFrame.YardsToMeters;
+                for (int yd = 0; yd <= 100; yd++)
+                {
+                    float z = (-50f + yd) * PlayFrame.YardsToMeters;
+                    foreach (float sx in new[] { -hx, hx })
+                    {
+                        int i = verts.Count;
+                        verts.Add(new Vector3(sx - 0.34f, LineY + 0.003f, z - 0.07f)); verts.Add(new Vector3(sx + 0.34f, LineY + 0.003f, z - 0.07f));
+                        verts.Add(new Vector3(sx + 0.34f, LineY + 0.003f, z + 0.07f)); verts.Add(new Vector3(sx - 0.34f, LineY + 0.003f, z + 0.07f));
+                        tris.Add(i); tris.Add(i + 2); tris.Add(i + 1); tris.Add(i); tris.Add(i + 3); tris.Add(i + 2);
+                    }
+                }
+                var mesh = new Mesh { name = "CollegeHashes" }; mesh.SetVertices(verts); mesh.SetTriangles(tris, 0); mesh.RecalculateNormals(); mesh.RecalculateBounds();
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var r = go.AddComponent<MeshRenderer>();
+                var rt = PixRuntimeAssets.Load();
+                if (rt != null && rt.hashMark != null) r.sharedMaterial = rt.hashMark; else if (rt != null) r.sharedMaterial = rt.lineFirstDown;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
+            }
+            _collegeHashes.SetActive(true);
+        }
+
         public void HideAll() { _los.gameObject.SetActive(false); _fd.gameObject.SetActive(false); _ring.gameObject.SetActive(false); }
 
         /// <summary>Spots are 0..100 from the offense's own goal line.</summary>
@@ -72,3 +106,4 @@ namespace PixFootball.Gameplay
         }
     }
 }
+

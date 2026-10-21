@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using PixFootball.Core;
 using PixFootball.Sim;
 using UnityEngine;
@@ -154,7 +154,48 @@ namespace PixFootball.Gameplay
                 }
                 v.ApplyMatch(pos, vel, face, a.Action, h, lat, specials, _shotgun, dt);
             }
+            ApplyContacts();
             UpdateBall(dt);
+        }
+
+        /// <summary>
+        /// Contact quality (v0.3): paired tackle and block clips are authored with the two actors a fixed distance apart, while the engine keeps its own spacing.
+        /// Over the first 0.15-0.18 s of the clip the pair is pulled to the authored distance (the tackler steps into the carrier, blockers and rushers lock up)
+        /// and the tackler / blockers turn to face their partner.
+        /// </summary>
+        void ApplyContacts()
+        {
+            foreach (var kv in _tackled)
+            {
+                int c = kv.Key, t = kv.Value.Tackler;
+                if (c < 0 || t < 0 || c >= 22 || t >= 22) continue;
+                var vc = _views[c]; var vt = _views[t];
+                if (vc == null || vt == null) continue;
+                SimAgent ac = Sim.Agents[c], at = Sim.Agents[t];
+                if (ac.Action != AgentAction.Tackled || !IsTackleAction(at.Action)) continue;
+                Pull(vc, vt, Mathf.Min(ac.ActionTime, at.ActionTime), 0.8f, 0.18f, false, true);
+            }
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent a = Sim.Agents[i];
+                if ((a.Action != AgentAction.Engaged && a.Action != AgentAction.Shed) || a.Engagement == null || a.Engagement.Defender != a) continue;
+                SimAgent b = a.Engagement.Primary;
+                if (b == null || _views[b.Id] == null || _views[i] == null) continue;
+                Pull(_views[b.Id], _views[i], a.ActionTime, 0.78f, 0.15f, true, true);
+            }
+        }
+
+        static void Pull(SimAgentView a, SimAgentView b, float t, float distance, float over, bool turnA, bool turnB)
+        {
+            Vector3 d = b.transform.position - a.transform.position; d.y = 0f;
+            float s = d.magnitude;
+            if (s < 0.05f) return;
+            Vector3 n = d / s;
+            float w = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / over));
+            float delta = Mathf.Clamp((s - distance) * 0.5f, -0.45f, 0.7f);
+            float yawAB = Mathf.Atan2(n.x, n.z) * Mathf.Rad2Deg;
+            a.ApplyContact(n * delta, yawAB, w, turnA);
+            b.ApplyContact(-n * delta, yawAB + 180f, w, turnB);
         }
 
         AnimHints BuildHints(SimAgent a, SimAgentView v)
@@ -258,3 +299,4 @@ namespace PixFootball.Gameplay
         }
     }
 }
+

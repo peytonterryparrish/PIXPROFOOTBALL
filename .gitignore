@@ -117,3 +117,4 @@ InitTestScene*.unity*
 /Docs/Screens/
 __pycache__/
 *.pyc
+/Docs/Playbook/

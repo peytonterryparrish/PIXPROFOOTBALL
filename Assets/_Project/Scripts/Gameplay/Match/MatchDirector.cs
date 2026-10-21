@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using PixFootball.Art;
@@ -18,11 +18,13 @@ namespace PixFootball.Gameplay
     /// The football rules live in <see cref="MatchFlow"/> (engine-free); this class presents them: 22 players, the ball, cameras, clock,
     /// banners and the user's controls (2K-style: quarterback pre-snap, then whoever has the ball; on defense the nearest defender).
     /// </summary>
-    public sealed class MatchDirector : MonoBehaviour
+    public sealed partial class MatchDirector : MonoBehaviour
     {
         public static MatchDirector Instance { get; private set; }
         /// <summary>Set by the autotest before the match scene loads: the director then plays the user side itself.</summary>
         public static bool ForceAutopilot;
+        /// <summary>Autotest hook: the next snap is blown dead by this pre-snap foul (committed by the given team).</summary>
+        public static PenaltyType? ForceFoul; public static CoreTeam ForceFoulBy = CoreTeam.Away;
 
         public Camera MainCamera;
         public LightingController Lighting;
@@ -35,6 +37,7 @@ namespace PixFootball.Gameplay
         public MatchCameraRig Cams { get; private set; }
         public FieldMarkers Markers { get; private set; }
         public MatchAudio Audio { get; private set; }
+        public MatchOfficials Officials { get; private set; }
         public IMatchPresentation Ui { get; private set; }
         public MatchPhase Phase { get; private set; } = MatchPhase.Booting;
         public PlaySimulation Sim { get; private set; }
@@ -46,6 +49,10 @@ namespace PixFootball.Gameplay
         /// <summary>When true the director plays the user's side itself (autotest / demo): picks plays, snaps, throws, runs, tackles.</summary>
         public bool Autopilot;
         public bool Finished { get; private set; }
+        /// <summary>The play-call screen model while the screen is open (autotest and tools read it).</summary>
+        public PlayCallModel CallModel { get; private set; }
+        public bool PenaltyOpen { get; private set; }
+        public PenaltyPanelData PenaltyData { get; private set; }
         public string StatusText { get; private set; } = "";
 
         public event Action<PlaySimulation> PlayStarted;
@@ -99,6 +106,7 @@ namespace PixFootball.Gameplay
             Cams = MatchCameraRig.Create(transform, MainCamera);
             Markers = FieldMarkers.Create(transform);
             Audio = gameObject.AddComponent<MatchAudio>(); Audio.Init();
+            try { Officials = MatchOfficials.Create(transform, HomeInfo, AwayInfo); } catch (Exception e) { Debug.LogWarning("[PIX] officials unavailable: " + e.Message); }
             if (Ui != null)
             {
                 Ui.Build(this);
@@ -162,6 +170,7 @@ namespace PixFootball.Gameplay
             CoreTeam kicker = receiver.Opponent();
             if (Ui != null) Ui.HidePlayCall();
             Flow = new MatchFlow(Config, MatchData.TeamByKey(Config.HomeId), MatchData.TeamByKey(Config.AwayId), kicker, _rng.Fork());
+            Markers.SetHashMarks(Flow.Rules);
             Note("toss: " + TeamName(receiver) + " receive");
             yield return null;
         }
@@ -176,10 +185,11 @@ namespace PixFootball.Gameplay
                 if (PrePlayHook != null) PrePlayHook(Flow);
                 offTeam = state.Possession;
                 _userIsOffense = !Config.CpuVsCpu && offTeam == Config.UserTeam;
-                _frame = PlayFrame.For(offTeam, state.Quarter);
+                _frame = PlayFrame.For(state);
                 if (state.Quarter != _lastQuarter) _lastQuarter = state.Quarter;
 
                 // ---- calls ----
+                _playClockCarry = Mathf.Max(8f, state.PlayClock);
                 yield return Calls();
                 if (_quit) yield break;
 
@@ -215,59 +225,82 @@ namespace PixFootball.Gameplay
             _offCall = cpuOff; _defCall = cpuDef;
             if (Config.CpuVsCpu) yield break;
             bool userOff = state.Possession == Config.UserTeam;
-            List<PlayOption> opts;
-            if (userOff)
+            if (!userOff)
             {
-                opts = Flow.OffenseOptions();
-                if (opts.Count == 0) yield break;
+                // the CPU offense calls first; a kneel or spike needs no answer from the user
+                if (cpuOff.Category == PlayCategory.Kneel || cpuOff.Category == PlayCategory.Spike) { _defCall = Flow.DefenseAnswer(cpuOff); yield break; }
             }
-            else
-            {
-                if (state.Phase != GamePhase.Scrimmage || cpuOff.Category == PlayCategory.Punt || cpuOff.Category == PlayCategory.FieldGoal || cpuOff.Category == PlayCategory.Kneel)
-                {
-                    _defCall = Flow.DefenseAnswer(cpuOff);
-                    yield break;
-                }
-                opts = Flow.DefenseOptions();
-                if (opts.Count == 0) yield break;
-            }
-            // ---- show the menu over a preview of the field ----
+            var model = Flow.CreateCallModel(userOff, userOff ? null : cpuOff);
+            if (model == null) { if (!userOff) _defCall = Flow.DefenseAnswer(cpuOff); yield break; }
+            // ---- the full play-call screen over a preview of the field; the play clock keeps ticking while the user chooses ----
             PreviewField();
             if (_fade > 0.01f) StartCoroutine(Fade(0f, 0.25f));
-            var data = new PlayCallData { Offense = userOff, TeamName = TeamName(Config.UserTeam), Seconds = 25f };
-            data.Title = userOff ? (state.Phase == GamePhase.Kickoff ? "KICKOFF" : (state.Phase == GamePhase.PointAfter ? "AFTER THE TOUCHDOWN" : "OFFENSE")) : "DEFENSE";
-            data.Subtitle = SituationText();
-            Btn[] order = { Btn.A, Btn.B, Btn.X, Btn.Y, Btn.LB, Btn.RB };
-            for (int i = 0; i < opts.Count && i < 6; i++) data.Items.Add(new PlayCallItem { Label = opts[i].Label, Tag = opts[i].Tag, Button = order[i] });
-            int picked = -1;
-            Ui.ShowPlayCall(data, i => picked = i);
+            float startClock = Mathf.Max(8f, _playClockCarry > 0f ? _playClockCarry : Flow.Rules.PlayClockDead);
+            _playClock = startClock;
+            CallModel = model;
+            Ui.ShowPlayCall(model, _playClock);
             float t = 0f;
-            while (picked < 0 && !_quit)
+            _prevLT = _prevRT = true;
+            while (model.Chosen == null && !_quit)
             {
-                if (Autopilot) { t += Time.deltaTime; if (t > 1.2f) picked = _autoRng.Next(Mathf.Min(opts.Count, data.Items.Count)); }
+                float dtU = Time.unscaledDeltaTime;
+                if (Autopilot)
+                {
+                    t += Time.deltaTime;
+                    if (t > 1.0f) AutoChoose(model);
+                }
                 else if (!Paused)
                 {
-                    t += Time.unscaledDeltaTime;
-                    var inp = MatchInput.Instance.Poll(Time.unscaledDeltaTime);
-                    if (inp.View) { Cams.Cycle(); PixSettings.DefaultCamera = Cams.Mode; }
-                    if (inp.Menu) SetPaused(true);
-                    for (int k = 0; k < data.Items.Count; k++) if (inp.Down[(int)data.Items[k].Button] && picked < 0) { picked = k; }
+                    _playClock -= dtU; t += dtU;
+                    var inp = MatchInput.Instance.Poll(dtU);
+                    DriveCallScreen(model, inp);
+                    if (model.TimeoutRequested)
+                    {
+                        model.ClearTimeoutRequest();
+                        if (TryUserTimeout()) { _playClock = Flow.Rules.PlayClockDead; model.Situation.Timeouts = Flow.State.TimeoutsOf(Config.UserTeam); }
+                    }
+                    if (_playClock <= 0f && model.Chosen == null) model.Expire();
                 }
-                if (t > data.Seconds && picked < 0) picked = 0;
+                Ui.ShowPlayCall(model, _playClock);
                 yield return null;
             }
-            Ui.HidePlayCall();
-            if (picked < 0) yield break;
-            var choice = opts[Mathf.Clamp(picked, 0, opts.Count - 1)];
-            if (userOff)
-            {
-                _offCall = choice.Play;
-                _defCall = Flow.DefenseAnswer(_offCall);
-            }
-            else _defCall = choice.Play;
+            Ui.HidePlayCall(); CallModel = null;
+            if (_quit) yield break;
+            _playClockCarry = Mathf.Max(_playClock, 7f);
+            Play choice = model.Chosen;
+            if (choice == null) yield break;
+            Flow.RememberUserCall(userOff, choice);
+            if (userOff) { _offCall = choice; _defCall = Flow.DefenseAnswer(_offCall); }
+            else _defCall = choice;
             yield return null;
         }
 
+        void AutoChoose(PlayCallModel m)
+        {
+            // autopilot: prefer the coach's pick, otherwise whatever the screen offers first
+            if (m.CoachPicks.Count > 0 && m.Tabs.Contains(CallTab.AskCoach)) { m.SetTab(CallTab.AskCoach); m.Confirm(); if (m.Chosen != null) return; }
+            m.Expire();
+        }
+
+        /// <summary>Feeds one frame of controller input to the play-call model: D-pad / stick move, A select, B back, LB / RB page, X filter, Y flip, RT tabs, LT timeout.</summary>
+        void DriveCallScreen(PlayCallModel m, MatchInputFrame inp)
+        {
+            if (inp.View) { Cams.Cycle(); PixSettings.DefaultCamera = Cams.Mode; }
+            if (inp.Menu) { SetPaused(true); return; }
+            bool rt = inp.Sprint, rtEdge = rt && !_prevRT; _prevRT = rt;
+            bool lt = inp.LT, ltEdge = lt && !_prevLT; _prevLT = lt;
+            if (inp.NavX != 0 || inp.NavY != 0) m.Navigate(inp.NavX, inp.NavY);
+            if (inp.Down[(int)Btn.A]) m.Confirm();
+            else if (inp.Down[(int)Btn.B]) m.Back();
+            else if (inp.Down[(int)Btn.LB]) m.PageStep(-1);
+            else if (inp.Down[(int)Btn.RB]) m.PageStep(1);
+            else if (inp.Down[(int)Btn.X]) m.CycleFilter(1);
+            else if (inp.Down[(int)Btn.Y]) m.ToggleFlip();
+            if (rtEdge) m.CycleTab(1);
+            if (ltEdge) m.RequestTimeout();
+        }
+
+        float _playClock, _playClockCarry;
         string SituationText()
         {
             var s = Flow.State;
@@ -303,11 +336,13 @@ namespace PixFootball.Gameplay
             var state = Flow.State;
             Sim = Flow.CreateSim(off, def, false);
             PlayNumber++;
-            _frame = PlayFrame.For(state.Possession, state.Quarter);
+            _frame = PlayFrame.For(state);
             var offKit = state.Possession == CoreTeam.Home ? _homeKit : _awayKit;
             var defKit = state.Possession == CoreTeam.Home ? _awayKit : _homeKit;
             Stage.Begin(Sim, _frame, offKit, defKit, PlayNumber);
             Cams.SetFrame(_frame, true);
+            ResetPreSnap();
+            if (Officials != null) Officials.BeginPlay(_frame, Sim);
             bool scrim = state.Phase == GamePhase.Scrimmage;
             Markers.SetLines(_frame, state.BallSpot, state.BallSpot + state.Distance, scrim, scrim && !state.IsGoalToGo);
             _userIsOffense = !Config.CpuVsCpu && state.Possession == Config.UserTeam;
@@ -348,10 +383,13 @@ namespace PixFootball.Gameplay
             _fadeTarget = 0f;
             float t = 0f;
             _runoff0 = state.ClockRunning ? state.PendingRunoff : 0f;
-            float cpuDelay = 2.6f + (float)_autoRng.NextDouble() * 1.6f;
-            bool snap = false, cpuTimeoutChecked = false;
+            bool hurry = Flow.CpuHurryUp;
+            float cpuDelay = hurry ? 0.9f + (float)_autoRng.NextDouble() * 0.8f : 2.6f + (float)_autoRng.NextDouble() * 1.6f;
+            bool snap = false, cpuTimeoutChecked = false, delayFoul = false;
             if (_fade > 0.01f) StartCoroutine(Fade(0f, 0.3f));
-            float playClock = Flow.Rules.PlayClockDead;
+            float playClock = _playClockCarry > 0f ? _playClockCarry : Flow.Rules.PlayClockDead;
+            _playClockCarry = 0f;
+            _prevLT = true;
             Note("presnap Q" + state.Quarter + " " + SituationText());
             while (!snap && !_recall && !_quit)
             {
@@ -364,10 +402,19 @@ namespace PixFootball.Gameplay
                 bool kickoff = Sim.Kind == PlayKind.Kickoff;
                 if (_userIsOffense && !kickoff)
                 {
-                    if (inp.Down[(int)Btn.A]) snap = true;
-                    if (inp.Down[(int)Btn.Y] && Ui != null && !Autopilot) { _recall = true; break; }
-                    if (inp.DPadDown) TryUserTimeout();
-                    SetHint(Sim.Kind == PlayKind.Scrimmage ? "A  SNAP      Y  CHANGE PLAY      D-PAD DOWN  TIMEOUT      VIEW  CAMERA" : "A  KICK      VIEW  CAMERA");
+                    if (Sim.Kind == PlayKind.Scrimmage)
+                    {
+                        bool rc = false;
+                        if (!Autopilot) { if (OffensePreSnapInput(inp, ref rc)) snap = true; }
+                        else if (inp.Down[(int)Btn.A]) snap = true;
+                        if (rc) { _recall = true; _playClockCarry = Mathf.Max(5f, playClock); break; }
+                    }
+                    else
+                    {
+                        if (inp.Down[(int)Btn.A]) snap = true;
+                        if (inp.DPadDown) TryUserTimeout();
+                        SetHint("A  KICK      VIEW  CAMERA");
+                    }
                 }
                 else if (_userIsOffense && kickoff)
                 {
@@ -376,13 +423,27 @@ namespace PixFootball.Gameplay
                 }
                 else
                 {
-                    if (inp.DPadDown) TryUserTimeout();
-                    if (inp.Down[(int)Btn.B]) _defUser = NearestUserAgentToBall(_defUser);
-                    SetHint(kickoff ? "GET READY TO RETURN" : "B  SWITCH PLAYER      D-PAD DOWN  TIMEOUT      VIEW  CAMERA");
-                    if (t > cpuDelay) snap = true;
+                    if (kickoff) { SetHint("GET READY TO RETURN"); }
+                    else if (Sim.Kind == PlayKind.Scrimmage)
+                    {
+                        bool rc = false;
+                        if (!Autopilot) DefensePreSnapInput(inp, ref rc);
+                        if (rc) { _recall = true; _playClockCarry = Mathf.Max(5f, playClock); break; }
+                    }
+                    else
+                    {
+                        if (inp.DPadDown) TryUserTimeout();
+                        SetHint("D-PAD DOWN  TIMEOUT      VIEW  CAMERA");
+                    }
+                    if (t > cpuDelay && _ps == PsMode.None) snap = true;
                 }
                 if (Autopilot && t > 0.9f) snap = true;
-                if (playClock <= 0f) snap = true;
+                if (playClock <= 0f && !snap)
+                {
+                    // delay of game: the user's offense let the clock run out
+                    if (_userIsOffense && !Autopilot && Sim.Kind == PlayKind.Scrimmage && Sim.CallDelayOfGame()) delayFoul = true;
+                    snap = true;
+                }
                 if (state.Phase == GamePhase.Scrimmage && t > 1.2f && !snap && !cpuTimeoutChecked)
                 {
                     cpuTimeoutChecked = true; CoreTeam cto;
@@ -392,9 +453,11 @@ namespace PixFootball.Gameplay
                 Sim.Tick(dt, default(ControlInput), -1);
                 Stage.Present(dt);
                 PresentFrame(dt, 0f, t);
+                UpdatePreSnapHud(playClock);
                 if (Ui != null) Ui.SetScore(MakeScore(false, playClock, t));
                 yield return null;
             }
+            if (Ui != null) { Ui.SetPreSnap(null); Ui.SetReceiverIcons(null, MainCamera); }
             if (_quit || _recall) yield break;
 
             // snap: burn the runoff; the period may end first
@@ -407,23 +470,26 @@ namespace PixFootball.Gameplay
             }
             Phase = MatchPhase.Live;
             if (Sim.Kind == PlayKind.Kickoff) Audio.Whistle();
-            Sim.Tick(0.0167f, new ControlInput { Snap = true }, -1);
-            Note("snap " + Sim.OffPlay.Name + " vs " + Sim.DefPlay.Name);
+            if (ForceFoul.HasValue && Sim.Kind == PlayKind.Scrimmage && state.Possession == Config.UserTeam) { if (Sim.CallPreSnapFoul(ForceFoul.Value, ForceFoulBy, ForceFoulBy == state.Possession ? 3 : 11)) delayFoul = true; ForceFoul = null; }
+            if (!delayFoul) Sim.Tick(0.0167f, new ControlInput { Snap = true }, -1);
+            Note("snap " + Sim.OffPlay.Name + " vs " + Sim.DefPlay.Name + (delayFoul ? " (delay of game)" : ""));
             if (PlayStarted != null) PlayStarted(Sim);
             yield return null;
         }
 
-        void TryUserTimeout()
+        bool TryUserTimeout()
         {
             var s = Flow.State;
-            if (Autopilot) return;
-            if (s.TimeoutsOf(Config.UserTeam) > 0 && s.Phase == GamePhase.Scrimmage && s.CallTimeout(Config.UserTeam))
+            if (Autopilot) return false;
+            if (s.TimeoutsOf(Config.UserTeam) > 0 && (s.Phase == GamePhase.Scrimmage) && s.CallTimeout(Config.UserTeam))
             {
                 _runoff0 = 0f;
                 Banner(TeamName(Config.UserTeam) + " TIMEOUT", UiColorsLite.Blue, 1.8f, s.TimeoutsOf(Config.UserTeam) + " REMAINING");
+                if (Officials != null) Officials.Signal(OfficialSignal.Timeout);
+                return true;
             }
+            return false;
         }
-
         // ---------------------------------------------------------------------------------------- the live play
         IEnumerator LivePlay()
         {
@@ -452,7 +518,17 @@ namespace PixFootball.Gameplay
 
             // ---- result ----
             Phase = MatchPhase.PostPlay;
-            var outcome = Flow.Finish(sim);
+            // ---- flags: the offended team accepts or declines (the user decides when it is his; the CPU uses the expected-points rule) ----
+            PenaltyDecision decision = PenaltyDecision.Auto;
+            var choice = Flow.PenaltyChoiceFor(sim);
+            if (choice != null)
+            {
+                PenaltyDecision d = PenaltyDecision.Auto;
+                yield return PenaltyFlow(sim, choice, x => d = x);
+                decision = d;
+                if (_quit) yield break;
+            }
+            var outcome = Flow.Finish(sim, decision);
             Note("result " + outcome.Text + " " + Flow.Summary());
             Markers.SetRing(null); Ui?.SetReceiverIcons(null, MainCamera);
             React(outcome);
@@ -485,6 +561,68 @@ namespace PixFootball.Gameplay
             _fadeTarget = 0f;
         }
 
+        // ---------------------------------------------------------------------------------------- penalties
+        IEnumerator PenaltyFlow(PlaySimulation sim, PenaltyChoice c, Action<PenaltyDecision> done)
+        {
+            Audio.Whistle();
+            bool userDecides = Flow.UserDecides(c) && !Autopilot && Ui != null;
+            int yards = Math.Abs(c.Yards);
+            var data = new PenaltyPanelData
+            {
+                Headline = c.Def.Name,
+                Team = Flow.TeamOf(c.CommittedBy).Nickname.ToUpperInvariant(),
+                Player = Flow.PenaltyNumber(c.Call) > 0 ? "#" + Flow.PenaltyNumber(c.Call) : "",
+                Yards = yards + (yards == 1 ? " YARD" : " YARDS") + (c.LossOfDown ? "  -  LOSS OF DOWN" : (c.AutomaticFirstDown ? "  -  AUTOMATIC FIRST DOWN" : "")),
+                Referee = Flow.RefereeText(c, true),
+                AcceptTitle = "ACCEPT", DeclineTitle = "DECLINE",
+                AcceptText = Flow.OutcomeText(c.Accept) + (yards > 0 ? "\n" + (c.Yards < 0 ? "BALL MOVES BACK " : "BALL MOVES UP ") + yards : ""),
+                DeclineText = Flow.DeclineSummary(c),
+                UserDecides = userDecides, Recommended = c.RecommendAccept, Selected = c.RecommendAccept ? 0 : 1, DeadBall = c.DeadBall, Seconds = 20f
+            };
+            if (Ui != null) Ui.SetScore(MakeScore(false, -1f, 0f, Flow.ChoiceHeadline(c)));
+            Officials?.Signal(OfficialSignal.Penalty, c.Call.CommittedBy == CoreTeam.Home);
+            bool accept = c.RecommendAccept;
+            if (Ui != null && !Autopilot)
+            {
+                bool decided = false;
+                PenaltyOpen = true; PenaltyData = data;
+                Ui.ShowPenalty(data, a => { accept = a; decided = true; });
+                float t = 0f;
+                _prevLT = _prevRT = true;
+                while (!decided && !_quit)
+                {
+                    float dt = Time.unscaledDeltaTime;
+                    if (Paused) { PauseFrame(); yield return null; continue; }
+                    t += dt;
+                    if (userDecides)
+                    {
+                        var inp = MatchInput.Instance.Poll(dt);
+                        if (inp.Menu) { SetPaused(true); yield return null; continue; }
+                        if (inp.NavX != 0) data.Selected = inp.NavX < 0 ? 0 : 1;
+                        if (inp.Down[(int)Btn.X]) { accept = true; decided = true; }
+                        else if (inp.Down[(int)Btn.B]) { accept = false; decided = true; }
+                        else if (inp.Down[(int)Btn.A]) { accept = data.Selected == 0; decided = true; }
+                        data.Seconds = Mathf.Max(0f, 20f - t);
+                        if (data.Seconds <= 0f) { accept = c.RecommendAccept; decided = true; }
+                    }
+                    else if (t > 3.0f) decided = true;
+                    Ui.RefreshPenalty(data);
+                    sim.Tick(dt, default(ControlInput), -1); Stage.Present(dt); PresentFrame(dt, 0f, 0f);
+                    yield return null;
+                }
+                Ui.HidePenalty(); PenaltyOpen = false;
+            }
+            else if (Autopilot) yield return new WaitForSeconds(0.4f);
+            if (userDecides && !Autopilot) { }
+            Color col = UiColorsLite.Yellow;
+            string refText = Flow.RefereeText(c, accept);
+            Banner(accept ? "PENALTY ACCEPTED" : "PENALTY DECLINED", col, 2.6f, refText.Length > 70 ? refText.Substring(0, 70) : refText);
+            if (Ui != null) Ui.SetScore(MakeScore(false, -1f, 0f, (accept ? "ACCEPTED: " : "DECLINED: ") + c.Def.Name.ToUpperInvariant()));
+            Note("penalty " + c.Def.Name + (accept ? " accepted" : " declined") + (userDecides ? " (user)" : " (cpu)"));
+            done(accept ? PenaltyDecision.Accept : PenaltyDecision.Decline);
+            float w = 0f;
+            while (w < 1.6f && !_quit) { if (!Paused) w += Time.deltaTime; sim.Tick(Time.deltaTime, default(ControlInput), -1); Stage.Present(Time.deltaTime); PresentFrame(Time.deltaTime, 0f, 0f); yield return null; }
+        }
         IEnumerator Fade(float to, float seconds)
         {
             float from = _fade; float t = 0f;
@@ -743,7 +881,7 @@ namespace PixFootball.Gameplay
                 case Headline.Sack: col = UiColorsLite.Red; secs = 2.0f; break;
                 case Headline.FieldGoalMissed: case Headline.TwoPointFailed: col = UiColorsLite.Red; secs = 2.4f; bad = true; break;
             }
-            if (o.Text.Length > 0 && o.Headline != Headline.Kickoff && o.Headline != Headline.Punt)
+            if (o.Text.Length > 0 && o.Headline != Headline.Kickoff && o.Headline != Headline.Punt && o.Headline != Headline.Penalty)
             {
                 string sub = "";
                 if (o.Headline == Headline.FirstDown) sub = Ordinal(Flow.State.Down) + " & " + (Flow.State.IsGoalToGo ? "GOAL" : Flow.State.Distance.ToString());
@@ -751,6 +889,15 @@ namespace PixFootball.Gameplay
                 else if (o.Headline == Headline.Penalty) sub = o.Result.Penalty.CommittedBy == CoreTeam.Home ? Flow.Abbr(CoreTeam.Home) : Flow.Abbr(CoreTeam.Away);
                 Banner(o.Text, col, secs, sub);
             }
+            if (Officials != null)
+            {
+                if (o.Headline == Headline.Touchdown) Officials.Signal(OfficialSignal.Touchdown, o.ScoringTeam == CoreTeam.Home);
+                else if (o.Headline == Headline.FirstDown) Officials.Signal(OfficialSignal.FirstDown);
+                else if (o.Headline == Headline.Incomplete) Officials.Signal(OfficialSignal.Incomplete);
+                else if (o.Headline == Headline.Safety) Officials.Signal(OfficialSignal.Safety);
+                else if (o.Headline == Headline.FieldGoal || o.Headline == Headline.ExtraPoint) Officials.CoachCheer(o.ScoringTeam == CoreTeam.Home ? 0 : 1);
+            }
+            if (o.PenaltyCall != null && !o.PenaltyAccepted) Banner("NO PENALTY", UiColorsLite.Blue, 1.4f, "");
             if (o.Headline == Headline.Kickoff && o.Result != null && o.Result.Touchback) Banner("TOUCHBACK", UiColorsLite.Blue, 1.8f, "");
             if (o.Headline == Headline.Punt && o.Result != null && o.Result.Touchback) Banner("TOUCHBACK", UiColorsLite.Blue, 1.8f, "");
             // crowd: cheer when the home team scores or makes a big play, boo home-team turnovers
@@ -785,6 +932,7 @@ namespace PixFootball.Gameplay
             bool scrim = st.Phase == GamePhase.Scrimmage;
             Markers.SetLines(_frame, st.BallSpot, st.BallSpot + st.Distance, scrim && Sim.Phase == PlayPhase.PreSnap, scrim && !st.IsGoalToGo);
             UpdateIcons();
+            if (Officials != null) Officials.Tick(dt, Sim, Sim.Phase == PlayPhase.Live);
             if (Ui != null) Ui.SetCameraLabel(Cams.Mode == CameraMode.Broadcast ? "BROADCAST" : Cams.Mode == CameraMode.Behind ? "BEHIND PLAYER" : "FIRST PERSON");
             if (!Config.CpuVsCpu && Sim.Phase == PlayPhase.Live) SetLiveHint();
         }
@@ -838,7 +986,7 @@ namespace PixFootball.Gameplay
         }
 
         // ============================================================================================ scoreboard
-        ScoreSnapshot MakeScore(bool live, float playClock = -1f, float preT = 0f)
+        ScoreSnapshot MakeScore(bool live, float playClock = -1f, float preT = 0f, string flag = "")
         {
             var s = Flow.State;
             var sc = new ScoreSnapshot
@@ -849,14 +997,14 @@ namespace PixFootball.Gameplay
                 HomeScore = s.HomeScore, AwayScore = s.AwayScore,
                 Quarter = s.Quarter == 1 ? "1ST" : s.Quarter == 2 ? "2ND" : s.Quarter == 3 ? "3RD" : s.Quarter == 4 ? "4TH" : "OT",
                 PossessionHome = s.Possession == CoreTeam.Home,
-                HomeTimeouts = s.HomeTimeouts, AwayTimeouts = s.AwayTimeouts, InPlay = live
+                HomeTimeouts = s.HomeTimeouts, AwayTimeouts = s.AwayTimeouts, InPlay = live, FlagText = flag
             };
             float clock = s.ClockSeconds;
             if (live && Sim != null && Sim.Phase == PlayPhase.Live && Sim.Kind != PlayKind.Kickoff) clock = Mathf.Max(0f, clock - Sim.Time);
             else if (!live && Phase == MatchPhase.PreSnap && _runoff0 > 0f) clock = Mathf.Max(0f, clock - _runoff0 * Mathf.Clamp01(preT / 5f));
             int ci = Mathf.CeilToInt(clock);
-            sc.Clock = (ci / 60) + ":" + (ci % 60).ToString("00");
-            sc.TwoMinute = (s.Quarter == 2 || s.Quarter == 4) && clock <= 120f;
+            sc.Clock = s.IsCollegeOvertime ? "OT" : (ci / 60) + ":" + (ci % 60).ToString("00");
+            sc.TwoMinute = (s.Quarter == 2 || s.Quarter == 4) && clock <= 120f && !s.IsCollegeOvertime;
             sc.PlayClock = playClock >= 0f ? Mathf.CeilToInt(playClock) : -1;
             if (s.Phase == GamePhase.Kickoff) { sc.DownDistance = "KICKOFF"; sc.Spot = ""; }
             else if (s.Phase == GamePhase.PointAfter) { sc.DownDistance = s.RequiresTwoPoint ? "2-PT TRY" : "PAT"; sc.Spot = ""; }
@@ -915,3 +1063,12 @@ namespace PixFootball.Gameplay
             Red = new Color(0.76f, 0.1f, 0.1f), Orange = new Color(1f, 0.565f, 0f), Yellow = new Color(1f, 0.918f, 0f);
     }
 }
+
+
+
+
+
+
+
+
+

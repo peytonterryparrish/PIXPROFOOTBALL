@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using PixFootball.Art;
@@ -17,7 +17,7 @@ namespace PixFootball.EditorTools
         const string UiRoot = "Assets/_Licensed/UI/DFB";
         const string FontRoot = "Assets/_Licensed/DraftFever/Fonts/Main";
         public const string FontRootPath = FontRoot;
-        const string AsciiPlus = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~°×•–—→←▶»«";
+        const string AsciiPlus = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~Â°Ã—â€¢â€“â€”â†’â†â–¶Â»Â«";
 
         public static TMP_FontAsset MakeFont(string ttfPath, string assetName)
         {
@@ -152,6 +152,9 @@ namespace PixFootball.EditorTools
             AddSprite(rt, "sb_to_on", "HUD/sb_timeoutactive_property_1_available.png");
             AddSprite(rt, "sb_to_off", "HUD/sb_timeoutactive_property_1_used.png");
             foreach (string k in new[] { "a", "b", "c", "d" }) AddSprite(rt, "ring_" + k, "HUD/Markers/marker_ring_" + k + ".png");
+            // v0.3 play-call screen: play category tag pills from the kit (RUN / PASS / BLITZ / ZONE ... text is part of the art)
+            foreach (string k in new[] { "run", "pass", "blitz", "zone", "man", "rpo", "kick", "punt" }) AddSprite(rt, "tag_" + k, "PlayCall/play_tag_category_" + k + ".png");
+            AddSprite(rt, "tag_fg", "PlayCall/play_tag_category_field_goal.png");
             if (lib != null)
             {
                 System.Action<System.Collections.Generic.List<AudioClip>, string, int> take = (list, key, n) => { int cnt = lib.AudioVariantCount(key); for (int i = 0; i < cnt && i < n; i++) { var c = lib.Audio(key, i); if (c != null) list.Add(c); } };
@@ -161,6 +164,7 @@ namespace PixFootball.EditorTools
             MaterialFactory.EnsureFolder(PixDir + "/Materials");
             rt.lineLos = MakeUnlit(PixDir + "/Materials/PIX_LineLos.mat", new Color(0.12f, 0.42f, 1f, 1f), null);
             rt.lineFirstDown = MakeUnlit(PixDir + "/Materials/PIX_LineFirstDown.mat", new Color(1f, 0.86f, 0.1f, 1f), null);
+            rt.hashMark = MakeUnlit(PixDir + "/Materials/PIX_HashMark.mat", new Color(0.93f, 0.95f, 0.93f, 1f), null);
             rt.ringMarker = MakeUnlit(PixDir + "/Materials/PIX_RingMarker.mat", new Color(0.7f, 0.35f, 1f, 1f), AssetDatabase.LoadAssetAtPath<Texture2D>(UiRoot + "/HUD/Markers/marker_ring_a.png"));
 
             // animator
@@ -182,3 +186,5 @@ namespace PixFootball.EditorTools
         }
     }
 }
+
+

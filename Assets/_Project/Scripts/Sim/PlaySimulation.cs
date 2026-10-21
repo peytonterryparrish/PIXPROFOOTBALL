@@ -344,9 +344,11 @@ namespace PixFootball.Sim
                 {
                     SimAgent a = Agents[i];
                     a.Want = Vec2.Zero; a.HasFace = false; a.Exertion = 0f;
-                    a.Body.Step(Dt, Vec2.Zero, false, Vec2.Zero, 0f);
-                    a.Intent = AgentAction.Stance;
-                    a.SetAction(AgentAction.Stance);
+                    Vec2 preWant = i == MotionSlot ? PreSnapWant(i) : Vec2.Zero;
+                    a.Body.Step(Dt, preWant, false, Vec2.Zero, 0f);
+                    bool inMotion = i == MotionSlot && a.Speed > 0.6f;
+                    a.Intent = inMotion ? AgentAction.Run : AgentAction.Stance;
+                    a.SetAction(inMotion ? AgentAction.Run : AgentAction.Stance);
                     a.ActionTime += Dt;
                     a.RecordHistory();
                 }

@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using PixFootball.Core;
 using PixFootball.Gameplay;
 using TMPro;
 using UnityEngine;
@@ -27,10 +28,12 @@ namespace PixFootball.UI
         TextMeshProUGUI _quarter, _clock, _playClock, _down, _spot, _inPlay;
         Image _clockBg, _playClockBg;
         // banner
-        RectTransform _banner; Image _bannerBg, _bannerBase; TextMeshProUGUI _bannerText, _bannerSub; Coroutine _bannerCo;
+        RectTransform _banner; Image _bannerBg, _bannerBase, _bannerSlab, _bannerRail; TextMeshProUGUI _bannerText, _bannerSub; Coroutine _bannerCo;
         RectTransform _toast; TextMeshProUGUI _toastText; Coroutine _toastCo;
-        // play call
-        GameObject _callRoot; RectTransform _callList; TextMeshProUGUI _callTitle, _callSub, _callTimer; Action<int> _onPick; float _callT, _callMax;
+        // play call / pre-snap / penalty (v0.3)
+        PlayCallScreen _callScreen; PreSnapPanel _preSnap; PenaltyPanel _penalty; Action<bool> _penaltyDecision;
+        bool _callShown, _chromeVisible = true;
+        RectTransform _scorebugRoot; GameObject _hintBar; RectTransform _flagStrip; TextMeshProUGUI _flagText;
         // coin toss / final / pause
         GameObject _tossRoot, _finalRoot, _pauseRoot;
         TextMeshProUGUI _hint, _camLabel;
@@ -51,8 +54,9 @@ namespace PixFootball.UI
             BuildScorebug();
             BuildBanner();
             BuildHint();
-            _callRoot = BuildCallPanel();
-            _callRoot.SetActive(false);
+            _callScreen = PlayCallScreen.Create(_root); _callScreen.Hide();
+            _preSnap = PreSnapPanel.Create(_root); _preSnap.Hide();
+            _penalty = PenaltyPanel.Create(_root);
             _fade = UiKit.Panel(_root, "Fade", new Color(0, 0, 0, 0)); UiKit.Stretch(_fade.rectTransform); _fade.raycastTarget = false;
             _fade.transform.SetAsLastSibling();
             BuildPause();
@@ -90,6 +94,7 @@ namespace PixFootball.UI
         void BuildScorebug()
         {
             var bug = UiKit.Rect(_root, "Scorebug"); UiKit.Anchor(bug, new Vector2(0, 1), new Vector2(0, 1), new Vector2(60, -44), new Vector2(1240, 140));
+            _scorebugRoot = bug;
             _away = MakeBlock(bug, "Away", new Vector2(0, 0), false);
             _home = MakeBlock(bug, "Home", new Vector2(420, 0), true);
             // clock block
@@ -110,6 +115,11 @@ namespace PixFootball.UI
             UiKit.Anchor(_down.rectTransform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(24, 0), new Vector2(300, 44)); _down.characterSpacing = 2f;
             _spot = UiKit.Label(strip.rectTransform, "BALL ON BUF 25", 26, Color.white, true, TextAlignmentOptions.MidlineLeft, "Spot");
             UiKit.Anchor(_spot.rectTransform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(330, 0), new Vector2(420, 44));
+            // flag strip (penalty announcements) hangs under the scorebug
+            _flagStrip = UiKit.Rect(bug, "FlagStrip"); UiKit.Anchor(_flagStrip, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, -130), new Vector2(1170, 44));
+            var fimg = _flagStrip.gameObject.AddComponent<Image>(); fimg.color = new Color(1f, 0.918f, 0f, 1f); fimg.raycastTarget = false;
+            _flagText = UiKit.Label(_flagStrip, "", 28, Color.black, true, TextAlignmentOptions.MidlineLeft, "FlagText"); UiKit.Stretch(_flagText.rectTransform, 24, 0, 24, 0); _flagText.characterSpacing = 2f;
+            _flagStrip.gameObject.SetActive(false);
             _camLabel = UiKit.Label(strip.rectTransform, "BROADCAST", 22, UiColors.TextMuted, true, TextAlignmentOptions.MidlineRight, "Cam");
             UiKit.Anchor(_camLabel.rectTransform, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-20, 0), new Vector2(300, 44));
         }
@@ -124,6 +134,8 @@ namespace PixFootball.UI
             _playClock.text = s.PlayClock >= 0 ? s.PlayClock.ToString() : "--";
             _playClock.color = s.PlayClock >= 0 && s.PlayClock <= 5 ? UiColors.Danger : UiColors.TextSecondary;
             _down.text = s.DownDistance; _spot.text = s.Spot;
+            bool flag = !string.IsNullOrEmpty(s.FlagText);
+            if (_flagStrip != null) { _flagStrip.gameObject.SetActive(flag && _chromeVisible); if (flag) _flagText.text = s.FlagText; }
         }
 
         void Fill(Block b, string abbr, string crest, Color color, int score, int timeouts, bool poss)
@@ -142,19 +154,17 @@ namespace PixFootball.UI
         void BuildBanner()
         {
             _banner = UiKit.Rect(_root, "Banner"); UiKit.Anchor(_banner, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -250), new Vector2(1160, 190));
-            // the glassy banner art is partly translucent: put a dark copy behind it so the headline always reads
-            for (int bi = 0; bi < 4; bi++)
-            {
-                var baseRect = UiKit.Rect(_banner, "Base" + bi); UiKit.Stretch(baseRect);
-                _bannerBase = baseRect.gameObject.AddComponent<Image>(); _bannerBase.sprite = Sp("sb_notification"); _bannerBase.color = new Color(0.04f, 0.05f, 0.09f, 1f); _bannerBase.raycastTarget = false;
-            }
+            // fully opaque base (the glassy kit art is only used as a subtle tint on top) so the headline always reads
+            var baseRect = UiKit.Rect(_banner, "Base"); UiKit.Stretch(baseRect);
+            _bannerBase = baseRect.gameObject.AddComponent<Image>(); _bannerBase.color = new Color(0.04f, 0.05f, 0.09f, 1f); _bannerBase.raycastTarget = false;
             var topRect = UiKit.Rect(_banner, "Tint"); UiKit.Stretch(topRect);
             _bannerBg = topRect.gameObject.AddComponent<Image>(); _bannerBg.sprite = Sp("sb_notification"); _bannerBg.raycastTarget = false;
-            _bannerText = UiKit.Label(_banner, "TOUCHDOWN", 92, Color.black, true, TextAlignmentOptions.Center, "Text");
+            var slab = UiKit.Panel(_banner, "Slab", Color.white); UiKit.Anchor(slab.rectTransform, new Vector2(0, 0), new Vector2(0, 0), Vector2.zero, new Vector2(26, 0)); slab.rectTransform.anchorMax = new Vector2(0, 1); slab.rectTransform.sizeDelta = new Vector2(26, 0); _bannerSlab = slab;
+            var rail = UiKit.Panel(_banner, "Rail", Color.white); UiKit.Anchor(rail.rectTransform, new Vector2(0, 0), new Vector2(0, 0), Vector2.zero, new Vector2(0, 8)); rail.rectTransform.anchorMax = new Vector2(1, 0); rail.rectTransform.sizeDelta = new Vector2(0, 8); _bannerRail = rail;
+            _bannerText = UiKit.Label(_banner, "TOUCHDOWN", 92, Color.white, true, TextAlignmentOptions.Center, "Text");
             UiKit.Anchor(_bannerText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 14), new Vector2(1000, 120)); _bannerText.characterSpacing = 6f;
-            _bannerSub = UiKit.Label(_banner, "", 34, Color.black, true, TextAlignmentOptions.Center, "Sub");
-            UiKit.Anchor(_bannerSub.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -52), new Vector2(900, 50)); _bannerSub.characterSpacing = 3f;
-            _banner.gameObject.SetActive(false);
+            _bannerSub = UiKit.Label(_banner, "", 34, Color.white, true, TextAlignmentOptions.Center, "Sub");
+            UiKit.Anchor(_bannerSub.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -52), new Vector2(900, 50)); _bannerSub.characterSpacing = 3f;            _banner.gameObject.SetActive(false);
 
             _toast = UiKit.Rect(_root, "Toast"); UiKit.Anchor(_toast, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 150), new Vector2(800, 60));
             var tb = _toast.gameObject.AddComponent<Image>(); tb.color = new Color(0.05f, 0.06f, 0.09f, 0.85f); tb.raycastTarget = false;
@@ -172,9 +182,10 @@ namespace PixFootball.UI
         IEnumerator BannerRoutine(string text, Color color, float seconds, string sub)
         {
             _banner.gameObject.SetActive(true);
-            _bannerBg.color = new Color(color.r, color.g, color.b, 0.93f);
-            Color tc = Readable(color);
-            _bannerText.text = text; _bannerText.color = tc; _bannerSub.text = sub ?? ""; _bannerSub.color = new Color(tc.r, tc.g, tc.b, 0.85f);
+            _bannerBg.color = new Color(color.r, color.g, color.b, 0.30f);
+            _bannerSlab.color = color; _bannerRail.color = color;
+            Color sc = Color.Lerp(color, Color.white, 0.45f);
+            _bannerText.text = text; _bannerText.color = Color.white; _bannerSub.text = sub ?? ""; _bannerSub.color = sc;
             var cg = _banner.GetComponent<CanvasGroup>() ?? _banner.gameObject.AddComponent<CanvasGroup>();
             float t = 0f;
             while (t < 0.28f) { t += Time.unscaledDeltaTime; float u = Mathf.SmoothStep(0, 1, t / 0.28f); _banner.anchoredPosition = new Vector2(Mathf.Lerp(-900f, 0f, u), -250f); cg.alpha = u; yield return null; }
@@ -204,6 +215,7 @@ namespace PixFootball.UI
         {
             var bar = UiKit.Panel(_root, "HintBar", new Color(0.04f, 0.05f, 0.08f, 0.72f));
             UiKit.Anchor(bar.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 36), new Vector2(1640, 54));
+            _hintBar = bar.gameObject;
             _hint = UiKit.Label(bar.rectTransform, "", 26, UiColors.TextSecondary, true, TextAlignmentOptions.Center, "Hint"); UiKit.Stretch(_hint.rectTransform);
             _hint.characterSpacing = 1.5f;
         }
@@ -212,46 +224,46 @@ namespace PixFootball.UI
         {
             if (_hint == null) return;
             _hint.text = hint ?? "";
-            _hint.transform.parent.gameObject.SetActive(!string.IsNullOrEmpty(hint));
+            _hint.transform.parent.gameObject.SetActive(!string.IsNullOrEmpty(hint) && _chromeVisible);
         }
 
         public void SetFade(float alpha) { if (_fade != null) _fade.color = new Color(0, 0, 0, Mathf.Clamp01(alpha)); }
 
-        // ---------------------------------------------------------------------------------------- play call
-        static Color TagColor(string tag)
+        // ---------------------------------------------------------------------------------------- play call screen (v0.3)
+        public void ShowPlayCall(PlayCallModel model, float playClock)
         {
-            switch (tag)
-            {
-                case "RUN": return UiColors.Hex("#FA7805");
-                case "PASS": return UiColors.Hex("#054EED");
-                case "BLITZ": return UiColors.Hex("#C20000");
-                case "ZONE": return UiColors.Hex("#00287D");
-                case "MAN": return UiColors.Hex("#FFEA00");
-                case "PUNT": return UiColors.Hex("#B845FF");
-                case "FG": return UiColors.Hex("#11F055");
-                case "KICK": return UiColors.Hex("#3A3A3A");
-                default: return UiColors.Hex("#2D5ABC");
-            }
+            if (_callScreen == null) return;
+            if (!_callShown) { _callShown = true; SetHint(""); }
+            _callScreen.Show(model, playClock);
+            _callScreen.transform.SetAsLastSibling(); if (_fade != null) _fade.transform.SetAsLastSibling();
         }
 
-        GameObject BuildCallPanel()
+        public void HidePlayCall()
         {
-            var root = UiKit.Rect(_root, "PlayCall"); UiKit.Stretch(root);
-            var shade = UiKit.Panel(root, "Shade", new Color(0.02f, 0.03f, 0.06f, 0.55f));
-            UiKit.Anchor(shade.rectTransform, new Vector2(0, 0), new Vector2(0, 0), Vector2.zero, new Vector2(720, 0)); shade.rectTransform.anchorMax = new Vector2(0, 1); shade.rectTransform.sizeDelta = new Vector2(720, 0);
-            var edge = UiKit.Panel(root, "Edge", UiColors.AccentBlue);
-            UiKit.Anchor(edge.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(720, 0), new Vector2(4, 0)); edge.rectTransform.anchorMax = new Vector2(0, 1); edge.rectTransform.sizeDelta = new Vector2(4, 0);
-            _callTitle = UiKit.Label(root, "OFFENSE", 78, Color.white, true, TextAlignmentOptions.BottomLeft, "Title");
-            UiKit.Anchor(_callTitle.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(70, -250), new Vector2(620, 96)); _callTitle.characterSpacing = 4f;
-            var rule = UiKit.Panel(root, "Rule", UiColors.Gold); UiKit.Anchor(rule.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(76, -352), new Vector2(180, 6));
-            _callSub = UiKit.Label(root, "", 28, UiColors.Gold, true, TextAlignmentOptions.TopLeft, "Sub");
-            UiKit.Anchor(_callSub.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(76, -366), new Vector2(620, 40)); _callSub.characterSpacing = 2f;
-            _callList = UiKit.Rect(root, "Items"); UiKit.Anchor(_callList, new Vector2(0, 1), new Vector2(0, 1), new Vector2(70, -420), new Vector2(600, 520));
-            var v = _callList.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 10; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false;
-            _callTimer = UiKit.Label(root, "", 26, UiColors.TextSecondary, true, TextAlignmentOptions.BottomLeft, "Timer");
-            UiKit.Anchor(_callTimer.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(76, 120), new Vector2(600, 40)); _callTimer.characterSpacing = 2f;
-            return root.gameObject;
+            if (_callScreen != null) _callScreen.Hide();
+            _callShown = false;
+            if (_tossRoot != null) Destroy(_tossRoot);
         }
+
+        public void SetPreSnap(PreSnapHud hud)
+        {
+            if (_preSnap == null) return;
+            if (hud == null) { _preSnap.Hide(); return; }
+            _preSnap.Show(hud);
+            if (_preSnap.transform.GetSiblingIndex() < _root.childCount - 2) _preSnap.transform.SetSiblingIndex(_root.childCount - 2);
+            SetHint("");
+        }
+
+        public void ShowPenalty(PenaltyPanelData data, Action<bool> onDecision)
+        {
+            if (_penalty == null) return;
+            _penalty.Show(data, onDecision);
+            _penaltyDecision = onDecision;
+            if (_fade != null) _fade.transform.SetAsLastSibling();
+        }
+
+        public void RefreshPenalty(PenaltyPanelData data) { if (_penalty != null) _penalty.Refresh(data); }
+        public void HidePenalty() { if (_penalty != null) _penalty.Hide(); _penaltyDecision = null; }
 
         static string KeyFor(Btn b) { switch (b) { case Btn.A: return "SPACE"; case Btn.B: return "F"; case Btn.X: return "C"; case Btn.Y: return "R"; case Btn.LB: return "Z"; default: return "X"; } }
         static string GlyphKey(Btn b) { return "glyph_" + b.ToString().ToLowerInvariant(); }
@@ -273,68 +285,101 @@ namespace PixFootball.UI
             return holder;
         }
 
-        public void ShowPlayCall(PlayCallData data, Action<int> onPick)
+        void LateUpdate()
         {
-            _onPick = onPick; _callT = 0f; _callMax = data.Seconds;
-            _callTitle.text = data.Title; _callSub.text = data.Subtitle;
-            for (int i = _callList.childCount - 1; i >= 0; i--) Destroy(_callList.GetChild(i).gameObject);
-            for (int i = 0; i < data.Items.Count; i++)
-            {
-                int idx = i; var it = data.Items[i];
-                var row = UiKit.Rect(_callList, "Row" + i); row.sizeDelta = new Vector2(600, 76);
-                var le = row.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = 600; le.preferredHeight = 76;
-                var bg = row.gameObject.AddComponent<Image>(); bg.color = UiColors.Row;
-                var btn = row.gameObject.AddComponent<Button>(); btn.targetGraphic = bg;
-                var cb = btn.colors; cb.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1f); cb.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f); btn.colors = cb;
-                btn.onClick.AddListener(() => { if (_onPick != null) { var cbk = _onPick; _onPick = null; cbk(idx); } });
-                var icon = MakeButtonIcon(row, it.Button, 54f); UiKit.Anchor((RectTransform)icon, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(18, 0), ((RectTransform)icon).sizeDelta);
-                var lbl = UiKit.Label(row, it.Label.ToUpperInvariant(), 34, Color.white, true, TextAlignmentOptions.MidlineLeft, "Label");
-                UiKit.Anchor(lbl.rectTransform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(108, 0), new Vector2(330, 60)); lbl.characterSpacing = 1.5f;
-                var chip = UiKit.Panel(row, "Tag", TagColor(it.Tag));
-                UiKit.Anchor(chip.rectTransform, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-14, 0), new Vector2(112, 40));
-                var tt = UiKit.Label(chip.rectTransform, it.Tag, 22, it.Tag == "MAN" || it.Tag == "FG" ? Color.black : Color.white, true, TextAlignmentOptions.Center, "TagText"); UiKit.Stretch(tt.rectTransform); tt.characterSpacing = 2f;
-            }
-            _callRoot.SetActive(true);
-            _callRoot.transform.SetAsLastSibling(); if (_fade != null) _fade.transform.SetAsLastSibling();
-            SetHint("");
-            if (_callList.childCount > 0 && EventSystem.current != null) StartCoroutine(SelectFirstRow());
+            // full-screen panels hide the scorebug, banner and hint bar (nothing may show through the final screen, the coin toss, the call screen or the pause menu)
+            bool want = !(_callShown || _tossRoot != null || _finalRoot != null || PauseOpen);
+            if (want != _chromeVisible) SetChrome(want);
         }
 
-        IEnumerator SelectFirstRow()
+        /// <summary>Full-screen panels (play call, coin toss, final, pause) hide the scorebug, banner and hint bar so nothing shows through them.</summary>
+        void SetChrome(bool visible)
         {
-            yield return null;
-            if (_callList != null && _callList.childCount > 0 && EventSystem.current != null) EventSystem.current.SetSelectedGameObject(_callList.GetChild(0).gameObject);
+            if (_scorebugRoot != null) _scorebugRoot.gameObject.SetActive(visible);
+            if (_flagStrip != null && !visible) _flagStrip.gameObject.SetActive(false);
+            if (_hintBar != null && !visible) _hintBar.SetActive(false);
+            if (_banner != null && !visible) _banner.gameObject.SetActive(false);
+            _chromeVisible = visible;
         }
-
-        public void HidePlayCall() { if (_callRoot != null) _callRoot.SetActive(false); _onPick = null; if (_tossRoot != null) Destroy(_tossRoot); }
-
-        void Update()
-        {
-            if (_callRoot != null && _callRoot.activeSelf)
-            {
-                _callT += Time.unscaledDeltaTime;
-                float left = Mathf.Max(0f, _callMax - _callT);
-                _callTimer.text = "PLAY CLOCK  " + Mathf.CeilToInt(left);
-            }
-        }
-
         // ---------------------------------------------------------------------------------------- receiver icons
+        readonly List<Image> _leaders = new List<Image>();
+        readonly List<Vector2> _iconPos = new List<Vector2>(), _iconAnchor = new List<Vector2>();
+        readonly List<bool> _iconOk = new List<bool>();
+
         public void SetReceiverIcons(List<ReceiverIcon> icons, Camera cam)
         {
             int n = icons == null ? 0 : icons.Count;
             while (_iconPool.Count < n) _iconPool.Add(MakeReceiverIcon());
             for (int i = 0; i < _iconPool.Count; i++) _iconPool[i].SetActive(i < n);
+            for (int i = 0; i < _leaders.Count; i++) _leaders[i].gameObject.SetActive(false);
             if (n == 0 || cam == null) return;
+            _iconPos.Clear(); _iconAnchor.Clear(); _iconOk.Clear();
             for (int i = 0; i < n; i++)
             {
                 Vector3 sp = cam.WorldToScreenPoint(icons[i].World);
-                var go = _iconPool[i];
-                if (sp.z < 0f) { go.SetActive(false); continue; }
-                Vector2 local;
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(_iconLayer, sp, null, out local);
-                ((RectTransform)go.transform).anchoredPosition = local + _iconLayer.rect.size * 0.5f * 0f;
-                UpdateIconGlyph(go, icons[i].Button);
+                Vector2 local = Vector2.zero; bool ok = sp.z >= 0f;
+                if (ok) RectTransformUtility.ScreenPointToLocalPointInRectangle(_iconLayer, sp, null, out local);
+                _iconPos.Add(local); _iconAnchor.Add(local); _iconOk.Add(ok);
             }
+            SeparateIcons();
+            for (int i = 0; i < n; i++)
+            {
+                var go = _iconPool[i];
+                if (!_iconOk[i]) { go.SetActive(false); continue; }
+                ((RectTransform)go.transform).anchoredPosition = _iconPos[i];
+                UpdateIconGlyph(go, icons[i].Button, icons[i].Arrow);
+                var ring = go.transform.GetChild(0).GetComponent<Image>();
+                if (ring != null) ring.color = icons[i].Highlight ? new Color(1f, 0.85f, 0.2f, 1f) : (ring.sprite != null ? Color.white : new Color(0.55f, 0.1f, 1f, 0.8f));
+                go.transform.localScale = Vector3.one * (icons[i].Highlight ? 1.18f : 1f);
+                // a thin leader from the displaced icon back to its player
+                if ((_iconPos[i] - _iconAnchor[i]).magnitude > 18f) Leader(i, _iconAnchor[i], _iconPos[i]);
+            }
+        }
+
+        /// <summary>Pushes overlapping icons apart (and back inside the screen) so the receiver buttons never stack on top of each other.</summary>
+        void SeparateIcons()
+        {
+            const float minDist = 100f, margin = 62f;
+            Rect r = _iconLayer.rect;
+            float xMin = r.xMin + margin, xMax = r.xMax - margin, yMin = r.yMin + margin + 120f, yMax = r.yMax - margin - 190f;
+            int n = _iconPos.Count;
+            for (int pass = 0; pass < 24; pass++)
+            {
+                bool moved = false;
+                for (int i = 0; i < n; i++)
+                {
+                    if (!_iconOk[i]) continue;
+                    for (int j = i + 1; j < n; j++)
+                    {
+                        if (!_iconOk[j]) continue;
+                        Vector2 d = _iconPos[j] - _iconPos[i]; float len = d.magnitude;
+                        if (len >= minDist) continue;
+                        Vector2 dir = len > 0.5f ? d / len : new Vector2(Mathf.Cos(i * 1.7f + j), Mathf.Sin(i * 1.3f + j * 2f));
+                        // prefer spreading sideways first (receivers are lined up across the field)
+                        dir = new Vector2(dir.x * 1.0f, dir.y * 0.7f).normalized;
+                        float push = (minDist - len) * 0.5f + 0.5f;
+                        _iconPos[i] -= dir * push; _iconPos[j] += dir * push; moved = true;
+                    }
+                    Vector2 p = _iconPos[i];
+                    p.x = Mathf.Clamp(p.x, xMin, xMax); p.y = Mathf.Clamp(p.y, yMin, yMax);
+                    _iconPos[i] = p;
+                }
+                if (!moved) break;
+            }
+        }
+
+        void Leader(int i, Vector2 a, Vector2 b)
+        {
+            while (_leaders.Count <= i)
+            {
+                var im = UiKit.Panel(_iconLayer, "Leader" + _leaders.Count, new Color(1f, 1f, 1f, 0.75f)); im.transform.SetAsFirstSibling();
+                im.rectTransform.pivot = new Vector2(0f, 0.5f); _leaders.Add(im);
+            }
+            var l = _leaders[i]; l.gameObject.SetActive(true);
+            Vector2 d = b - a;
+            l.rectTransform.anchorMin = l.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            l.rectTransform.anchoredPosition = a; l.rectTransform.sizeDelta = new Vector2(d.magnitude, 4f);
+            l.rectTransform.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
         }
 
         GameObject MakeReceiverIcon()
@@ -346,18 +391,23 @@ namespace PixFootball.UI
             return r.gameObject;
         }
 
-        readonly Dictionary<GameObject, Btn> _iconBtn = new Dictionary<GameObject, Btn>();
-        void UpdateIconGlyph(GameObject go, Btn b)
+        readonly Dictionary<GameObject, string> _iconBtn = new Dictionary<GameObject, string>();
+        void UpdateIconGlyph(GameObject go, Btn b, bool arrow)
         {
-            Btn cur;
-            if (_iconBtn.TryGetValue(go, out cur) && cur == b && go.transform.GetChild(1).childCount > 0) return;
-            _iconBtn[go] = b;
+            string key = arrow ? "arrow" : b.ToString() + (MatchInput.GamepadActive ? "p" : "k");
+            string cur;
+            if (_iconBtn.TryGetValue(go, out cur) && cur == key && go.transform.GetChild(1).childCount > 0) return;
+            _iconBtn[go] = key;
             var holder = go.transform.GetChild(1);
             for (int i = holder.childCount - 1; i >= 0; i--) Destroy(holder.GetChild(i).gameObject);
+            if (arrow)
+            {
+                var t = UiKit.Label(holder, ">", 56, Color.white, true, TextAlignmentOptions.Center, "Arrow"); UiKit.Stretch(t.rectTransform);
+                return;
+            }
             var icon = MakeButtonIcon(holder, b, 46f);
             UiKit.Anchor((RectTransform)icon, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, ((RectTransform)icon).sizeDelta);
         }
-
         // ---------------------------------------------------------------------------------------- coin toss
         RectTransform BeginModal(string name, string title, string sub)
         {
@@ -531,3 +581,9 @@ namespace PixFootball.UI
         }
     }
 }
+
+
+
+
+
+

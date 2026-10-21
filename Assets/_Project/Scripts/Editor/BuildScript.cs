@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Linq;
 using PixFootball.Art;
 using UnityEditor;
@@ -14,7 +14,7 @@ namespace PixFootball.EditorTools
     {
         const string ResLib = "Assets/_Licensed/Resources/ArtLibrary.asset";
         static readonly string BackupDir = "Library/PIXBackup";
-        static readonly string[] SlimPrefabs = { "player_medium", "player_small", "player_large" };
+        static readonly string[] SlimPrefabs = { "player_medium", "player_small", "player_large", "referee", "coach_a", "coach_b", "coach_c" };
 
         // clip keys used by AnimKit (see Docs/ARCHITECTURE.md v0.2 animation mapping); long BoNES takes are excluded by the length cap
         const float SlimClipMaxSeconds = 12f; const int SlimClipVariants = 6;
@@ -47,7 +47,7 @@ namespace PixFootball.EditorTools
             var perKey = new System.Collections.Generic.Dictionary<string, int>();
             foreach (var c in full.clips)
             {
-                if (c == null || c.clip == null || !SlimClipKeys.Contains(c.key)) continue;
+                if (c == null || c.clip == null || !(SlimClipKeys.Contains(c.key) || c.key.StartsWith("ref_") || c.key.StartsWith("coach_"))) continue;
                 int n; perKey.TryGetValue(c.key, out n);
                 if (n >= SlimClipVariants || c.clip.length > (c.key.Contains("stance") ? 50f : SlimClipMaxSeconds)) continue;
                 perKey[c.key] = n + 1;
@@ -108,7 +108,16 @@ namespace PixFootball.EditorTools
 
             var s = report.summary;
             Debug.Log($"[PIX] Build {s.result}: {s.totalSize / (1024 * 1024)} MB, {s.totalErrors} errors, {s.totalTime} -> {outDir}");
+            if (s.result == BuildResult.Succeeded)
+            {
+                // Unity writes a "BackUpThisFolder_ButDontShipItWithYourGame" folder (IL2CPP / burst debug data) next to the player: it is not part of the release
+                foreach (string dir in Directory.GetDirectories(outDir, "*_BackUpThisFolder_ButDontShipItWithYourGame"))
+                {
+                    try { Directory.Delete(dir, true); Debug.Log("[PIX] removed " + Path.GetFileName(dir)); } catch (System.Exception e) { Debug.LogWarning("[PIX] could not remove " + dir + ": " + e.Message); }
+                }
+            }
             if (s.result != BuildResult.Succeeded && Application.isBatchMode) EditorApplication.Exit(1);
         }
     }
 }
+

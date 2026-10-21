@@ -18,8 +18,63 @@ namespace PixFootball.Core
         public string Description;
     }
 
+    /// <summary>The game situation that results from one of the two choices on a flag.</summary>
+    public sealed class PenaltyOutcome
+    {
+        public int Down, Distance, Spot, HomeScore, AwayScore;
+        public Team Possession;
+        public GamePhase Phase;
+        public bool FirstDown, PossessionChanged, ReplayDown, Touchdown;
+        public int Points;
+    }
+
+    /// <summary>Everything the penalty panel shows: the foul, who may choose, and the result of accepting vs declining.</summary>
+    public sealed class PenaltyChoice
+    {
+        public PenaltyCall Call;
+        public Penalty Def { get { return Call.Def; } }
+        public Team CommittedBy { get { return Call.CommittedBy; } }
+        /// <summary>The team that may accept or decline (the offended team).</summary>
+        public Team OfferedTo { get { return Call.CommittedBy.Opponent(); } }
+        /// <summary>Signed yards the ball moves when the penalty is accepted (negative = toward the offense's own goal).</summary>
+        public int Yards;
+        public bool DeadBall, LossOfDown, AutomaticFirstDown, HalfDistance;
+        public PenaltyOutcome Accept, Decline;
+        /// <summary>What the CPU would do (the expected-points comparison).</summary>
+        public bool RecommendAccept;
+    }
+
     public static class PenaltyEnforcer
     {
+        /// <summary>Works out both options of a penalty flag on <paramref name="play"/> without changing <paramref name="before"/>.</summary>
+        public static PenaltyChoice Describe(GameState before, PlayResult play)
+        {
+            if (play == null || play.Penalty == null) throw new ArgumentException("The play has no penalty.");
+            var choice = new PenaltyChoice { Call = play.Penalty, DeadBall = play.Type == PlayType.Penalty };
+            GameState acc = before.Clone();
+            EnforcementResult er = Enforce(acc, play.Penalty, play);
+            choice.Yards = er.Yards; choice.LossOfDown = er.LossOfDown; choice.AutomaticFirstDown = er.AutomaticFirstDown; choice.HalfDistance = er.HalfDistance;
+            choice.Accept = Outcome(before, acc);
+            if (choice.DeadBall) choice.Decline = Outcome(before, before.Clone());
+            else { GameState dec = before.Clone(); dec.ApplyPlayCore(play); choice.Decline = Outcome(before, dec); }
+            choice.RecommendAccept = ShouldAccept(before, play);
+            return choice;
+        }
+
+        static PenaltyOutcome Outcome(GameState before, GameState after)
+        {
+            return new PenaltyOutcome
+            {
+                Down = after.Down, Distance = after.Distance, Spot = after.BallSpot, Possession = after.Possession, Phase = after.Phase,
+                HomeScore = after.HomeScore, AwayScore = after.AwayScore,
+                FirstDown = after.Phase == GamePhase.Scrimmage && after.Possession == before.Possession && after.Down == 1 && before.Down != 1,
+                PossessionChanged = after.Possession != before.Possession,
+                ReplayDown = after.Phase == GamePhase.Scrimmage && after.Possession == before.Possession && after.Down == before.Down,
+                Touchdown = after.HomeScore + after.AwayScore - before.HomeScore - before.AwayScore >= 6,
+                Points = after.HomeScore + after.AwayScore - before.HomeScore - before.AwayScore
+            };
+        }
+
         /// <summary>
         /// Enforces <paramref name="call"/> on <paramref name="s"/> (mutating the down, distance and ball spot).
         /// The state must still be the pre-play state. Does not touch the clock.

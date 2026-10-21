@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -28,6 +28,7 @@ namespace PixFootball.Art
         public List<AudioClip> sfxTackle = new List<AudioClip>(), sfxHit = new List<AudioClip>(), sfxCatch = new List<AudioClip>(), sfxKick = new List<AudioClip>(), sfxWhistle = new List<AudioClip>(), sfxCheers = new List<AudioClip>(), sfxBeds = new List<AudioClip>(), sfxUi = new List<AudioClip>();
         [Header("Match materials (v0.2)")]
         public Material lineLos, lineFirstDown, ringMarker;
+        [Header("College hash marks (v0.3)")] public Material hashMark;
         public float[] clipSpeeds = new float[0];
         public TextAsset teamsCsv;
 
@@ -59,3 +60,4 @@ namespace PixFootball.Art
         }
     }
 }
+

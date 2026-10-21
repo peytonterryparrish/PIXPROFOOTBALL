@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -18,7 +18,7 @@ namespace PixFootball.Gameplay
     /// user's side is played by the director's autopilot (snaps, throws to a receiver, runs with jukes, tackles), with screenshots of the key
     /// moments (call menu, formation, pass, tackle, touchdown banner, halftime, final score), FPS logging and a box score, then exits.
     /// </summary>
-    public class AutoTest : MonoBehaviour
+    public partial class AutoTest : MonoBehaviour
     {
         public static bool Requested
         {
@@ -88,7 +88,11 @@ namespace PixFootball.Gameplay
                 if (Flag("-pixAutotestMenuOnly")) { Log("menu-only autotest finished"); Finish(0); yield break; }
                 yield return FreeRoamPart();
             }
-            yield return MatchPart();
+            if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestCollegeOnly")) yield return MatchPart();
+            if (!Flag("-pixAutotestCollegeOnly") && !Flag("-pixAutotestNoV3")) yield return V3Part();
+            if (!Flag("-pixAutotestV3Only") && !Flag("-pixAutotestNoV3")) yield return CollegePart();
+            Log("errors/exceptions logged: " + _errors);
+            Finish(_errors > 0 ? 3 : 0);
         }
 
         // ============================================================================================ free roam (v0.1)
@@ -243,8 +247,7 @@ namespace PixFootball.Gameplay
             else Log("match did not finish within the time budget (phase " + dir.Phase + ", Q" + dir.Flow.State.Quarter + " " + dir.Flow.State.ClockDisplay + ")");
             ReportMatchFps();
             WriteBoxScore(dir, plays, tds, passes, tackles, ints, fumbles, sacks, fgs, punts, penalties, firstDowns);
-            Log("errors/exceptions logged: " + _errors);
-            Finish(finalDone ? 0 : 3);
+            Log("match part done (final reached: " + finalDone + ")");
         }
 
         void WriteBoxScore(MatchDirector d, int plays, int tds, int passes, int tackles, int ints, int fumbles, int sacks, int fgs, int punts, int penalties, int firstDowns)
@@ -379,3 +382,4 @@ namespace PixFootball.Gameplay
         }
     }
 }
+

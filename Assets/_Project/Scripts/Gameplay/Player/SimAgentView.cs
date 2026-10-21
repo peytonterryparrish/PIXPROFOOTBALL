@@ -1,4 +1,4 @@
-using PixFootball.Art;
+﻿using PixFootball.Art;
 using PixFootball.Core;
 using PixFootball.Sim;
 using UnityEngine;
@@ -152,6 +152,17 @@ namespace PixFootball.Gameplay
             else if (_ownsClip && Rig != null) { Rig.Stop(0.18f); _ownsClip = false; }
         }
 
+        /// <summary>
+        /// Presentation-only contact correction applied after <see cref="ApplyMatch"/> for paired clips (tackles, engaged blocks): the engine owns the positions, but the
+        /// paired takes were authored at a fixed distance, so the view steps toward its partner (offset, scaled by w) and optionally turns to face him.
+        /// </summary>
+        public void ApplyContact(Vector3 offset, float yawToward, float w, bool turn)
+        {
+            if (w <= 0f) return;
+            transform.position += offset * w;
+            if (turn) { _yaw = Mathf.LerpAngle(_yaw, yawToward, Mathf.Clamp01(w)); transform.rotation = Quaternion.Euler(0f, _yaw, 0f); }
+        }
+
         /// <summary>Procedural leg swing for kicks and punts (no kicking mocap exists in the source set): hip and knee of the right leg are driven in LateUpdate over the running animation.</summary>
         void LateUpdate()
         {
@@ -187,3 +198,4 @@ namespace PixFootball.Gameplay
         }
     }
 }
+

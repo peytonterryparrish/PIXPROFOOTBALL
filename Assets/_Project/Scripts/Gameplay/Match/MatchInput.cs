@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 
 namespace PixFootball.Gameplay
@@ -35,6 +35,13 @@ namespace PixFootball.Gameplay
         static MatchInput _inst;
         /// <summary>The autotest replaces device input with this frame when non-null.</summary>
         public static MatchInputFrame Scripted;
+        /// <summary>Autotest scripting: while on, device input is ignored and <see cref="Poll"/> returns the queued frames one per call (an empty frame when the queue is empty).</summary>
+        public static bool ScriptMode;
+        static readonly System.Collections.Generic.Queue<MatchInputFrame> _queue = new System.Collections.Generic.Queue<MatchInputFrame>();
+        static readonly MatchInputFrame _empty = new MatchInputFrame();
+        public static int QueuedFrames { get { return _queue.Count; } }
+        public static void Enqueue(MatchInputFrame f) { _queue.Enqueue(f); }
+        public static void ClearQueue() { _queue.Clear(); }
 
         public readonly MatchInputFrame Frame = new MatchInputFrame();
         readonly float[] _heldFor = new float[6];
@@ -44,6 +51,7 @@ namespace PixFootball.Gameplay
         public MatchInputFrame Poll(float unscaledDt)
         {
             if (Scripted != null) return Scripted;
+            if (ScriptMode) { _empty.Clear(); return _queue.Count > 0 ? _queue.Dequeue() : _empty; }
             var f = Frame;
             f.Clear();
             var pad = Gamepad.current; var kb = Keyboard.current;
@@ -129,3 +137,4 @@ namespace PixFootball.Gameplay
         static void PixInput_SetScheme(bool pad) { GamepadActive = pad; }
     }
 }
+

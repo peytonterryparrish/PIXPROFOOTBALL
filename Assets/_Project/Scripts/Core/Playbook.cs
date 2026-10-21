@@ -46,11 +46,19 @@ namespace PixFootball.Core
         /// <summary>Special-teams unit name (Kickoff, KickoffReturn, Punt, PuntReturn, FieldGoal, FieldGoalBlock, Onside) or personnel grouping.</summary>
         public readonly string Unit;
         public readonly SlotSpec[] Slots;
+        /// <summary>Formation family shown on the first play-call screen (Shotgun, Singleback...). Variants share the family of their base.</summary>
+        public readonly string Family;
+        /// <summary>Alignment / personnel set shown on the second play-call screen ("Base", "Doubles", "Bunch"...).</summary>
+        public readonly string SetName;
 
         public Formation(string name, PlaySide side, string unit, SlotSpec[] slots)
+            : this(name, side, unit, slots, name, "Base") { }
+
+        public Formation(string name, PlaySide side, string unit, SlotSpec[] slots, string family, string setName)
         {
             Name = name; Side = side; Unit = unit ?? "";
             Slots = slots;
+            Family = family ?? name; SetName = setName ?? "Base";
         }
 
         public int IndexOfLabel(string label)
@@ -83,7 +91,9 @@ namespace PixFootball.Core
     public enum RouteKind
     {
         Go, Fade, Hitch, Curl, Comeback, Slant, Out, Dig, Post, Corner, Seam, Drag, Cross,
-        Flat, Swing, Wheel, Stick, Texas, Bubble, ScreenRelease, Shallow, OutAndUp, Corner2, Delay
+        Flat, Swing, Wheel, Stick, Texas, Bubble, ScreenRelease, Shallow, OutAndUp, Corner2, Delay,
+        /// <summary>Short in-breaking route (v0.3 hot route).</summary>
+        In
     }
 
     public readonly struct RouteWaypoint
@@ -280,6 +290,8 @@ namespace PixFootball.Core
         public string[] Tags = new string[0];
         /// <summary>Run gap for run plays (AI hint).</summary>
         public RunGap Gap;
+        /// <summary>True for a play created by <see cref="PlayEditing.Mirror"/>: its formation is the mirrored image of the named one.</summary>
+        public bool Mirrored;
 
         public bool IsPass
         {

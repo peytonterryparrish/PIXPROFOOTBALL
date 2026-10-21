@@ -1,4 +1,4 @@
-using PixFootball.Core;
+﻿using PixFootball.Core;
 using PixFootball.Sim;
 using UnityEngine;
 
@@ -30,6 +30,13 @@ namespace PixFootball.Gameplay
             return new PlayFrame(offense == Team.Home ? homePlus : !homePlus);
         }
 
+        /// <summary>The frame for the current snap. In college overtime both teams attack the same end zone (alternating possessions from the 25); the end swaps with each period.</summary>
+        public static PlayFrame For(GameState s)
+        {
+            if (s.IsCollegeOvertime) return new PlayFrame((s.Quarter & 1) == 1);
+            return For(s.Possession, s.Quarter);
+        }
+
         public Vector3 ToUnity(Vec2 p) { return new Vector3(_s * (p.X - HalfWidthYd) * YardsToMeters, 0f, _s * (p.Y - MidfieldYd) * YardsToMeters); }
         public Vector3 ToUnity(Vec3 p) { return new Vector3(_s * (p.X - HalfWidthYd) * YardsToMeters, p.Z * YardsToMeters, _s * (p.Y - MidfieldYd) * YardsToMeters); }
         public Vector3 ToUnity(float simX, float simY) { return new Vector3(_s * (simX - HalfWidthYd) * YardsToMeters, 0f, _s * (simY - MidfieldYd) * YardsToMeters); }
@@ -47,3 +54,4 @@ namespace PixFootball.Gameplay
         public float DownfieldYaw { get { return TowardsPlusZ ? 0f : 180f; } }
     }
 }
+

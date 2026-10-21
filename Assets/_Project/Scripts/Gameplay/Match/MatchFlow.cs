@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using PixFootball.Core;
 using PixFootball.League;
@@ -63,6 +63,7 @@ namespace PixFootball.Gameplay
         public bool PossessionChanged;
         public bool PenaltyAccepted;
         public string PenaltyName = "";
+        public PenaltyCall PenaltyCall;
         public bool PeriodChanged { get { return QuarterAfter != QuarterBefore; } }
         public bool GameOver;
     }
@@ -85,7 +86,7 @@ namespace PixFootball.Gameplay
     /// PlaySimulation for each snap and applies the result with the accelerated clock. The MatchDirector drives it from Unity;
     /// tests drive it headless.
     /// </summary>
-    public sealed class MatchFlow
+    public sealed partial class MatchFlow
     {
         public readonly MatchConfig Config;
         public readonly RuleSet Rules;
@@ -118,7 +119,7 @@ namespace PixFootball.Gameplay
         public bool IsUser(CoreTeam t) { return !Config.CpuVsCpu && t == Config.UserTeam; }
         public CoreTeam UserTeam { get { return Config.UserTeam; } }
 
-        public PlayFrame CurrentFrame { get { return PlayFrame.For(State.Possession, State.Quarter); } }
+        public PlayFrame CurrentFrame { get { return PlayFrame.For(State); } }
 
         public string Abbr(CoreTeam t) { var tm = TeamOf(t); return string.IsNullOrEmpty(tm.Abbreviation) ? tm.Nickname : tm.Abbreviation; }
 
@@ -296,7 +297,10 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>Applies a finished (Dead) play to the game state and works out what happened.</summary>
-        public PlayOutcome Finish(PlaySimulation sim)
+        public PlayOutcome Finish(PlaySimulation sim) { return Finish(sim, PenaltyDecision.Auto); }
+
+        /// <summary>Applies the finished play. When a flag was thrown, <paramref name="decision"/> is the offended team's choice (Auto = the CPU rule, expected points).</summary>
+        public PlayOutcome Finish(PlaySimulation sim, PenaltyDecision decision)
         {
             PlayResult r = sim.Result;
             if (r == null) throw new InvalidOperationException("The play has not ended.");
@@ -307,12 +311,14 @@ namespace PixFootball.Gameplay
 
             if (r.Penalty != null)
             {
-                if (r.Type == PlayType.Penalty) o.PenaltyAccepted = r.PenaltyDecision != PenaltyDecision.Decline;
+                if (decision != PenaltyDecision.Auto) { r.PenaltyDecision = decision; o.PenaltyAccepted = decision == PenaltyDecision.Accept; }
+                else if (r.Type == PlayType.Penalty) o.PenaltyAccepted = r.PenaltyDecision != PenaltyDecision.Decline;
                 else
                 {
                     o.PenaltyAccepted = PenaltyEnforcer.ShouldAccept(State, r);
                     r.PenaltyDecision = o.PenaltyAccepted ? PenaltyDecision.Accept : PenaltyDecision.Decline;
                 }
+                o.PenaltyCall = r.Penalty;
                 o.PenaltyName = r.Penalty.Type.ToString();
             }
 
@@ -338,6 +344,7 @@ namespace PixFootball.Gameplay
             }
             else _nextHash = Hash.Middle;
 
+            if (sim.Kind == PlayKind.Scrimmage || sim.Kind == PlayKind.Kneel || sim.Kind == PlayKind.Spike) Cpu.Remember(poss0, sim.OffPlay);
             Classify(o, r, phase0, poss0, down0, dist0, spot0);
             Stats(o, r, poss0);
             Log.Add("Q" + o.QuarterBefore + " " + Abbr(poss0) + " " + (o.Text.Length > 0 ? o.Text : r.Type.ToString()) + " " + State.HomeScore + "-" + State.AwayScore);
@@ -403,3 +410,5 @@ namespace PixFootball.Gameplay
         }
     }
 }
+
+

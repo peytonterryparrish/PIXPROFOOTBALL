@@ -1,4 +1,4 @@
-# PIX Football — Architecture Contract
+﻿# PIX Football â€” Architecture Contract
 
 Unity 6000.6.6f1, HDRP 17.6, C#, Input System. Windows (Steam) target, Xbox controller first.
 Unity path: `C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Unity.exe`.
@@ -8,7 +8,7 @@ Unity path: `C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Unity.exe`.
    `Assets/_Licensed/`), Blender-generated meshes, Tripo or PixelLab. Never ship capsules/greybox.
 2. `Assets/_Licensed/` and `_AssetSource/` are **git-ignored** (licensed art stays local; repo is public).
    Code must never hard-reference `_Licensed` GUIDs from committed assets in a way that breaks
-   compilation when the folder is missing — load through `ArtLibrary` (Resources-free registry
+   compilation when the folder is missing â€” load through `ArtLibrary` (Resources-free registry
    ScriptableObject at `Assets/_Licensed/ArtLibrary.asset`, looked up by `ArtLibrary.Load()`).
 3. Football logic is **pure C#** (no UnityEngine types except `Mathf`-free math in `PixFootball.Core`),
    deterministic with a seeded `Rng`. Unity-side code only adapts it.
@@ -19,7 +19,7 @@ Unity path: `C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Unity.exe`.
 ## Assemblies (asmdef) and folders
 | Assembly | Folder | Depends on | Contents |
 |---|---|---|---|
-| `PixFootball.Core` | `Assets/_Project/Scripts/Core` | — (noEngineReferences: true) | Rng, Ratings, Positions, RuleSet, GameState (downs, clock, score, possession), Penalties, Playbook model (Formation/Set/Play/Route/Assignment), PlayResult |
+| `PixFootball.Core` | `Assets/_Project/Scripts/Core` | â€” (noEngineReferences: true) | Rng, Ratings, Positions, RuleSet, GameState (downs, clock, score, possession), Penalties, Playbook model (Formation/Set/Play/Route/Assignment), PlayResult |
 | `PixFootball.League` | `Assets/_Project/Scripts/League` | Core (noEngineReferences: true) | Team, School, Conference, Player (bio+ratings+contract), League, CollegeWorld, Generator (regen + names), QuickSim (box scores), Season/Schedule |
 | `PixFootball.Sim` | `Assets/_Project/Scripts/Sim` | Core, League (noEngineReferences: true) | Engine-free, deterministic 60 Hz simulation of one live play (22 agents + ball, yards/seconds): `PlaySimulation` (Setup/Tick/RunToCompletion), `AgentBody` kinematics, `BallSim` + `BallPhysics`, blocking/tackling/catch resolvers, offense/defense/special-teams AI, `PlayEventLog`, `PlayResult` for `GameState.Apply`, `PhysicalGameSim` (headless CPU-vs-CPU games) |
 | `PixFootball.Gameplay` | `Assets/_Project/Scripts/Gameplay` | Core, League, Unity.InputSystem, HDRP, Cinemachine | MatchDirector, PlayerAgent (momentum locomotion), BallController, Tackling, Blocking, AI (Offense/Defense/Coach), Cameras, Input |
@@ -35,18 +35,18 @@ Namespaces mirror assembly names (`PixFootball.Core`, ...).
   `Yards.ToMeters = 0.9144`. Core works in **yards**; Gameplay converts.
 - Core field position: `BallSpot` 0..100 yards from offense's own goal line.
 
-## Key Core types (contract — keep these names)
+## Key Core types (contract â€” keep these names)
 - `Rng` (xorshift128+, seedable, `NextFloat()`, `Range(int,int)`, `Gaussian()`).
 - `Position` enum: QB,RB,FB,WR,TE,LT,LG,C,RG,RT,LE,DT,RE,LOLB,MLB,ROLB,CB,FS,SS,K,P.
 - `Ratings` struct: Speed, Acceleration, Agility, Strength, Awareness, Catching, Carrying,
   ThrowPower, ThrowAccuracy, Tackling, BlockShedding, RunBlocking, PassBlocking, ManCoverage,
-  ZoneCoverage, Jumping, Stamina, Injury, KickPower, KickAccuracy, BreakTackle, Elusiveness (0–99) + `Overall(Position)`.
-- `RuleSet` (data): `Pro` and `College` presets — feet in bounds, overtime format, clock-stops-on-first-down,
+  ZoneCoverage, Jumping, Stamina, Injury, KickPower, KickAccuracy, BreakTackle, Elusiveness (0â€“99) + `Overall(Position)`.
+- `RuleSet` (data): `Pro` and `College` presets â€” feet in bounds, overtime format, clock-stops-on-first-down,
   hash width, PAT distance, two-point, quarter length, timeouts, challenges.
 - `GameState`: quarter, clock seconds, down, distance, ball spot, possession, score, timeouts;
   `Apply(PlayResult)` advances it deterministically (first downs, TDs, safeties, turnovers, change of possession, end of quarter/half/OT).
 - `Penalty` catalog + enforcement.
-- `Playbook` → `Formation` → `PlaySet` → `Play` (offense: per-slot `Assignment` = Route/Block/Run path; defense: Coverage/Rush/Zone).
+- `Playbook` â†’ `Formation` â†’ `PlaySet` â†’ `Play` (offense: per-slot `Assignment` = Route/Block/Run path; defense: Coverage/Rush/Zone).
 
 ## Gameplay feel targets (ESPN NFL 2K5)
 - Locomotion is momentum based: velocity integrates toward desired velocity with accel from ratings,
@@ -73,3 +73,19 @@ Match_Pro:  MatchDirector (Gameplay) --- IMatchPresentation ---> MatchHud (UI)
 - **Kicks / punts**: there is no kicking mocap in the source set. `SimAgentView.LateUpdate` drives the right hip and knee procedurally (back-swing, contact at 0.12 s, follow-through) over the running animation when the simulation reports `AgentAction.Kick`.
 - **User control**: `MatchInput` polls the pad / keyboard directly (no input-action asset). The director picks the controlled agent (QB pre-snap; ball carrier; intended receiver while a pass is in the air; the defender nearest the ball) and only hands him to the simulation when the user is actually steering, so the AI keeps playing the rest of the time.
 - **Autotest**: `MatchDirector.ForceAutopilot` / `Autopilot` makes the director play the user's side; `AutoTest` listens to `PlayStarted`, `PlayFinished`, `SimEvent` and `Milestone`, and `MatchCameraRig.CloseUp` takes close shots of tackles, catches, throws and kicks.
+
+## v0.3 play calling, pre-snap and penalties
+```
+Core:      Playbook (Formation Family/SetName) - PlayEditing (clone, mirror, hot route, slide) - PlayDiagram (route/block/zone geometry)
+           PlayCaller (CPU + Ask Coach) - AudibleBook / DefenseAdjust - PlayCallModel (pure navigation view-model) - PenaltyEnforcer.Describe
+Sim:       PlaySimulation.PreSnap (ChangeOffensePlay, FlipOffense, SetHotRoute, SetSlideProtection, SetMotion, SetDefenseAdjust, CallDelayOfGame)
+Gameplay:  MatchFlow(.PlayCall) builds the PlayCallModel, penalty choices and referee text; MatchDirector(.PreSnap) polls input and drives everything
+           MatchOfficials (7-man crew + coaches) - FieldMarkers.SetHashMarks (college ticks)
+UI:        PlayCallScreen + PlayDiagramGraphic, PreSnapPanel, PenaltyPanel, UiPrompts - all rendered from models the director hands over
+```
+- **Play-call screen**: `PlayCallModel` (Core, engine-free) holds tabs, stage (Formation -> Set -> Play), filters, paging (3 cards), flip, timeout request and expiry; `MatchDirector.DriveCallScreen` maps pad input onto it and `PlayCallScreen` renders it. Sets are the formation variants of a family (offense) or coverage groups (defense).
+- **Pre-snap changes work on clones**: `PlayEditing` never mutates the playbook; `PlaySimulation.PreSnap` swaps `OffPlay` / `DefPlay`, rewrites every agent's `Assign`, re-lays out alignments (flip, shifts, press) and re-prepares the AI. Motion is a pre-snap walk (`PreSnapWant`).
+- **Penalties**: `PenaltyEnforcer.Describe` clones the state to compute both options; `MatchFlow.Finish(sim, decision)` applies the choice; `MatchDirector.PenaltyFlow` shows the panel (user) or the CPU's expected-points choice.
+- **College rules**: `PlayFrame.For(GameState)` keeps both overtime possessions at one end zone; hash X comes from `FieldGeometry.HashX(hash, rules)` in the sim; `FieldMarkers.SetHashMarks` paints the 40-foot hashes.
+- **Playbook review**: `PIX Football > Tools > Render Playbook Atlas` (or `PlayCardPainter` in a console harness) renders every play to `Docs/Playbook/*.png`.
+- **Autotest**: `MatchInput.ScriptMode` + `Enqueue` feed scripted frames through the real input path (`AutoTest.V3.cs`).
