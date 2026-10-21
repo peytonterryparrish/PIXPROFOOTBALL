@@ -333,6 +333,11 @@ namespace PixFootball.League
         /// <summary>Hex strings like "#12AB34".</summary>
         public string PrimaryColor = "#000000";
         public string SecondaryColor = "#FFFFFF";
+        public string TertiaryColor = "#FFFFFF";
+        /// <summary>Data-file id (e.g. "buffalo_ironhorns"); empty for generated teams.</summary>
+        public string Key = "";
+        /// <summary>Logo asset key (e.g. "ProV6/buffalo_ironhorns"); empty when none.</summary>
+        public string Logo = "";
         public int ConferenceId = -1;
         public int DivisionId = -1;
         public bool IsCollege;

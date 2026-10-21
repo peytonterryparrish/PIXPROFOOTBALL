@@ -41,6 +41,15 @@ namespace PixFootball.Tests
         }
 
         public static string SchoolsCsv() { return System.IO.File.ReadAllText(System.IO.Path.Combine(CollegeDataDir(), "schools.csv")); }
+        public static string ProTeamsCsv()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(CollegeDataDir()), "Pro");
+            return System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "teams.csv"));
+        }
+
+        public static List<ProTeamDef> LoadProTeams() { return ProData.ParseTeams(ProTeamsCsv()); }
+        public static List<SchoolDef> LoadSchools() { return CollegeData.ParseSchools(SchoolsCsv()); }
+
         public static string ConfBowlsCsv() { return System.IO.File.ReadAllText(System.IO.Path.Combine(CollegeDataDir(), "conferences_bowls.csv")); }
 
         public static CollegeWorld LoadCollege(int seed)

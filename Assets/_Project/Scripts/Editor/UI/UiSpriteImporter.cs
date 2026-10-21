@@ -88,8 +88,8 @@ namespace PixFootball.EditorTools
             ti.textureType = TextureImporterType.Sprite;
             ti.spriteImportMode = SpriteImportMode.Single;
             ti.mipmapEnabled = false;
-            // College/conference/bowl logos are pixel art: keep them crisp.
-            bool pixelArt = path.Contains("/Logos/CollegeV2/") || path.Contains("/Logos/ConferenceBowl/");
+            // College/conference/bowl/pro team logos are pixel art: keep them crisp.
+            bool pixelArt = path.Contains("/Logos/CollegeV2/") || path.Contains("/Logos/ConferenceBowl/") || path.Contains("/Logos/ProV6/");
             ti.filterMode = pixelArt ? FilterMode.Point : FilterMode.Bilinear;
             ti.wrapMode = TextureWrapMode.Clamp;
             ti.alphaSource = TextureImporterAlphaSource.FromInput;

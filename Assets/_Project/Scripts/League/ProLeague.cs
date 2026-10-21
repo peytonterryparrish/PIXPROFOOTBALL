@@ -183,9 +183,9 @@ namespace PixFootball.League
             if (College != null) College.Bind();
         }
 
-        public static LeagueSave Create(int seed, IReadOnlyList<SchoolDef> schools = null, IReadOnlyList<ConfBowlDef> confBowls = null)
+        public static LeagueSave Create(int seed, IReadOnlyList<SchoolDef> schools = null, IReadOnlyList<ConfBowlDef> confBowls = null, IReadOnlyList<ProTeamDef> proTeams = null)
         {
-            var s = new LeagueSave { Pro = LeagueFactory.CreatePro(seed) };
+            var s = new LeagueSave { Pro = proTeams != null && proTeams.Count > 0 ? LeagueFactory.CreatePro(seed, proTeams, schools) : LeagueFactory.CreatePro(seed) };
             if (schools != null && schools.Count > 0) s.College = CollegeFactory.CreateWorld(seed ^ 0x5A5A5A, schools, confBowls);
             return s;
         }

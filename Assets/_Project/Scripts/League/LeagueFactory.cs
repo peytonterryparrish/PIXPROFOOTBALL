@@ -66,7 +66,96 @@ namespace PixFootball.League
         private static readonly string[] ConferenceAbbr = { "LIB", "FRO" };
         private static readonly string[] StadiumSuffix = { "Stadium", "Field", "Park", "Coliseum", "Dome", "Grounds" };
 
+        /// <summary>One resolved team slot (generated fallback or loaded from teams.csv).</summary>
+        private struct Slot
+        {
+            public string Key, City, Nick, Abbr, Primary, Secondary, Tertiary, Logo;
+        }
+
+        /// <summary>Generated fallback league (invented teams, invented college names).</summary>
         public static ProLeague CreatePro(int seed, int startYear = DefaultStartYear)
+        {
+            var slots = new Slot[Defs.Length];
+            for (int i = 0; i < Defs.Length; i++)
+                slots[i] = new Slot
+                {
+                    Key = "", City = Defs[i].City, Nick = Defs[i].Nick, Abbr = Defs[i].Abbr,
+                    Primary = Defs[i].Primary, Secondary = Defs[i].Secondary, Tertiary = "#FFFFFF", Logo = ""
+                };
+            return Build(seed, startYear, slots, ConferenceNames, ConferenceAbbr, DivisionNames, null);
+        }
+
+        /// <summary>
+        /// Data-driven league using the official teams from Data/Pro/teams.csv. Teams are ordered by conference,
+        /// division (East/North/South/West) then file order, so team ids are stable. Pro players' colleges are drawn
+        /// from <paramref name="colleges"/> (the school list) when supplied.
+        /// </summary>
+        public static ProLeague CreatePro(int seed, IReadOnlyList<ProTeamDef> teams, IReadOnlyList<SchoolDef> colleges = null, int startYear = DefaultStartYear)
+        {
+            if (teams == null || teams.Count != 32) throw new ArgumentException("the pro league needs exactly 32 teams (got " + (teams == null ? 0 : teams.Count) + ")");
+
+            // conferences in order of first appearance; divisions in East/North/South/West order
+            var confNames = new List<string>();
+            for (int i = 0; i < teams.Count; i++) if (!confNames.Contains(teams[i].Conference)) confNames.Add(teams[i].Conference);
+            if (confNames.Count != 2) throw new ArgumentException("the pro league needs exactly 2 conferences (got " + confNames.Count + ")");
+
+            var order = new List<int>();
+            for (int i = 0; i < teams.Count; i++) order.Add(i);
+            var sorted = order.ToArray();
+            Array.Sort(sorted, (a, b) =>
+            {
+                int c = confNames.IndexOf(teams[a].Conference).CompareTo(confNames.IndexOf(teams[b].Conference));
+                if (c != 0) return c;
+                c = DivisionRank(teams[a].Division).CompareTo(DivisionRank(teams[b].Division));
+                return c != 0 ? c : a.CompareTo(b);
+            });
+
+            string[] abbrs = ProData.DeriveAbbreviations(teams);
+            var slots = new Slot[32];
+            for (int k = 0; k < 32; k++)
+            {
+                ProTeamDef def = teams[sorted[k]];
+                string conf = confNames.IndexOf(def.Conference) == 0 ? "A" : "B";
+                string div = DivisionNames[Math.Max(0, Math.Min(3, DivisionRank(def.Division)))];
+                if (DivisionRank(def.Division) > 3) throw new ArgumentException("unknown division '" + def.Division + "' for " + def.Name);
+                if (conf != (k < 16 ? "A" : "B") || div != DivisionNames[(k / 4) % 4])
+                    throw new ArgumentException("pro teams must be 4 divisions of 4 per conference (check " + def.Name + ")");
+                slots[k] = new Slot
+                {
+                    Key = def.Id ?? "", City = def.City, Nick = def.Nickname, Abbr = abbrs[sorted[k]],
+                    Primary = def.Primary, Secondary = def.Secondary, Tertiary = def.Tertiary, Logo = def.Logo ?? ""
+                };
+            }
+
+            var confAbbr = new string[2];
+            for (int c = 0; c < 2; c++)
+            {
+                string first = confNames[c].Split(' ')[0];
+                confAbbr[c] = first.Substring(0, Math.Min(3, first.Length)).ToUpperInvariant();
+            }
+
+            List<string> collegeNames = null;
+            if (colleges != null && colleges.Count > 0)
+            {
+                collegeNames = new List<string>();
+                var seen = new HashSet<string>();
+                for (int i = 0; i < colleges.Count; i++)
+                {
+                    string place = colleges[i].Place;
+                    if (!string.IsNullOrEmpty(place) && seen.Add(place)) collegeNames.Add(place);
+                }
+            }
+            return Build(seed, startYear, slots, confNames.ToArray(), confAbbr, DivisionNames, collegeNames);
+        }
+
+        private static int DivisionRank(string division)
+        {
+            for (int i = 0; i < DivisionNames.Length; i++)
+                if (string.Equals(DivisionNames[i], division, StringComparison.OrdinalIgnoreCase)) return i;
+            return 99;
+        }
+
+        private static ProLeague Build(int seed, int startYear, Slot[] slots, string[] confNames, string[] confAbbr, string[] divNames, List<string> collegeNames)
         {
             var rng = new Rng(seed);
             var league = new ProLeague { Seed = seed, Year = startYear };
@@ -74,18 +163,19 @@ namespace PixFootball.League
 
             for (int c = 0; c < 2; c++)
             {
-                var conf = new Conference { Id = c, Name = ConferenceNames[c], Abbreviation = ConferenceAbbr[c], IsCollege = false };
+                var conf = new Conference { Id = c, Name = confNames[c], Abbreviation = confAbbr[c], IsCollege = false };
                 for (int d = 0; d < 4; d++)
                 {
-                    var div = new Division { Id = c * 4 + d, Name = ConferenceAbbr[c] + " " + DivisionNames[d], ConferenceId = c };
+                    var div = new Division { Id = c * 4 + d, Name = confAbbr[c] + " " + divNames[d], ConferenceId = c };
                     for (int t = 0; t < 4; t++)
                     {
                         int id = (c * 4 + d) * 4 + t;
-                        TeamDef def = Defs[id];
+                        Slot def = slots[id];
                         var team = new Team
                         {
                             Id = id, City = def.City, Nickname = def.Nick, Abbreviation = def.Abbr,
-                            PrimaryColor = def.Primary, SecondaryColor = def.Secondary,
+                            PrimaryColor = def.Primary, SecondaryColor = def.Secondary, TertiaryColor = def.Tertiary,
+                            Key = def.Key, Logo = def.Logo,
                             ConferenceId = c, DivisionId = div.Id, IsCollege = false,
                             StadiumName = def.City + " " + StadiumSuffix[rng.Range(0, StadiumSuffix.Length)]
                         };
@@ -98,11 +188,15 @@ namespace PixFootball.League
                 league.Conferences.Add(conf);
             }
 
-            var colleges = new List<string>();
+            var colleges = collegeNames;
             {
                 Rng cr = rng.Fork();
-                var un = new HashSet<string>(); var ua = new HashSet<string>(); var um = new HashSet<string>();
-                for (int i = 0; i < 90; i++) colleges.Add(NameGenerator.SchoolName(cr, un, ua, um).ShortName);
+                if (colleges == null)
+                {
+                    colleges = new List<string>();
+                    var un = new HashSet<string>(); var ua = new HashSet<string>(); var um = new HashSet<string>();
+                    for (int i = 0; i < 90; i++) colleges.Add(NameGenerator.SchoolName(cr, un, ua, um).ShortName);
+                }
             }
 
             for (int i = 0; i < league.Teams.Count; i++)
