@@ -295,7 +295,7 @@ namespace PixFootball.Sim
             SimAgent c = S.Carrier;
             Vec2 lane = c != null ? c.Pos : new Vec2(S.BallX0, S.LosY + 3f);
             var ca = FindCarryAssignment();
-            if (ca != null && ca.Path.Count > 0) lane = S.Rel(ca.Path[Math.Min(1, ca.Path.Count - 1)]);
+            if (ca != null && ca.Path.Count > 0) lane = S.Rel(HolePoint(ca));
             float up = b.Side == SimSide.Offense ? 1f : -1f;
             float lat = d.Pos.X - lane.X;
             float lx = Math.Abs(lat) > 0.1f ? Math.Sign(lat) * 0.55f : 0f;
@@ -306,12 +306,13 @@ namespace PixFootball.Sim
 
         private void PullMove(SimAgent a, BlockAssignment ba, SimAgent t)
         {
+            a.Body.SpeedMultiplier = 1.10f; // pulling linemen are the quickest on the line
             float vmax = a.Body.EffectiveVMax;
             if (ba.Path.Count > 0 && a.PullStage < ba.Path.Count)
             {
                 Vec2 wp = S.Rel(ba.Path[a.PullStage]);
                 // free to engage anyone who crosses the path (handled by engagement detection)
-                if ((wp - a.Pos).Length < 0.9f) a.PullStage++;
+                if ((wp - a.Pos).Length < 1.3f) a.PullStage++;
                 Vec2 to = wp - a.Pos;
                 a.Want = to.Norm() * (vmax * 0.95f);
                 a.HasFace = false;
@@ -335,7 +336,7 @@ namespace PixFootball.Sim
             float vmax = a.Body.EffectiveVMax;
             var ca = FindCarryAssignment();
             Vec2 hole = new Vec2(S.BallX0, S.LosY + 1.5f);
-            if (ca != null && ca.Path.Count > 0) hole = S.Rel(ca.Path[Math.Min(1, ca.Path.Count - 1)]);
+            if (ca != null && ca.Path.Count > 0) hole = S.Rel(HolePoint(ca));
             if (t == null || (a.Pos - hole).Length > 5.5f && S.Time < 0.6f)
             {
                 // lead to the hole first
@@ -557,7 +558,7 @@ namespace PixFootball.Sim
         {
             var ca = FindCarryAssignment();
             Vec2 hole = new Vec2(S.BallX0, S.LosY + 1.5f);
-            if (ca != null && ca.Path.Count > 0) hole = S.Rel(ca.Path[Math.Min(1, ca.Path.Count - 1)]);
+            if (ca != null && ca.Path.Count > 0) hole = S.Rel(HolePoint(ca));
             SimAgent best = null; float bestScore = float.MinValue;
             foreach (SimAgent d in Opponents(a))
             {

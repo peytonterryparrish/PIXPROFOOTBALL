@@ -141,14 +141,17 @@ namespace PixFootball.Core
 
         public void OlPower(int dir)
         {
+            // backside guard pulls to lead; the center and the playside line block down; the TE or fullback kicks out the end
             int puller = dir > 0 ? LG : RG;
+            int playT = dir > 0 ? RT : LT;
             for (int i = LT; i <= RT; i++)
             {
                 if (i == puller)
                 {
                     float sx = F.Slots[i].X;
-                    BlockAt(i, BlockKind.Pull, BlockTarget.Playside, RunGap.None, P(sx * 0.3f, -1.5f), P(dir * 3f, -1f), P(dir * 5.5f, 1.5f));
+                    BlockAt(i, BlockKind.Pull, BlockTarget.Playside, RunGap.None, P(sx * 0.35f, -1.3f), P(dir * 2.9f, -0.9f), P(dir * 5.2f, 1.3f));
                 }
+                else if (i == C) BlockAt(i, BlockKind.Man, BlockTarget.Backside);
                 else if (F.Slots[i].X * dir >= -0.1f) BlockAt(i, BlockKind.Man, BlockTarget.Playside);
                 else BlockAt(i, BlockKind.Seal, BlockTarget.Backside);
             }
@@ -156,25 +159,32 @@ namespace PixFootball.Core
 
         public void OlCounter(int dir)
         {
+            // backside guard pulls and kicks out the edge; the backside tackle stays home and seals the end
             int g = dir > 0 ? LG : RG;
             int t = dir > 0 ? LT : RT;
             for (int i = LT; i <= RT; i++)
             {
                 float sx = F.Slots[i].X;
-                if (i == g) BlockAt(i, BlockKind.Pull, BlockTarget.Playside, RunGap.None, P(sx * 0.3f, -1.5f), P(dir * 3f, -1.5f), P(dir * 5f, 1f));
-                else if (i == t) BlockAt(i, BlockKind.Pull, BlockTarget.EdgeDefender, RunGap.None, P(sx * 0.5f, -2f), P(dir * 2f, -2f), P(dir * 4.5f, 0.5f));
+                if (i == g) BlockAt(i, BlockKind.Pull, BlockTarget.EdgeDefender, RunGap.None, P(sx * 0.2f, -1.3f), P(dir * 2.5f, -1.2f), P(dir * 4.3f, 0.8f));
+                else if (i == t) BlockAt(i, BlockKind.Seal, BlockTarget.Backside);
+                else if (i == C) BlockAt(i, BlockKind.Man, BlockTarget.Backside);
                 else BlockAt(i, BlockKind.Man, BlockTarget.Playside);
             }
         }
 
         public void OlTrap(int dir)
         {
+            // the backside guard pulls to trap the penetrating tackle that the playside guard releases up to the linebacker
             int puller = dir > 0 ? LG : RG;
+            int playG = dir > 0 ? RG : LG;
             for (int i = LT; i <= RT; i++)
             {
                 float sx = F.Slots[i].X;
-                if (i == puller) BlockAt(i, BlockKind.Pull, BlockTarget.Gap, RunGap.BRight, P(sx * 0.5f, -1f), P(dir * 2f, 0.5f));
-                else BlockAt(i, BlockKind.Man, BlockTarget.NearestDefender);
+                if (i == puller) BlockAt(i, BlockKind.Pull, BlockTarget.Gap, RunGap.BRight, P(sx * 0.5f, -1f), P(dir * 1.6f, 0.3f));
+                else if (i == playG) BlockAt(i, BlockKind.Man, BlockTarget.Mike);
+                else if (i == C) BlockAt(i, BlockKind.Man, BlockTarget.Backside);
+                else if (F.Slots[i].X * dir > 0f) BlockAt(i, BlockKind.Man, BlockTarget.Playside);
+                else BlockAt(i, BlockKind.Seal, BlockTarget.Backside);
             }
         }
 
@@ -349,20 +359,22 @@ namespace PixFootball.Core
                 b.OlZone(d);
                 b.Block("F", BlockKind.Lead, BlockTarget.EdgeDefender);
                 b.Block("Y", BlockKind.Zone, d > 0 ? BlockTarget.ZoneRight : BlockTarget.ZoneLeft);
-                return b.Carry("HB", CarryStyle.OutsideZone, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 4f, -4.5f), P(d * 7f, -1f), P(d * 9f, 4f), P(d * 10f, 12f));
+                float oy = b.F.Slots[OffBuilder.HB].Y;
+                return b.Carry("HB", CarryStyle.OutsideZone, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 3f, Math.Min(-3f, oy + 1.8f)), P(d * 6.5f, -1.2f), P(d * 8.5f, 4f), P(d * 10f, 12f));
             });
             AddRun(pb, "Power", PlayCategory.InsideRun, new[] { IForm, Singleback, GoalLine, Pistol }, true, (b, d) =>
             {
                 b.SetQb(QbAction.Handoff, 0, 0, OffBuilder.HB);
                 b.OlPower(d);
-                if (!b.Block("F", BlockKind.Kickout, BlockTarget.EdgeDefender)) b.Block("Y", BlockKind.Kickout, BlockTarget.EdgeDefender);
-                return b.Carry("HB", CarryStyle.Power, d > 0 ? RunGap.CRight : RunGap.CLeft, 0f, P(d * 1.5f, -4f), P(d * 4f, 0f), P(d * 5f, 6f));
+                if (!b.Block("F", BlockKind.Kickout, BlockTarget.EdgeDefender)) b.Block("Y", BlockKind.Man, BlockTarget.Playside);
+                return b.Carry("HB", CarryStyle.Power, d > 0 ? RunGap.CRight : RunGap.CLeft, 0f, P(d * 2.2f, -3.6f), P(d * 4.2f, -0.5f), P(d * 5f, 6f));
             });
             AddRun(pb, "Counter", PlayCategory.InsideRun, new[] { Singleback, Pistol, ShotgunF }, true, (b, d) =>
             {
                 b.SetQb(QbAction.Handoff, 0, 0, OffBuilder.HB);
                 b.OlCounter(d);
-                return b.Carry("HB", CarryStyle.Counter, d > 0 ? RunGap.BRight : RunGap.BLeft, 0.2f, P(-d * 1.5f, -5.5f), P(d * 2f, -3f), P(d * 5f, 1f), P(d * 6f, 8f));
+                float cy = b.F.Slots[OffBuilder.HB].Y;
+                return b.Carry("HB", CarryStyle.Counter, d > 0 ? RunGap.BRight : RunGap.BLeft, 0f, P(-d * 1.0f, cy + 0.4f), P(d * 2.5f, cy + 3f), P(d * 4.6f, 0.4f), P(d * 5.5f, 8f));
             });
             AddRun(pb, "Dive", PlayCategory.InsideRun, new[] { IForm, GoalLine, Pistol }, true, (b, d) =>
             {
@@ -382,13 +394,14 @@ namespace PixFootball.Core
             {
                 b.SetQb(QbAction.Handoff, 3, 0, OffBuilder.HB);
                 b.OlPassPro(0);
-                return b.Carry("HB", CarryStyle.Draw, d > 0 ? RunGap.ARight : RunGap.ALeft, 0.9f, P(d * 1.5f, -4f), P(d * 2f, 1f), P(d * 3f, 8f));
+                float hy = b.F.Slots[OffBuilder.HB].Y;
+                return b.Carry("HB", CarryStyle.Draw, d > 0 ? RunGap.ARight : RunGap.ALeft, 0.75f, P(d * 1.5f, Math.Min(-2f, hy + 2.5f)), P(d * 2f, 1f), P(d * 3f, 8f));
             });
             AddRun(pb, "Trap", PlayCategory.InsideRun, new[] { IForm, Singleback }, true, (b, d) =>
             {
                 b.SetQb(QbAction.Handoff, 0, 0, OffBuilder.HB);
                 b.OlTrap(d);
-                return b.Carry("HB", CarryStyle.Trap, d > 0 ? RunGap.BRight : RunGap.BLeft, 0f, P(d * 1.2f, -3f), P(d * 1.5f, 0f), P(d * 2f, 6f));
+                return b.Carry("HB", CarryStyle.Trap, d > 0 ? RunGap.BRight : RunGap.BLeft, 0f, P(d * 2.4f, -3f), P(d * 3f, 0f), P(d * 3.5f, 6f));
             });
             AddRun(pb, "Iso", PlayCategory.InsideRun, new[] { IForm, GoalLine }, true, (b, d) =>
             {
@@ -412,18 +425,27 @@ namespace PixFootball.Core
             });
             AddRun(pb, "Read Option", PlayCategory.QbRun, new[] { ShotgunF, Pistol }, true, (b, d) =>
             {
-                b.SetQb(QbAction.ReadOption, 0, d, OffBuilder.HB, P(d * 4f, -3f), P(d * 8f, 2f), P(d * 10f, 10f));
+                b.SetQb(QbAction.ReadOption, 0, d, OffBuilder.HB, P(d * 3f, -2.5f), P(d * 6f, 0.5f), P(d * 9f, 6f), P(d * 11f, 14f));
                 b.OlZone(-d);
-                return b.Carry("HB", CarryStyle.Option, d > 0 ? RunGap.BLeft : RunGap.BRight, 0f, P(-d * 1.5f, -3f), P(-d * 2.5f, 1f), P(-d * 3f, 7f));
+                return b.Carry("HB", CarryStyle.Option, d > 0 ? RunGap.BLeft : RunGap.BRight, 0f, P(-d * 2.2f, -2.8f), P(-d * 3.2f, 0.5f), P(-d * 3.8f, 7f));
             });
-            AddRun(pb, "Jet Sweep", PlayCategory.OutsideRun, new[] { ShotgunF, Trips }, true, (b, d) =>
+            AddRun(pb, "Jet Sweep", PlayCategory.OutsideRun, new[] { ShotgunF, Pistol, Singleback, Trips, Empty }, true, (b, d) =>
             {
-                string lbl = b.Has("H") ? "H" : (b.Has("W") ? "W" : null);
+                // the motion man crosses the formation against the direction of the run and takes the ball on the move
+                string lbl = null; float best = 99f;
+                foreach (string l in new[] { "H", "W" })
+                {
+                    if (!b.Has(l)) continue;
+                    float x0 = b.F.Slots[b.Idx(l)].X;
+                    if (x0 * d < -2f && Math.Abs(x0) < best) { best = Math.Abs(x0); lbl = l; }
+                }
                 if (lbl == null) return false;
                 int slot = b.Idx(lbl);
-                b.SetQb(QbAction.Handoff, 0, d, slot);
+                float yc = Math.Min(-3f, b.F.Slots[0].Y + 0.8f);
+                b.SetQb(QbAction.Toss, 0, d, slot);
                 b.OlZone(d);
-                return b.Carry(lbl, CarryStyle.Sweep, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 5f, -2.5f), P(d * 0f, -4f), P(d * 12f, 0f), P(d * 16f, 8f));
+                b.Block("HB", BlockKind.Lead, BlockTarget.EdgeDefender);
+                return b.Carry(lbl, CarryStyle.Sweep, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 3f, yc), P(d * 9f, yc + 1.5f), P(d * 14f, 0.5f), P(d * 18f, 8f));
             });
             AddRun(pb, "Kneel", PlayCategory.Kneel, new[] { Singleback }, false, (b, d) =>
             {
@@ -449,7 +471,7 @@ namespace PixFootball.Core
                 int dropSteps = b.Shotgun ? steps : (steps <= 3 ? 3 : (steps <= 5 ? 5 : 7));
                 b.SetQb(action, dropSteps, roll);
                 if (fakeRun)
-                    b.FakeCarry("HB", CarryStyle.InsideZone, RunGap.BRight, P(1.5f, -3f), P(2.5f, 0.5f));
+                    b.FakeCarry("HB", CarryStyle.InsideZone, RunGap.BRight, P(1.2f, Math.Min(-2.6f, b.F.Slots[OffBuilder.HB].Y + 3f)), P(1.8f, -1.2f));
                 b.Spec(spec);
                 if (b.RouteCount < 2) continue;
                 if (screen) b.OlScreen(); else b.OlPassPro(roll >= 0 ? 1 : -1);
@@ -476,16 +498,16 @@ namespace PixFootball.Core
             AddPass(pb, "Drive", PlayCategory.MediumPass, sg, "X=Dig*1 H=Drag*2 Z=Go Y=Seam HB=Swing", QbAction.DropbackPass, 5);
             AddPass(pb, "Deep Comebacks", PlayCategory.MediumPass, sg, "X=Comeback*1 Z=Comeback*2 H=Go*3 Y=Out HB=Flat", QbAction.DropbackPass, 5);
             AddPass(pb, "TE Seam", PlayCategory.MediumPass, new[] { Singleback, IForm, ShotgunF }, "Y=Seam*1 X=Hitch*2 Z=Out*3 HB=Flat F=Flat", QbAction.DropbackPass, 5);
-            AddPass(pb, "Four Verticals", PlayCategory.DeepPass, new[] { ShotgunF, Empty, Trips }, "X=Go*1 Z=Go*2 H=Seam*3 W=Seam Y=Seam HB=@PassPro", QbAction.DropbackPass, 5);
+            AddPass(pb, "Four Verticals", PlayCategory.DeepPass, new[] { ShotgunF, Empty, Trips }, "X=Go*1 Z=Go*2 H=Seam*3 W=Seam Y=Seam HB=Swing*4", QbAction.DropbackPass, 5);
             AddPass(pb, "Hail Mary", PlayCategory.DeepPass, new[] { ShotgunF, Empty }, "X=Go*1 Z=Go*2 H=Go*3 W=Go Y=Go HB=@PassPro", QbAction.HailMary, 5);
             AddPass(pb, "Post-Wheel", PlayCategory.DeepPass, sg, "X=Post*1 Z=Go*2 HB=Wheel*3 H=Out Y=Flat", QbAction.DropbackPass, 5);
             AddPass(pb, "Corner-Post", PlayCategory.DeepPass, sg, "X=Post*1 Z=Corner2*2 H=Dig*3 Y=Seam HB=@PassPro", QbAction.DropbackPass, 7);
-            AddPass(pb, "Out-and-Up Shot", PlayCategory.DeepPass, new[] { Singleback, IForm }, "X=OutAndUp*1 Z=Go*2 Y=Seam HB=@PassPro F=@PassPro", QbAction.DropbackPass, 7);
+            AddPass(pb, "Out-and-Up Shot", PlayCategory.DeepPass, new[] { Singleback, IForm }, "X=OutAndUp*1 Z=Go*2 Y=Drag*3 HB=@PassPro F=Flat*4", QbAction.DropbackPass, 7);
             AddPass(pb, "Wheel Route", PlayCategory.DeepPass, sg, "HB=Wheel*1 X=Go*2 Z=Hitch H=Out Y=Drag", QbAction.DropbackPass, 5);
             AddPass(pb, "Fade", PlayCategory.DeepPass, new[] { ShotgunF, Empty, GoalLine }, "Z=Fade*1 X=Fade*2 H=Slant*3 Y=Flat*3 Y2=Flat HB=@PassPro F=@PassPro");
             AddPass(pb, "PA Boot", PlayCategory.PlayAction, new[] { Singleback, IForm }, "Y=Drag*1 Z=Corner*2 HB=Flat*3 X=Post F=Flat", QbAction.Boot, 5, 1, false, true);
             AddPass(pb, "PA Crossers", PlayCategory.PlayAction, new[] { IForm, Singleback }, "Y=Cross*1 X=Post*2 Z=Dig*3", QbAction.PlayActionFake, 5, 0, false, true);
-            AddPass(pb, "PA Deep Shot", PlayCategory.PlayAction, new[] { Singleback, IForm }, "X=Post*1 Z=Go*2 Y=Out*3", QbAction.PlayActionFake, 7, 0, false, true);
+            AddPass(pb, "PA Deep Shot", PlayCategory.PlayAction, new[] { Singleback, IForm }, "X=Post*1 Z=Go*2 Y=Out*3 H=Hitch*4", QbAction.PlayActionFake, 5, 0, false, true);
             AddPass(pb, "HB Screen", PlayCategory.Screen, sg, "HB=ScreenRelease*1 X=Go Z=Go H=Go Y=@Block", QbAction.ScreenPass, 3, 0, true);
             AddPass(pb, "WR Screen", PlayCategory.Screen, new[] { ShotgunF, Trips }, "H=Bubble*1 W=Bubble*1 X=Go Z=@Block Y=@Block", QbAction.ScreenPass, 3, 0, true);
             AddPass(pb, "Slip Screen", PlayCategory.Screen, sg, "Y=ScreenRelease*1 X=Go Z=Go HB=Flat", QbAction.ScreenPass, 3, 0, true);

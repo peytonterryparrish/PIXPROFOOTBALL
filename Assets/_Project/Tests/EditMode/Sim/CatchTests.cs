@@ -171,7 +171,7 @@ namespace PixFootball.Tests
             float a = Rate(high, 200, 2500, o => o.Completed);
             float b = Rate(low, 200, 2500, o => o.Completed);
             TestContext.WriteLine("high ball: leaper=" + a + " flat-footed=" + b);
-            Assert.GreaterOrEqual(a, b);
+            Assert.Greater(a, b + 0.1f, "jumping now decides high balls (both used to score 0)");
         }
 
         [Test]

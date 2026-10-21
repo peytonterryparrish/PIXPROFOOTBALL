@@ -74,10 +74,10 @@ namespace PixFootball.Sim
                 if (ca.IsFake) _fakeTarget = S.Agents[i];
                 else if (_handoffTarget == null) _handoffTarget = S.Agents[i];
             }
-            ComputeDropPoint();
             int protectors = 0;
             for (int i = 0; i < 11; i++) { var pb = S.Agents[i].Assign as BlockAssignment; if (pb != null && (pb.Block == BlockKind.PassPro || pb.Block == BlockKind.Chip)) protectors++; }
             _hotMode = _isPass && _qa.Action != QbAction.HailMary && _qa.Action != QbAction.ScreenPass && S.DefPlay.PassRushers >= Math.Max(5, protectors - (_qa.Action == QbAction.Rollout || _qa.Action == QbAction.Boot ? 0 : 0));
+            ComputeDropPoint();
         }
 
         private void ComputeDropPoint()
@@ -88,6 +88,7 @@ namespace PixFootball.Sim
             float depthBelow; // yards behind the LOS
             if (_shotgun) depthBelow = steps <= 3 ? 5.0f : (steps <= 5 ? 6.0f : 7.5f);
             else depthBelow = steps <= 0 ? 1.5f : (steps <= 3 ? 4.2f : (steps <= 5 ? 6.4f : 8.6f));
+            if (_hotMode) depthBelow = Math.Min(depthBelow, _shotgun ? 5.0f : 4.4f); // the blitz is on: a short drop and a quick throw
             _rolling = _qa.Action == QbAction.Rollout || _qa.Action == QbAction.Boot;
             float x = x0;
             if (_rolling)
@@ -383,20 +384,50 @@ namespace PixFootball.Sim
             if (BallPhysics.PredictAtHeight(ball.Pos, ball.Vel, catchZ, out at, out tt)) pt = at.XY;
             else { pt = at.XY; tt = 0.3f; }
             float vmax = a.Body.EffectiveVMax;
+            float targetZ = catchZ;
+            bool leap = false;
+            // an overthrown or lofted ball: work to the point on its flight where he can actually get a hand on it, leaping if he has to
+            {
+                float stand = S.Catches.StandReach(a);
+                float maxReach = S.Catches.JumpReach(a) * 0.96f;
+                Vec3 p = ball.Pos, v = ball.Vel;
+                float t = 0f, bestCost = float.MaxValue;
+                bool nominalOk = false;
+                {
+                    float dn = Math.Max(0f, (pt - a.Pos).Length - 0.7f);
+                    nominalOk = dn / Math.Max(1f, vmax * 0.98f) <= tt + 0.05f && catchZ <= maxReach;
+                }
+                if (!nominalOk || (ball.Pos.Z > stand * 1.05f && (ball.Pos.XY - a.Pos).Length < 7f))
+                {
+                    for (int k = 0; k < 40; k++)
+                    {
+                        BallPhysics.Advance(ref p, ref v, 0.05f);
+                        t += 0.05f;
+                        if (p.Z < 0.5f) break;
+                        if (p.Z > maxReach) continue;
+                        float dist = Math.Max(0f, (p.XY - a.Pos).Length - 0.7f);
+                        float need = dist / Math.Max(1f, vmax * 0.98f);
+                        if (need > t + 0.04f) continue;
+                        float cost = Math.Abs(p.Z - 1.7f) + 0.03f * t;
+                        if (cost < bestCost) { bestCost = cost; pt = p.XY; tt = t; targetZ = p.Z; }
+                    }
+                }
+                leap = targetZ > stand * 0.93f;
+            }
             Vec2 to = pt - a.Pos;
-            float dist = to.Length;
-            float need = dist / Math.Max(0.2f, tt);
-            float speed = Math.Min(vmax, Math.Max(need * 1.05f, 2.0f));
-            if (dist < 0.35f) speed = 0f;
+            float dist2 = to.Length;
+            float need2 = dist2 / Math.Max(0.2f, tt);
+            float speed = Math.Min(vmax, Math.Max(need2 * 1.05f, 2.0f));
+            if (dist2 < 0.35f) speed = 0f;
             a.Want = to.Norm() * speed;
             a.HasFace = true;
             // run to the spot with the shoulders square to the run; only turn to the ball once it is nearly there (looking back costs no speed)
             Vec2 toBall = ball.Pos.XY - a.Pos;
-            if (dist > 2.0f && tt > 0.55f && to.Dot(toBall) < 0.6f * to.Length * toBall.Length) a.FaceDir = to.Norm();
+            if (dist2 > 2.0f && tt > 0.55f && to.Dot(toBall) < 0.6f * to.Length * toBall.Length) a.FaceDir = to.Norm();
             else a.FaceDir = toBall.Length > 0.3f ? toBall.Norm() : a.Facing;
             a.Intent = AgentAction.Route;
-            // leap for balls above standing reach
-            if (tt < 0.32f && at.Z > 0f && ball.Pos.Z > a.Body.HeightYd * 1.4f && dist < 2.2f) S.TryJump(a);
+            // leap for balls above standing reach, timed so the top of the jump meets the ball
+            if (leap && tt < 0.36f && tt > 0.05f && dist2 < 2.4f) S.TryJump(a);
         }
 
         // =====================================================================================

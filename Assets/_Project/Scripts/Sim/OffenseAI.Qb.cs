@@ -43,6 +43,13 @@ namespace PixFootball.Sim
                 case QbPhase.Scramble: UpdateQbScramble(); return;
                 case QbPhase.Done:
                 default:
+                    if (q.HasBall && _qa != null && _qa.Action == QbAction.Keep && _qa.DropbackSteps > 0 && S.Time < 0.85f)
+                    {
+                        // the QB draw: show a pass drop, then take off
+                        q.HasFace = true; q.FaceDir = new Vec2(0f, 1f);
+                        q.Want = new Vec2(0f, -1f) * 1.5f;
+                        return;
+                    }
                     if (q.HasBall) { _carrierAI.Update(q); }
                     else
                     {
@@ -96,13 +103,21 @@ namespace PixFootball.Sim
             Vec2 meshPt = tgt.Pos + tgt.Vel * 0.18f;
             Vec2 toMesh = meshPt - q.Pos;
             Vec2 start = S.BallX0 + 0f > 0f ? new Vec2(S.BallX0 + S.OffForm.Slots[0].X, S.LosY + S.OffForm.Slots[0].Y) : q.Pos;
-            if ((q.Pos - start).Length > 3.2f) toMesh = Vec2.Zero;
+            if ((q.Pos - start).Length > 5.6f) toMesh = Vec2.Zero;
             q.FaceDir = toMesh.LenSq() > 0.04f ? toMesh.Norm() : new Vec2(0f, 1f);
-            q.Want = toMesh.Norm() * Math.Min(4.0f, toMesh.Length * 5f);
+            q.Want = toMesh.Norm() * Math.Min(5.2f, toMesh.Length * 5f);
 
             bool closestPassed = q.MeshPrevDist > 0f && dist > q.MeshPrevDist + 0.01f && q.MeshPrevDist < 2.8f;
             q.MeshPrevDist = dist;
-            if (S.Time >= 0.22f && (dist < 1.6f || closestPassed))
+            float minHandoff = 0.22f;
+            var hca = tgt.Assign as CarryAssignment;
+            if (hca != null && S.OffPlay.Category == PlayCategory.Draw)
+            {
+                // the draw: drop as if to pass, then give it late
+                minHandoff = hca.Delay + 0.05f;
+                if (S.Time < minHandoff - 0.15f) { q.Want = new Vec2(0f, -1f) * 1.8f; q.FaceDir = new Vec2(0f, 1f); }
+            }
+            if (S.Time >= minHandoff && (dist < 1.6f || closestPassed))
             {
                 bool give = true;
                 if (_qa.Action == QbAction.ReadOption) give = OptionReadGive(q);
@@ -137,6 +152,7 @@ namespace PixFootball.Sim
             if (key == null) return true;
             bool crashed = key.Vel.X * dir < -0.7f || (key.Pos.X - q.Pos.X) * dir < 2.8f;
             bool keep = crashed; // end crashes down on the back: pull it and run outside; end stays home: give
+            if (keep && S.Rng.NextFloat() < 0.55f * (1f - SimMath.Rating01(q.R.Speed))) keep = false; // a slow quarterback hands it off anyway
             if (S.Rng.NextFloat() < (1f - SimMath.Rating01(q.R.Awareness)) * 0.15f) keep = !keep;
             return !keep;
         }
@@ -164,7 +180,7 @@ namespace PixFootball.Sim
             if (_qa.DropbackSteps <= 0 && !_rolling) { EnterSet(q); return; }
             if (dist < 0.55f || q.QbClock > 3.2f) { EnterSet(q); return; }
             Vec2 dir = to.Norm();
-            float v = q.Body.EffectiveVMax * (_rolling ? 0.97f : 0.80f);
+            float v = q.Body.EffectiveVMax * (_rolling ? 0.97f : 0.92f);
             if (!_rolling) { q.HasFace = true; q.FaceDir = new Vec2(0f, 1f); }
             q.Want = dir * Math.Min(v, Math.Max(2.0f, dist * 4.5f));
             // quick game may throw on the drop
@@ -242,12 +258,25 @@ namespace PixFootball.Sim
             return SimMath.Clamp(tCut * 0.9f - 0.1f, 0.55f, 2.6f);
         }
 
+        /// <summary>How long (sim seconds from the snap) the quarterback will hold the ball before taking what is there: longer drops hold longer.</summary>
+        private float HoldMax(SimAgent q, bool hot)
+        {
+            float aw = SimMath.Rating01(q.R.Awareness);
+            int steps = _qa != null ? _qa.DropbackSteps : 3;
+            float baseT = steps <= 3 ? 2.5f : (steps <= 5 ? 2.95f : 3.3f);
+            if (_qa != null && _qa.Action == QbAction.PlayActionFake) baseT -= 0.8f; // the fake already burned half a second
+            float h = (hot ? Math.Min(baseT - 0.25f, 2.45f) : baseT) + 0.4f * (aw - 0.5f) + (_rolling ? 0.5f : 0f);
+            return Math.Max(h, q.QbSetAt + (hot ? 0.6f : (_qa != null && _qa.Action == QbAction.PlayActionFake ? 0.3f : 0.85f)));
+        }
+
         private float Threshold(SimAgent q, int idx, float press)
         {
             float aw = SimMath.Rating01(q.R.Awareness);
             float t0 = 0.70f - 0.12f * aw;
-            float th = t0 - 0.24f * SimMath.Clamp01((S.Time - 1.9f) / 1.2f) - 0.30f * press - 0.02f * idx;
-            return Math.Max(0.50f, th);
+            float hm = HoldMax(q, _hotMode);
+            float decay = SimMath.Clamp01((S.Time - 1.5f) / Math.Max(0.5f, hm - 1.5f));
+            float th = t0 - 0.30f * decay - 0.30f * press - 0.02f * idx;
+            return Math.Max(0.45f, th);
         }
 
         private void HandleReads(SimAgent q, bool onRun)
@@ -287,7 +316,7 @@ namespace PixFootball.Sim
 
             bool hot = _hotMode;
             int upTo = (hot || S.Time > 1.8f) ? _reads.Count - 1 : Math.Min(q.ReadIdx, _reads.Count - 1);
-            int pick = -1; ThrowStyle pickStyle = ThrowStyle.Auto; float pickOpen = -1f;
+            int pick = -1; ThrowStyle pickStyle = ThrowStyle.Auto; float pickOpen = -1f; float pickScore = -9f;
             float bestOpen = -1f; int bestIdx = -1; ThrowStyle bestStyle = ThrowStyle.Auto;
             for (int i = 0; i <= upTo; i++)
             {
@@ -305,7 +334,7 @@ namespace PixFootball.Sim
                 open += S.Rng.Gaussian(0f, 0.16f * (1f - aw));
                 if (open > bestOpen) { bestOpen = open; bestIdx = i; bestStyle = st; }
                 float th = Threshold(q, i, press) - (hot ? 0.10f : 0f);
-                if (pick < 0 && open >= th) { pick = i; pickStyle = st; pickOpen = open; }
+                if (open >= th && (pick < 0 || open - 0.05f * i > pickScore)) { pick = i; pickStyle = st; pickOpen = open; pickScore = open - 0.05f * i; }
             }
             if (pick >= 0)
             {
@@ -316,21 +345,21 @@ namespace PixFootball.Sim
 
             // advance the progression
             float dwell = 0.32f + 0.26f * (1f - aw);
-            if (q.ReadIdx < _reads.Count - 1 && S.Time - q.QbLastAdvance >= dwell && S.Time >= EarliestThrow(S.Agents[_reads[Math.Min(q.ReadIdx, _reads.Count - 1)]]) - 0.1f)
+            float curEarliest = EarliestThrow(S.Agents[_reads[Math.Min(q.ReadIdx, _reads.Count - 1)]]);
+            if (q.ReadIdx < _reads.Count - 1 && S.Time - Math.Max(q.QbLastAdvance, curEarliest) >= dwell)
             {
                 q.ReadIdx++;
                 q.QbLastAdvance = S.Time;
             }
             bool exhausted = q.ReadIdx >= _reads.Count - 1;
 
-            float holdMax = (hot ? 2.2f : 2.9f) + 0.4f * (aw - 0.5f) + (_rolling ? 0.5f : 0f);
-            holdMax = Math.Max(holdMax, q.QbSetAt + (hot ? 0.9f : 1.15f));
+            float holdMax = HoldMax(q, hot);
             if (!onRun)
             {
-                bool bail = press >= 0.70f || S.Time > holdMax;
+                bool bail = press >= 0.55f || S.Time > holdMax;
                 if (!bail) return;
                 // 1) take what is there when the clock or the rush says so
-                if (bestIdx >= 0 && bestOpen > 0.30f && (S.Time > holdMax || press > 0.8f))
+                if (bestIdx >= 0 && bestOpen > 0.05f && (S.Time > holdMax || press > 0.55f))
                 {
                     q.PendingOpen = bestOpen;
                     BeginThrow(q, S.Agents[_reads[bestIdx]], bestStyle, Vec2.Zero);
@@ -339,7 +368,7 @@ namespace PixFootball.Sim
                 // 2) leave the pocket
                 if (!hot && (press < 0.55f || q.R.Speed >= 80) && TryStartScramble(q, press)) return;
                 // 3) live to play another down
-                if (aw > 0.35f && (press >= 0.60f || S.Time > holdMax + 0.2f)) { ThrowAway(q); return; }
+                if (aw > 0.35f && (press >= 0.50f || S.Time > holdMax + 0.05f)) { ThrowAway(q); return; }
                 if (bestIdx >= 0 && bestOpen > 0.2f && S.Time > holdMax + 0.6f) BeginThrow(q, S.Agents[_reads[bestIdx]], bestStyle, Vec2.Zero);
             }
             else
@@ -416,7 +445,7 @@ namespace PixFootball.Sim
                 // where the defender is relative to the ball's line: between the passer and the catch point is dangerous, trailing is not
                 Vec2 uBall = (qpos - T).Norm();
                 float front = SimMath.Clamp((dp - T).Dot(uBall), -1.5f, 1.5f) / 1.5f;
-                float posW = 0.55f + 0.45f * SimMath.Clamp01(front + 0.55f);
+                float posW = 0.34f + 0.66f * SimMath.Clamp01((front + 0.45f) / 1.2f);
                 threat *= posW;
                 float sepNow = (dp - T).Length;
                 float proximity = SimMath.Clamp01((2.4f - sepNow) / 1.8f) * (0.25f + 0.75f * SimMath.Clamp01(front * 0.5f + 0.5f)) * (d.State == AgentState.Engaged ? 0.4f : 1f);

@@ -55,7 +55,10 @@ namespace PixFootball.Sim
             }
             if (S.Kind != PlayKind.Scrimmage) return;
             _playIsRun = S.OffPlay.IsRun;
-            _playIsDraw = S.OffPlay.Category == PlayCategory.Draw;
+            var qdraw = S.OffPlay.Assignments[0] as QbAssignment;
+            _qbDraw = qdraw != null && qdraw.Action == QbAction.Keep && qdraw.DropbackSteps > 0;
+            _playIsDraw = S.OffPlay.Category == PlayCategory.Draw || _qbDraw;
+            _exchangeAt = _qbDraw ? 0.85f : -1f;
             _playIsPlayAction = S.OffPlay.Category == PlayCategory.PlayAction;
             MatchMen();
             _intendedRunner = null; _fakeRunner = null;
@@ -123,9 +126,27 @@ namespace PixFootball.Sim
         {
             float aw = SimMath.Rating01(a.R.Awareness);
             float d = 0.20f + (1f - aw) * 0.32f;
-            if (PositionGroup.IsLinebacker(a.PlayPos)) d += 0.10f;
+            if (PositionGroup.IsLinebacker(a.PlayPos)) d += 0.15f;
             if (PositionGroup.IsDefensiveBack(a.PlayPos)) d += 0.20f;
+            // misdirection holds the second level for a beat: the counter step, the pulling line, the fake
+            if (a.Side == SimSide.Defense && !PositionGroup.IsDefensiveLine(a.PlayPos)) d += MisdirectionDelay * (0.7f + 0.6f * (1f - aw));
             return d;
+        }
+
+        private float MisdirectionDelay
+        {
+            get
+            {
+                for (int i = 1; i < 11; i++)
+                {
+                    var ca = S.Agents[i].Assign as CarryAssignment;
+                    if (ca == null || ca.IsFake) continue;
+                    if (ca.Style == CarryStyle.Counter) return 0.52f;
+                    if (ca.Style == CarryStyle.Trap) return 0.22f;
+                    if (ca.Style == CarryStyle.Option) return 0.12f;
+                }
+                return 0f;
+            }
         }
 
         // =====================================================================================
@@ -136,6 +157,7 @@ namespace PixFootball.Sim
         {
             if (S.Kind != PlayKind.Scrimmage) return;
             bool turnover = S.BallSide != SimSide.Offense;
+            if (_exchangeAt < 0f && S.Blocks.HandedOff) _exchangeAt = S.Time;
             for (int i = 11; i < 22; i++)
             {
                 SimAgent a = S.Agents[i];
@@ -158,7 +180,7 @@ namespace PixFootball.Sim
             float t = S.Time;
             if (t < a.DefReadAt) return false;
             SimAgent c = S.Carrier;
-            bool carrierRuns = c != null && c.Side == SimSide.Offense && (c.Slot != 0 || S.QbHasCrossedLos || c.QbState == QbPhase.Scramble);
+            bool carrierRuns = c != null && c.Side == SimSide.Offense && (c.Slot != 0 || S.QbHasCrossedLos || c.QbState == QbPhase.Scramble || QbDrawRunning(c));
             if (c != null && c.Slot == 0 && c.Side == SimSide.Offense && c.Pos.Y > S.LosY + 0.5f) carrierRuns = true;
             if (_playIsPlayAction)
             {
@@ -193,11 +215,11 @@ namespace PixFootball.Sim
             SimAgent c = S.Carrier;
             if (c != null && c.Side == SimSide.Offense)
             {
-                bool running = c.Slot != 0 || S.QbHasCrossedLos || c.QbState == QbPhase.Scramble;
+                bool running = c.Slot != 0 || S.QbHasCrossedLos || c.QbState == QbPhase.Scramble || QbDrawRunning(c);
                 if (running)
                 {
                     // the ball is out and moving: everyone fits the run once he has read it
-                    if (S.PassCompleted || S.Time >= a.DefReadAt) { RunResponse(a, c); return; }
+                    if (S.PassCompleted || (S.Time >= a.DefReadAt && !DrawHold(a))) { RunResponse(a, c); return; }
                 }
                 else if (!S.PassThrown && PerceivesRun(a))
                 {
@@ -314,6 +336,15 @@ namespace PixFootball.Sim
         private void ManUpdate(SimAgent a, CoverageAssignment cov)
         {
             SimAgent r = S.Agents[a.CoverTarget];
+            // his man stays in to block: sit in the underneath hook zone instead of following him into the quarterback
+            if (S.OffAI.IsPassPlay && r.Side == SimSide.Offense && (r.Assign is BlockAssignment || (r.Assign is CarryAssignment && r.Intent == AgentAction.Block && S.Time > 0.6f) || (r.State == AgentState.Engaged && !(r.Assign is RouteAssignment))))
+            {
+                a.CoverTarget = -1;
+                a.Zone = ZoneRegion.HookMiddle();
+                a.Landmark = S.Rel(new Vec2(SimMath.Clamp(a.Pos.X - S.BallX0, -6f, 6f), 8f));
+                ZoneUpdate(a);
+                return;
+            }
             a.Intent = AgentAction.Run;
             float vmax = a.Body.EffectiveVMax;
             float aw = SimMath.Rating01(a.R.Awareness);
@@ -383,12 +414,16 @@ namespace PixFootball.Sim
             if (S.Options.Penalties && !S.PassThrown && S.PendingPenalty == null)
             {
                 float sep = (r.Pos - a.Pos).Length;
-                bool beaten = sep > 0.8f && sep < 2.3f && rv.Y > 1.5f && a.Pos.Y < r.Pos.Y - 0.3f;
+                bool beaten = sep > 0.7f && sep < 2.6f && rv.Y > 1.5f && a.Pos.Y < r.Pos.Y - 0.2f;
                 if (beaten && t > 0.9f)
                 {
-                    float p = 0.00028f * (1.35f - aw);
-                    if (S.Rng.NextFloat() < p)
-                        S.Flag(r.Pos.Y - S.LosY > 5f && S.Rules.CollegeStyle == false ? PenaltyType.DefensiveHolding : PenaltyType.DefensiveHolding, a, r.Pos.Y - S.LosY);
+                    float p = 0.0022f * (1.45f - aw) * (1.3f - man);
+                    if (S.Rng.NextFloat() < p) S.Flag(PenaltyType.DefensiveHolding, a, r.Pos.Y - S.LosY);
+                }
+                else if (sep < 1.7f && t > 1.1f && t < 3.4f && r.Pos.Y - S.LosY > 6.0f && rsp > 1.5f)
+                {
+                    float p = 0.0095f * (1.45f - aw) * (1.3f - man);
+                    if (S.Rng.NextFloat() < p) S.Flag(PenaltyType.IllegalContact, a, r.Pos.Y - S.LosY);
                 }
             }
         }
@@ -756,6 +791,33 @@ namespace PixFootball.Sim
                 return Math.Max(0.15f, Math.Min(1f, w)) * (near < 4f ? 1f : 0.85f);
             }
             return near < 5f ? 0.7f : 0.2f;
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    internal sealed partial class DefenseAI
+    {
+        private float _exchangeAt = -1f;
+        private bool _qbDraw;
+
+        /// <summary>The draw: defenders who dropped into pass coverage need a beat to see the handoff and turn their hips back downhill.</summary>
+        private bool DrawHold(SimAgent a)
+        {
+            if (!_playIsDraw || _exchangeAt < 0f) return false;
+            float aw = SimMath.Rating01(a.R.Awareness);
+            float hold = PositionGroup.IsDefensiveLine(a.PlayPos) ? 0.10f : (_qbDraw ? 0.02f + 0.15f * (1f - aw) : 0.30f + 0.30f * (1f - aw));
+            return S.Time < _exchangeAt + hold;
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    internal sealed partial class DefenseAI
+    {
+        private bool QbDrawRunning(SimAgent c)
+        {
+            return _qbDraw && c.Slot == 0 && c.Side == SimSide.Offense && c.QbState == QbPhase.Done && S.Time > _exchangeAt;
         }
     }
 }

@@ -455,6 +455,8 @@ namespace PixFootball.Sim
                     if (b.Body.FallenTime > 0f && b.State == AgentState.Down) continue;
                     if (a.Body.FallenTime > 0f || b.Body.FallenTime > 0f) continue;
                     if (a.Engagement != null && a.Engagement == b.Engagement) continue;
+                    // the back runs past the quarterback who just handed him the ball
+                    if (a.Side == b.Side && Kind == PlayKind.Scrimmage && ((a.HasBall && b.Slot == 0) || (b.HasBall && a.Slot == 0))) continue;
                     if (Tackles.InTackleLock(a, b)) continue;
                     if (a.IgnoreAgent == b.Id && Time < a.IgnoreUntil) continue;
                     if (b.IgnoreAgent == a.Id && Time < b.IgnoreUntil) continue;
@@ -613,13 +615,19 @@ namespace PixFootball.Sim
 
         private bool TryPreSnapPenalty()
         {
-            if (Kind == PlayKind.Kickoff || Kind == PlayKind.Kneel || Kind == PlayKind.Spike) return false;
+            if (Kind == PlayKind.Kickoff || Kind == PlayKind.Kneel || Kind == PlayKind.Spike || IsExtraPoint) return false;
             // false start: offensive linemen with low awareness
             float awSum = 0f;
             for (int i = 2; i <= 6; i++) awSum += Agents[i].R.Awareness;
             float awOl = awSum / 5f / 99f;
-            float pFalse = 0.0045f * (1.55f - awOl);
-            if (Rng.Chance(pFalse))
+            float dlAw = 0f;
+            for (int i = 0; i < 4; i++) dlAw += Agents[11 + i].R.Awareness;
+            dlAw = dlAw / 4f / 99f;
+            float qbAw = Agents[0].R.Awareness / 99f;
+            float u = Rng.NextFloat();
+            float acc = 0f;
+            bool scrimmage = Kind == PlayKind.Scrimmage;
+            if (u < (acc += 0.0185f * (1.55f - awOl)))
             {
                 // the guilty lineman is the one with the worst awareness
                 int worst = 2;
@@ -629,13 +637,31 @@ namespace PixFootball.Sim
                 FinishPreSnap(PlayResult.PenaltyOnly(call));
                 return true;
             }
-            float dlAw = 0f;
-            for (int i = 0; i < 4; i++) dlAw += Agents[11 + i].R.Awareness;
-            dlAw = dlAw / 4f / 99f;
-            if (Rng.Chance(0.0040f * (1.55f - dlAw)))
+            if (u < (acc += 0.0075f * (1.55f - dlAw)))
             {
                 var call = new PenaltyCall(PenaltyType.Offside, State.Possession.Opponent(), 0f, Agents[11].PlayerId);
                 LogEvent(SimEventType.Penalty, 11, -1, TackleType.None, (float)PenaltyType.Offside, "Offside");
+                FinishPreSnap(PlayResult.PenaltyOnly(call));
+                return true;
+            }
+            if (u < (acc += 0.0026f * (1.55f - dlAw)))
+            {
+                var call = new PenaltyCall(PenaltyType.Encroachment, State.Possession.Opponent(), 0f, Agents[12].PlayerId);
+                LogEvent(SimEventType.Penalty, 12, -1, TackleType.None, (float)PenaltyType.Encroachment, "Encroachment");
+                FinishPreSnap(PlayResult.PenaltyOnly(call));
+                return true;
+            }
+            if (scrimmage && u < (acc += 0.0040f * (1.55f - qbAw)))
+            {
+                var call = new PenaltyCall(PenaltyType.DelayOfGame, State.Possession, 0f, Agents[0].PlayerId);
+                LogEvent(SimEventType.Penalty, 0, -1, TackleType.None, (float)PenaltyType.DelayOfGame, "DelayOfGame");
+                FinishPreSnap(PlayResult.PenaltyOnly(call));
+                return true;
+            }
+            if (scrimmage && u < (acc += 0.0016f * (1.55f - qbAw)))
+            {
+                var call = new PenaltyCall(PenaltyType.IllegalFormation, State.Possession, 0f, Agents[10].PlayerId);
+                LogEvent(SimEventType.Penalty, 10, -1, TackleType.None, (float)PenaltyType.IllegalFormation, "IllegalFormation");
                 FinishPreSnap(PlayResult.PenaltyOnly(call));
                 return true;
             }

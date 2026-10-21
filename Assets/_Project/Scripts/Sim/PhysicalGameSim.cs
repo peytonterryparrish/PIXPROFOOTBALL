@@ -21,6 +21,8 @@ namespace PixFootball.Sim
         public float SimSeconds;
         public int HomeScore, AwayScore;
         public bool Note;
+        /// <summary>True when a flag on this play was accepted (the play itself was replaced by the foul).</summary>
+        public bool PenaltyAccepted;
         public override string ToString()
         {
             return "Q" + Quarter + " " + DownBefore + "&" + DistanceBefore + " @" + SpotBefore + " " + OffensePlayName + " -> "
@@ -135,6 +137,15 @@ namespace PixFootball.Sim
             PlayResult result = sim.RunToCompletion();
             rec.Result = result;
             rec.SimSeconds = sim.Time;
+            if (result.Penalty != null)
+            {
+                if (result.Type == PlayType.Penalty) rec.PenaltyAccepted = result.PenaltyDecision != PenaltyDecision.Decline;
+                else
+                {
+                    rec.PenaltyAccepted = PenaltyEnforcer.ShouldAccept(State, result);
+                    result.PenaltyDecision = rec.PenaltyAccepted ? PenaltyDecision.Accept : PenaltyDecision.Decline;
+                }
+            }
             if (KeepLogs) rec.Log = sim.Log;
             State.Apply(result);
             rec.HomeScore = State.HomeScore; rec.AwayScore = State.AwayScore;
@@ -149,6 +160,15 @@ namespace PixFootball.Sim
         private Play Pick(List<Play> list)
         {
             return list.Count == 0 ? null : list[Rng.Range(0, list.Count)];
+        }
+
+        /// <summary>Deep kicks almost always; the squib is a rare change of pace.</summary>
+        private Play PickKickoff()
+        {
+            var deep = new List<Play>();
+            foreach (Play p in _kickoffs) if (p.Name.IndexOf("Squib") < 0) deep.Add(p);
+            if (deep.Count == 0 || Rng.Chance(0.06f)) return Pick(_kickoffs);
+            return Pick(deep);
         }
 
         private Play PickByFormation(List<Play> list, string formationOrNull)
@@ -168,7 +188,7 @@ namespace PixFootball.Sim
                     // the kicking team (possession) trails when its diff is negative
                     bool trailing = State.PossessionScoreDiff < 0 && State.PossessionScoreDiff >= -8;
                     bool onside = State.Quarter == 4 && State.ClockSeconds < 200f && trailing && Rng.Chance(0.75f);
-                    off = onside ? Pick(_onsides) : Pick(_kickoffs);
+                    off = onside ? Pick(_onsides) : PickKickoff();
                     def = Pick(_kickReturns);
                     return;
                 }

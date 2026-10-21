@@ -28,6 +28,9 @@ namespace PixFootball.Sim
 
         public SpecialTeamsAI(PlaySimulation s) { S = s; }
 
+        /// <summary>True once the ball has been kicked (punt or kickoff): the kicking team is in coverage, not protection.</summary>
+        public bool KickAway { get { return _kicked; } }
+
         public bool IsKickerOrHolder(SimAgent a)
         {
             if (S.Kind == PlayKind.Scrimmage) return false;
@@ -418,8 +421,8 @@ namespace PixFootball.Sim
                 float pBlock = 0.55f + 0.3f * SimMath.Rating01(blocker.R.Jumping) - 0.2f * SimMath.Rating01(k.R.Awareness);
                 if (S.Rng.NextFloat() < pBlock) { BlockKick(k, blocker, from); return; }
             }
-            float flight = (50f + 20f * kp) * (1f - 0.25f * pressure) + S.Rng.Gaussian(0f, 2.5f + 4f * (1f - acc));
-            float hang = (3.9f + 1.2f * kp) * (1f - 0.12f * pressure);
+            float flight = (44f + 22f * kp) * (1f - 0.25f * pressure) + S.Rng.Gaussian(0f, 2.5f + 4f * (1f - acc));
+            float hang = (3.75f + 1.1f * kp) * (1f - 0.12f * pressure);
             var ka = (KickAssignment)S.OffPlay.Assignments[0];
             float aimX = S.BallX0 + ka.AimX;
             if (_kind == KickKind.Rugby) { flight *= 0.78f; hang *= 0.82f; }
@@ -432,6 +435,10 @@ namespace PixFootball.Sim
             _kickPoint = from;
             S.KickDistance = flight;
             S.Blocks.ReleaseAll();
+            // the return team picks up the coverage while the ball is in the air
+            S.Blocks.BlockerSideOverride = SimSide.Defense;
+            S.Blocks.ForcePassMode = false;
+            S.Blocks.HasAnchor = false;
         }
 
         private void BlockKick(SimAgent k, SimAgent blocker, Vec3 from)
@@ -554,7 +561,7 @@ namespace PixFootball.Sim
             float vmax = 23.5f + 10.5f * kp;
             vmax *= 1f + S.Rng.Gaussian(0f, 0.012f * (2f - acc));
             // lateral miss angle: gets worse with distance, rush pressure and poor accuracy
-            float baseSd = SimMath.Lerp(0.075f, 0.036f, acc) * (1f + 0.012f * Math.Max(0f, dist0 - 40f)) * (1f + 0.35f * pressure);
+            float baseSd = SimMath.Lerp(0.094f, 0.036f, acc) * (1f + 0.012f * Math.Max(0f, dist0 - 40f)) * (1f + 0.35f * pressure);
             float err = S.Rng.Gaussian(0f, baseSd);
             float aimX = FieldGeometry.CenterX;
             Vec3 aim = new Vec3(aimX + (float)Math.Tan(err) * dist0, GoalPostY, 4.6f);
@@ -648,12 +655,13 @@ namespace PixFootball.Sim
             }
             // fair catch (punts): the coverage is on top of him
             bool fair = false;
-            if (S.Kind == PlayKind.Punt && ra.FairCatchAllowed)
+            if (S.Kind == PlayKind.Punt)
             {
                 float nearest = 99f;
                 for (int i = 0; i < 11; i++) { SimAgent o = S.Agents[i]; if (o.State != AgentState.Down) nearest = Math.Min(nearest, (o.Pos - a.Pos).Length); }
                 float aw = SimMath.Rating01(a.R.Awareness);
-                fair = nearest < 4.2f + 2.0f * (1f - aw);
+                // a safe call signals early at the sight of coverage; a return call only waves it when a gunner is already on top of him
+                fair = nearest < (ra.FairCatchAllowed ? 16.5f + 4.0f * (1f - aw) : 8.0f + 3.0f * (1f - aw)) && (ball.Pos.Z > 0f);
             }
             S.GiveBall(a);
             S.BallSide = a.Side;

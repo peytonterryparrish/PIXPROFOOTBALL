@@ -37,6 +37,8 @@ namespace PixFootball.Sim
             }
 
             PlayResult r = BuildScrimmageResult(reason, time);
+            // offenses snap quicker than the full play clock: the rulebook default is a conservative runoff
+            if (r.RunoffSeconds < 0f) r.RunoffSeconds = Math.Max(12f, Rules.NormalRunoff - 5f);
             if (IsTwoPoint)
             {
                 bool good = reason == EndReason.Touchdown && !DefensiveTd && BallSide == SimSide.Offense;

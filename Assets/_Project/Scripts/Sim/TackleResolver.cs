@@ -86,11 +86,12 @@ namespace PixFootball.Sim
             float icm = c.Body.Mass * Math.Max(0f, c.Vel.Dot(toC * -1f)) + 0.6f * c.Body.Mass;
             float ratio = idm / Math.Max(1f, icm);
 
-            float tackleSkill = 0.52f * d.R.Tackling + 0.16f * d.R.Strength + 0.12f * d.R.Awareness + 0.10f * d.R.Agility + 0.10f * d.R.Speed;
+            float tkEff = d.R.Tackling >= 75 ? 75f + (d.R.Tackling - 75f) * 1.45f : 75f + (d.R.Tackling - 75f) * 0.46f;
+            float tackleSkill = 0.52f * tkEff + 0.16f * d.R.Strength + 0.12f * d.R.Awareness + 0.10f * d.R.Agility + 0.10f * d.R.Speed;
             float carrierSkill = 0.34f * c.R.BreakTackle + 0.22f * c.R.Strength + 0.14f * c.R.Carrying + 0.18f * c.R.Elusiveness + 0.12f * c.R.Agility;
             float mod = 0f;
-            mod += category == 0 ? 5f : (category == 2 ? -9f : 0f);
-            if (diving) mod -= 11f;
+            mod += category == 0 ? 5f : (category == 2 ? -14f : -3f);
+            if (diving) mod -= 14f;
             mod += (d.Body.Mass - c.Body.Mass) / 40f * 5f;
             mod += (float)Math.Log(ratio) * 7f;
             mod -= 5f * SimMath.Clamp01(c.Speed / Math.Max(1f, c.Body.VMax));
@@ -102,7 +103,7 @@ namespace PixFootball.Sim
             if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) mod += 12f; // passers rarely escape an unblocked rusher
             if (c.State == AgentState.Normal && c.Body.FallenTime > 0f) mod += 20f;
 
-            float margin = tackleSkill - carrierSkill + mod + S.Rng.Gaussian(0f, 11f);
+            float margin = tackleSkill - carrierSkill + mod + S.Rng.Gaussian(0f, 12f) + 7.5f;
 
             // sack bookkeeping
             bool sackCandidate = c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown && c.Pos.Y <= S.LosY + 0.01f && S.BallSide == SimSide.Offense;
@@ -110,7 +111,7 @@ namespace PixFootball.Sim
             if (margin > 0f)
             {
                 // clean stop
-                bool big = margin > 16f && closing > 5.0f && category != 2 && !diving;
+                bool big = margin > 26f && closing > 5.0f && category != 2 && !diving;
                 TackleType type;
                 if (c.DragMass > 0f) type = TackleType.GangTackle;
                 else if (diving) type = TackleType.DiveTackle;
@@ -169,6 +170,7 @@ namespace PixFootball.Sim
             if (c.Protecting) pFum *= 0.45f;
             if (qbPass) pFum = 0.05f * (1.55f - SimMath.Rating01(c.R.Carrying)) * (0.8f + d.R.Strength / 200f);
             if (c.Move == CarrierMove.Spin || c.Move == CarrierMove.Truck) pFum *= 1.6f;
+            pFum *= 0.7f;
             bool fumble = S.Rng.NextFloat() < pFum;
 
             FinishTackle(d, c, type, sack, fumble, closing);
@@ -194,6 +196,7 @@ namespace PixFootball.Sim
             if (type == TackleType.DiveTackle) d.Body.Fall(0.8f);
             S.Blocks.Release(c);
 
+            MaybeFoul(d, c, type, sack, closing);
             if (type == TackleType.PushOutOfBounds)
             {
                 c.Body.Vel = new Vec2(c.Pos.X < FieldGeometry.CenterX ? -3f : 3f, c.Body.Vel.Y * 0.3f);
@@ -230,6 +233,25 @@ namespace PixFootball.Sim
                 return;
             }
             S.EndPlay(EndReason.Tackle);
+        }
+
+        /// <summary>Late hits, face masks and roughing: the defender's discipline decides whether a hard tackle draws a flag.</summary>
+        private void MaybeFoul(SimAgent d, SimAgent c, TackleType type, bool sack, float closing)
+        {
+            if (!S.Options.Penalties || S.PendingPenalty != null || S.Kind != PlayKind.Scrimmage || c.Side != SimSide.Offense || S.BallSide != SimSide.Offense) return;
+            float dis = 1.5f - SimMath.Rating01(d.R.Awareness);
+            float spot = c.Pos.Y - S.LosY;
+            bool qb = c.Slot == 0;
+            if (qb && S.PassThrown)
+            {
+                // hitting the passer after he let go
+                if (S.Rng.NextFloat() < 0.40f * dis) S.Flag(PenaltyType.RoughingThePasser, d, spot);
+                return;
+            }
+            if (type == TackleType.PushOutOfBounds && S.Rng.NextFloat() < 0.05f * dis) { S.Flag(PenaltyType.UnnecessaryRoughness, d, spot); return; }
+            if (sack && S.Rng.NextFloat() < 0.05f * dis) { S.Flag(PenaltyType.RoughingThePasser, d, spot); return; }
+            if (type == TackleType.BigHit && S.Rng.NextFloat() < 0.014f * dis) { S.Flag(PenaltyType.UnnecessaryRoughness, d, spot); return; }
+            if (S.Rng.NextFloat() < 0.0042f * dis) S.Flag(PenaltyType.FaceMask, d, spot);
         }
 
         private static AgentAction TackleAction(TackleType t)

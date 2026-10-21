@@ -107,7 +107,7 @@ namespace PixFootball.Sim
                 while (c.PathIdx < path.Count - 1 && (S.Rel(path[c.PathIdx]) - c.Pos).Length < 1.2f) c.PathIdx++;
                 Vec2 wp = S.Rel(path[c.PathIdx]);
                 guide = (wp - c.Pos).Norm();
-                guideW = 2.4f;
+                guideW = carry != null && (carry.Style == CarryStyle.Power || carry.Style == CarryStyle.Counter || carry.Style == CarryStyle.Trap || carry.Style == CarryStyle.Sweep || carry.Style == CarryStyle.Toss) ? 2.8f : 1.4f; // designed holes behind pullers are followed; zone and draw runs read
             }
             else if (path != null && path.Count > 0 && c.PathIdx < path.Count)
             {

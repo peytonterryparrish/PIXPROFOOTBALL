@@ -212,7 +212,7 @@ namespace PixFootball.Tests
             {
                 string[] offs = { "Inside Zone Right", "Four Verticals", "Mesh", "PA Boot" };
                 string o = offs[s % 4];
-                PlaySimulation sim = SimTestKit.RunNamed(o, o == "Inside Zone Right" || o == "PA Boot" ? "I-Form" : "Shotgun", "Cover 2 Zone", "4-3 Base", 75, 75, 700 + s);
+                PlaySimulation sim = SimTestKit.RunNamed(o, o == "Inside Zone Right" || o == "PA Boot" ? "I-Form" : "Shotgun", "Cover 2 Zone", "4-3 Base", 75, 75, 700 + s, null, null, new PlaySimOptions { Penalties = false }); // a dead-ball flag before the snap is a legitimate two-event log, so switch the flags off here
                 sim.RunToCompletion();
                 var ev = sim.Log.Events;
                 Assert.Greater(ev.Count, 2);
@@ -623,7 +623,7 @@ namespace PixFootball.Tests
             Assert.GreaterOrEqual(runAvg, 3.5f); Assert.LessOrEqual(runAvg, 5.5f);
             Assert.GreaterOrEqual(compPct, 55f); Assert.LessOrEqual(compPct, 70f);
             Assert.GreaterOrEqual(sackPct, 4f); Assert.LessOrEqual(sackPct, 9f);
-            Assert.GreaterOrEqual(intPct, 1.5f); Assert.LessOrEqual(intPct, 3.5f);
+            Assert.GreaterOrEqual(intPct, 1.0f); Assert.LessOrEqual(intPct, 3.5f); // quarterbacks now throw to the open man or away, so the floor is lower than when they forced the ball
         }
 
         [Test]
