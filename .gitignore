@@ -115,3 +115,5 @@ InitTestScene*.unity*
 /Builds/
 *.zip
 /Docs/Screens/
+__pycache__/
+*.pyc

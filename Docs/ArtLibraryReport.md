@@ -135,7 +135,7 @@ clips=726 prefabs=142 materials=109 sprites=234 audioClips=246 textures=16 fonts
 | idle_conversation | 5 | root|Idles_conversations_2_actors_001_A (Animations/BoNES_Retargets/IdleConversation_25.fbx) |
 | dance | 2 | BONES_QB_freestyle_001 (Animations/BoNES_QB/BONES_QB_freestyle_001.fbx) |
 | salute | 2 | CelebrationTouchdownKneelreverently (Animations/Motus/CelebrationTouchdownKneelreverently.fbx) |
-| ref_idle | 1 | ref_idle (Characters/Coaches/Rigged/Coach_Anims.fbx) |
+| ref_idle | 1 | ref_idle (Characters/Coaches/Rigged/Clips/ref_idle.anim) |
 | ref_signal_td | 1 | ref_gesture_touchdown (Characters/Referee/Rigged/Referee_Gestures.fbx) |
 | ref_signal_first_down | 1 | ref_gesture_firstdown (Characters/Referee/Rigged/Referee_Gestures.fbx) |
 | ref_signal_penalty | 6 | ref_gesture_delayofgame (Characters/Referee/Rigged/Referee_Gestures.fbx) |
@@ -152,9 +152,9 @@ clips=726 prefabs=142 materials=109 sprites=234 audioClips=246 textures=16 fonts
 | ref_walk_back | 1 | ref_walkb_loop (Characters/Referee/Rigged/Referee_Gestures.fbx) |
 | ref_shuffle_left | 1 | ref_shuffle_left (Characters/Referee/Rigged/Referee_Gestures.fbx) |
 | ref_shuffle_right | 1 | ref_shuffle_right (Characters/Referee/Rigged/Referee_Gestures.fbx) |
-| coach_clap | 1 | coach_clap (Characters/Coaches/Rigged/Coach_Anims.fbx) |
-| coach_headset_idle | 1 | coach_headset_idle (Characters/Coaches/Rigged/Coach_Anims.fbx) |
-| coach_clipboard_idle | 1 | coach_clipboard_idle (Characters/Coaches/Rigged/Coach_Anims.fbx) |
+| coach_clap | 1 | coach_clap (Characters/Coaches/Rigged/Clips/coach_clap.anim) |
+| coach_headset_idle | 1 | coach_headset_idle (Characters/Coaches/Rigged/Clips/coach_headset_idle.anim) |
+| coach_clipboard_idle | 1 | coach_clipboard_idle (Characters/Coaches/Rigged/Clips/coach_clipboard_idle.anim) |
 | punt | 1 | CelebrationDownpunt (Animations/Motus/CelebrationDownpunt.fbx) |
 | long_snap | 4 | BONES_QB_shotgun_snap_to_fakeHandoff_001 (Animations/BoNES_QB/BONES_QB_shotgun_snap_to_fakeHandoff_001.fbx) |
 

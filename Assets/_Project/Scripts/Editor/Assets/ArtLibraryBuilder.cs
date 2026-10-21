@@ -289,6 +289,21 @@ namespace PixFootball.EditorTools
                     candidates.Add(new KeyValuePair<string, AnimationClip>(path, c));
                 }
             }
+            // standalone arm-fitted clips (ArmFit) replace the same-named FBX clips
+            string fittedDir = Root + "/Characters/Coaches/Rigged/Clips";
+            if (AssetDatabase.IsValidFolder(fittedDir))
+            {
+                var fitted = new List<KeyValuePair<string, AnimationClip>>();
+                foreach (string g in AssetDatabase.FindAssets("t:AnimationClip", new[] { fittedDir }))
+                {
+                    string p = AssetDatabase.GUIDToAssetPath(g);
+                    var c = AssetDatabase.LoadAssetAtPath<AnimationClip>(p);
+                    if (c != null) fitted.Add(new KeyValuePair<string, AnimationClip>(p, c));
+                }
+                var names = new HashSet<string>(fitted.Select(f => f.Value.name));
+                candidates.RemoveAll(k => k.Key.Contains("/Coaches/Rigged/") && names.Contains(k.Value.name));
+                candidates.AddRange(fitted);
+            }
             // order: source priority, then name
             candidates = candidates.OrderBy(k => SourcePriority(k.Key)).ThenBy(k => NormalizeClip(k.Value.name), StringComparer.Ordinal).ToList();
             var count = new Dictionary<string, int>();
