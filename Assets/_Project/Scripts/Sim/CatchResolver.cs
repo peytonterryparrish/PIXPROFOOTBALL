@@ -1,0 +1,370 @@
+using System;
+using System.Collections.Generic;
+using PixFootball.Core;
+
+namespace PixFootball.Sim
+{
+    /// <summary>
+    /// Resolves who can reach a ball in the air from geometry: reach envelopes from height and Jumping, then a contested duel
+    /// (Catching, Strength, timing and position vs coverage skill) with outcomes catch, drop, deflection, interception,
+    /// hit-in-traffic fumbles, pass interference, and feet-in-bounds at the sideline.
+    /// </summary>
+    internal sealed class CatchResolver
+    {
+        private readonly PlaySimulation S;
+        private readonly List<SimAgent> _near = new List<SimAgent>(8);
+
+        public CatchResolver(PlaySimulation s) { S = s; }
+
+        private static float Sigmoid(float x) { return 1f / (1f + (float)Math.Exp(-x)); }
+
+        // =====================================================================================
+        // Reach envelope
+        // =====================================================================================
+
+        public float ReachTop(SimAgent a)
+        {
+            float top = a.Body.HeightYd * 1.28f;
+            if (a.JumpTime > 0.05f)
+            {
+                float leap = 0.45f + 0.55f * SimMath.Rating01(a.R.Jumping);
+                // parabolic jump profile: strongest around the middle of the window
+                float phase = 1f - Math.Abs(a.JumpTime / 0.62f * 2f - 1f);
+                top += leap * SimMath.Clamp01(phase + 0.15f);
+            }
+            return top;
+        }
+
+        public float ReachRadius(SimAgent a, Vec3 ball)
+        {
+            float r = a.Body.Radius + 0.62f;
+            if (a.Body.Speed > 3f && ball.Z < 1.1f) r += 0.45f; // stretching / diving for low balls
+            Vec2 toBall = ball.XY - a.Pos;
+            if (toBall.LenSq() > 0.01f && a.Facing.Dot(toBall.Norm()) < -0.2f) r = a.Body.Radius + 0.30f; // ball behind the shoulders
+            return r;
+        }
+
+        /// <summary>Does the ball (moving from prev to cur this step) pass through the agent's catch envelope?</summary>
+        public bool Touches(SimAgent a, Vec3 prev, Vec3 cur, out float closest)
+        {
+            closest = float.MaxValue;
+            float top = ReachTop(a);
+            bool hit = false;
+            for (int k = 0; k <= 2; k++)
+            {
+                float f = k * 0.5f;
+                Vec3 p = new Vec3(prev.X + (cur.X - prev.X) * f, prev.Y + (cur.Y - prev.Y) * f, prev.Z + (cur.Z - prev.Z) * f);
+                float d = (p.XY - a.Pos).Length;
+                if (d < closest) closest = d;
+                if (p.Z < 0.12f || p.Z > top) continue;
+                if (d <= ReachRadius(a, p)) hit = true;
+            }
+            return hit;
+        }
+
+        // =====================================================================================
+        // Passes in flight
+        // =====================================================================================
+
+        private readonly HashSet<int> _tried = new HashSet<int>();
+        private readonly Dictionary<int, float> _lock = new Dictionary<int, float>();
+
+        public void ResetPass() { _tried.Clear(); _lock.Clear(); }
+
+        /// <summary>
+        /// Whether the agent actually gets a hand up when the ball enters his reach: receivers and defensive backs track the ball,
+        /// linemen and engaged defenders only occasionally bat it, and nobody re-touches a ball he just tipped.
+        /// </summary>
+        private bool Engages(SimAgent a)
+        {
+            float until;
+            if (_lock.TryGetValue(a.Id, out until) && S.Time < until) return false;
+            if (a.Side == SimSide.Offense) return true;
+            if (a.Id == S.TargetId) return true;
+            if (_tried.Contains(a.Id)) return true;
+            // first time this defender can reach this ball
+            float p;
+            if (a.State == AgentState.Engaged || a.IsDefensiveLineman) p = 0.12f + 0.20f * SimMath.Rating01(a.R.Jumping) + (a.State == AgentState.Engaged ? 0f : 0.12f);
+            else if (PositionGroup.IsLinebacker(a.PlayPos)) p = 0.30f + 0.25f * SimMath.Rating01(a.R.Awareness);
+            else p = 0.72f;
+            if (a.Facing.Dot((S.Ball.Pos.XY - a.Pos).Norm()) < -0.3f) p *= 0.5f;
+            bool engage = S.Rng.NextFloat() < p;
+            if (engage) _tried.Add(a.Id);
+            else { _lock[a.Id] = float.MaxValue; }
+            return engage;
+        }
+
+        public void CheckPass()
+        {
+            BallSim ball = S.Ball;
+            if (ball.State != BallState.Pass) return;
+            _near.Clear();
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent a = S.Agents[i];
+                if (a.Body.FallenTime > 0.35f || a.State == AgentState.Down) continue;
+                if (a.Side == SimSide.Offense && !a.IsReceiverEligible) continue;
+                if (i == S.PasserId && ball.FlightTime < 0.5f) continue;
+                if (a.State == AgentState.Engaged && a.Side == SimSide.Offense) continue;
+                float closest;
+                if (Touches(a, ball.PrevPos, ball.Pos, out closest) && Engages(a)) _near.Add(a);
+            }
+            if (_near.Count == 0) return;
+            Resolve(false);
+        }
+
+        public void CheckTipped()
+        {
+            BallSim ball = S.Ball;
+            _near.Clear();
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent a = S.Agents[i];
+                if (a.Body.FallenTime > 0.35f || a.State == AgentState.Down) continue;
+                if (a.Side == SimSide.Offense && !a.IsReceiverEligible) continue;
+                float closest;
+                if (Touches(a, ball.PrevPos, ball.Pos, out closest) && Engages(a)) _near.Add(a);
+            }
+            if (_near.Count == 0) return;
+            Resolve(true);
+        }
+
+        private void Resolve(bool tipDrill)
+        {
+            BallSim ball = S.Ball;
+            Rng rng = S.Rng;
+            SimAgent bestR = null, bestD = null;
+            float rBall = float.MaxValue, dBall = float.MaxValue;
+            for (int i = 0; i < _near.Count; i++)
+            {
+                SimAgent a = _near[i];
+                float d = (a.Pos - ball.Pos.XY).Length;
+                if (a.Side == SimSide.Offense) { if (d < rBall) { rBall = d; bestR = a; } }
+                else { if (d < dBall) { dBall = d; bestD = a; } }
+            }
+            // include opponents that are almost in range so contested balls are decided together
+            if (bestR != null && bestD == null)
+            {
+                for (int i = 0; i < 22; i++)
+                {
+                    SimAgent a = S.Agents[i];
+                    if (a.Side != SimSide.Defense || a.Body.FallenTime > 0.35f || a.State == AgentState.Down) continue;
+                    float d = (a.Pos - ball.Pos.XY).Length;
+                    if (d < ReachRadius(a, ball.Pos) + 0.55f && ball.Pos.Z < ReachTop(a) + 0.4f && d < dBall && Engages(a)) { dBall = d; bestD = a; }
+                }
+            }
+            if (bestD != null && bestR == null && !tipDrill)
+            {
+                // intended receiver nearly in range?
+                SimAgent t = S.TargetId >= 0 ? S.Agents[S.TargetId] : null;
+                if (t != null && t.Body.FallenTime <= 0.35f)
+                {
+                    float d = (t.Pos - ball.Pos.XY).Length;
+                    if (d < ReachRadius(t, ball.Pos) + 0.55f && ball.Pos.Z < ReachTop(t) + 0.4f) { bestR = t; rBall = d; }
+                }
+            }
+
+            if (tipDrill)
+            {
+                SimAgent first = null; float fd = float.MaxValue;
+                for (int i = 0; i < _near.Count; i++)
+                {
+                    float d = (_near[i].Pos - ball.Pos.XY).Length;
+                    if (d < fd) { fd = d; first = _near[i]; }
+                }
+                float skill = SimMath.Rating01(first.R.Catching);
+                float p = (first.Side == SimSide.Offense ? 0.28f + 0.40f * skill : 0.06f + 0.30f * skill) - 0.10f * SimMath.Clamp01(ball.Vel.Length / 18f);
+                if (rng.NextFloat() < p)
+                {
+                    if (first.Side == SimSide.Offense) Catch(first, false, null);
+                    else Intercept(first);
+                }
+                else { _lock[first.Id] = S.Time + 0.5f; }
+                return;
+            }
+
+            if (bestR != null && bestD == null)
+            {
+                // uncontested (or open) target
+                float p = CatchProbability(bestR, null);
+                if (rng.NextFloat() < p) Catch(bestR, false, null);
+                else Drop(bestR);
+                return;
+            }
+            if (bestR == null && bestD != null)
+            {
+                float skill = SimMath.Rating01(bestD.R.Catching);
+                float hands = 0.05f + 0.32f * skill;
+                bool dl = bestD.IsDefensiveLineman;
+                if (dl) hands *= 0.6f;
+                float speed = ball.Vel.Length;
+                hands *= 1f - 0.25f * SimMath.Clamp01((speed - 20f) / 18f);
+                if (bestD.Facing.Dot((ball.Pos.XY - bestD.Pos).Norm()) < -0.2f) hands *= 0.5f;
+                // an interception needs the ball to be reachable and "thrown to" him: more likely when the receiver is already beaten
+                if (rng.NextFloat() < hands) Intercept(bestD);
+                else Deflect(bestD, 1.0f);
+                return;
+            }
+
+            // ---------------- contested ----------------
+            SimAgent R = bestR, D = bestD;
+            float rCov = D.Assign is CoverageAssignment && ((CoverageAssignment)D.Assign).IsMan ? D.R.ManCoverage : D.R.ZoneCoverage;
+            float rScore = 0.36f * R.R.Catching + 0.18f * R.R.Jumping + 0.14f * R.R.Strength + 0.10f * R.R.Awareness + 0.12f * R.R.Agility + 0.10f * R.R.Speed;
+            float dScore = 0.22f * D.R.Catching + 0.26f * rCov + 0.16f * D.R.Jumping + 0.12f * D.R.Awareness + 0.12f * D.R.Strength + 0.12f * D.R.Agility;
+            // position: who is closer to the ball, who is looking at it
+            float pos = (dBall - rBall) * 9f;
+            Vec2 bd = (ball.Pos.XY - D.Pos).Norm();
+            Vec2 br = (ball.Pos.XY - R.Pos).Norm();
+            float dLook = D.Facing.Dot(bd) > 0.2f ? 5f : -7f;
+            float rLook = R.Facing.Dot(br) > 0.2f ? 4f : -5f;
+            // timing: a receiver already underneath the ball (he is the target) has the edge on the catch point
+            float timing = (R.Id == S.TargetId ? 4f : 0f);
+            float margin = (rScore - dScore) + pos + rLook - dLook + timing + rng.Gaussian(0f, 9f);
+            float pR = Sigmoid(margin / 11f);
+
+            // pass interference: the defender grabs a receiver he is beaten by
+            bool contact = (R.Pos - D.Pos).Length < 1.5f;
+            if (S.Options.Penalties && contact && S.PendingPenalty == null)
+            {
+                Vec2 toR = (R.Pos - D.Pos).Norm();
+                bool defBehind = D.Facing.Dot(bd) < 0.15f;
+                if (defBehind && margin > -4f)
+                {
+                    float pDpi = 0.10f * (1.3f - SimMath.Rating01(D.R.Awareness)) * (0.6f + 0.4f * (1f - SimMath.Rating01(D.R.ManCoverage)));
+                    if (rng.NextFloat() < pDpi) S.Flag(PenaltyType.DefensivePassInterference, D, ball.Pos.Y - S.LosY);
+                }
+                else if (margin < -12f)
+                {
+                    float pOpi = 0.035f * (1.2f - SimMath.Rating01(R.R.Awareness));
+                    if (rng.NextFloat() < pOpi) S.Flag(PenaltyType.OffensivePassInterference, R, ball.Pos.Y - S.LosY);
+                }
+            }
+
+            float u = rng.NextFloat();
+            if (u < pR)
+            {
+                float p = CatchProbability(R, D);
+                if (rng.NextFloat() < p) Catch(R, true, D);
+                else Drop(R);
+            }
+            else
+            {
+                float pInt = 0.04f + 0.26f * SimMath.Rating01(D.R.Catching) + (margin < -14f ? 0.07f : 0f);
+                pInt -= 0.10f * SimMath.Clamp01((ball.Vel.Length - 22f) / 16f);
+                // a defender who is beaten (behind the receiver, relative to the passer) can only get a hand in; the pick needs position
+                Vec2 towardPasser = (S.Agents[Math.Max(0, S.PasserId)].Pos - R.Pos).Norm();
+                float front = (D.Pos - R.Pos).Dot(towardPasser);
+                pInt *= SimMath.Clamp(0.30f + 0.55f * front, 0.12f, 1f);
+                if (rng.NextFloat() < pInt) Intercept(D);
+                else Deflect(D, 1.0f);
+            }
+        }
+
+        // =====================================================================================
+        // Probabilities and outcomes
+        // =====================================================================================
+
+        public float CatchProbability(SimAgent r, SimAgent contester)
+        {
+            BallSim ball = S.Ball;
+            float skill = SimMath.Rating01(r.R.Catching);
+            float p = 0.82f + 0.17f * skill;
+            float difficulty = 0f;
+            float speed = ball.Vel.Length;
+            difficulty += 0.18f * SimMath.Clamp01((speed - 22f) / 16f) * (1.25f - skill);
+            float off = (r.Pos - ball.Pos.XY).Length;
+            difficulty += 0.22f * SimMath.Clamp01((off - 0.7f) / 1.0f);
+            float top = ReachTop(r);
+            if (ball.Pos.Z > top * 0.82f) difficulty += 0.12f;
+            if (ball.Pos.Z < 0.5f) difficulty += 0.12f;
+            Vec2 toBall = ball.Pos.XY - r.Pos;
+            if (toBall.LenSq() > 0.01f && r.Facing.Dot(toBall.Norm()) < 0f) difficulty += 0.14f;
+            difficulty += 0.05f * SimMath.Clamp01(r.Speed / Math.Max(1f, r.Body.VMax));
+            if (r.Body.StumbleTime > 0f) difficulty += 0.15f;
+            if (contester != null) difficulty += 0.14f;
+            p -= difficulty * (1.1f - 0.5f * skill);
+            return SimMath.Clamp(p, 0.04f, 0.995f);
+        }
+
+        private bool InBoundsCatch(SimAgent r)
+        {
+            float x = r.Pos.X;
+            if (x < 0f || x > FieldGeometry.Width) return false;
+            if (r.Pos.Y > 110f || r.Pos.Y < -10f) return false;
+            float d = FieldGeometry.DistanceToSideline(x);
+            // one foot (pro) vs two feet (college); awareness lets receivers drag a toe
+            float need = S.Rules.FeetInBounds >= 2 ? 0.46f : 0.14f;
+            need -= 0.08f * SimMath.Rating01(r.R.Awareness);
+            // moving along the line is harder than falling out of bounds
+            return d >= need;
+        }
+
+        private void Catch(SimAgent r, bool contested, SimAgent d)
+        {
+            if (!InBoundsCatch(r))
+            {
+                // feet down out of bounds: incomplete
+                S.LogEvent(SimEventType.Incomplete, S.PasserId, r.Id, new Vec3(r.Pos, 0f), TackleType.None, 1f, "feet");
+                S.Ball.Kill();
+                S.EndPlay(EndReason.Incomplete);
+                return;
+            }
+            S.CompleteCatch(r);
+            // catch in traffic: a defender arrives at the same moment
+            if (contested && d != null)
+            {
+                float pFum = 0.03f * (1.5f - SimMath.Rating01(r.R.Carrying)) * (0.8f + d.R.Tackling / 200f);
+                if (S.Rng.NextFloat() < pFum && S.Phase == PlayPhase.Live)
+                    S.Fumble(r, d, (r.Pos - d.Pos).Norm() * 1.2f);
+            }
+        }
+
+        private void Intercept(SimAgent d)
+        {
+            S.CompleteInterception(d);
+        }
+
+        private void Drop(SimAgent r)
+        {
+            S.LogEvent(SimEventType.Drop, r.Id, -1, new Vec3(S.Ball.Pos.X, S.Ball.Pos.Y, S.Ball.Pos.Z));
+            _lock[r.Id] = S.Time + 0.45f;
+            Vec3 v = S.Ball.Vel * 0.15f;
+            S.Ball.Deflect(new Vec3(v.X + S.Rng.Gaussian(0f, 1.2f), v.Y + S.Rng.Gaussian(0f, 1.2f), 1.5f));
+            S.PassTipped = true;
+            S.PlayAction(r, AgentAction.Catch, 0.4f);
+        }
+
+        private void Deflect(SimAgent d, float strength)
+        {
+            S.LogEvent(SimEventType.Deflection, d.Id, S.TargetId, new Vec3(S.Ball.Pos.X, S.Ball.Pos.Y, S.Ball.Pos.Z));
+            _lock[d.Id] = S.Time + 0.4f;
+            Rng rng = S.Rng;
+            Vec3 v = S.Ball.Vel;
+            Vec3 nv = new Vec3(v.X * 0.25f + rng.Gaussian(0f, 3.5f) * strength, v.Y * 0.25f + rng.Gaussian(0f, 3.5f) * strength, 2.5f + rng.NextFloat() * 4f);
+            S.Ball.Deflect(nv);
+            S.PassTipped = true;
+            S.PlayAction(d, AgentAction.Jump, 0.4f);
+        }
+
+        // =====================================================================================
+        // Pitches
+        // =====================================================================================
+
+        public void CheckPitch()
+        {
+            BallSim ball = S.Ball;
+            if (ball.State != BallState.Pitch || ball.Intended < 0) return;
+            SimAgent r = S.Agents[ball.Intended];
+            float d = (r.Pos - ball.Pos.XY).Length;
+            if (d < 1.15f && ball.Pos.Z < 2.3f && ball.Pos.Z > 0.2f)
+            {
+                float pFum = 0.010f * (1.5f - SimMath.Rating01(r.R.Catching));
+                S.GiveBall(r);
+                S.RusherId = r.Id;
+                S.LogEvent(SimEventType.Catch, r.Id, ball.Thrower, new Vec3(r.Pos, 0f), TackleType.None, 0f, "pitch");
+                S.PlayAction(r, AgentAction.Catch, 0.3f);
+                if (S.Rng.NextFloat() < pFum) S.Fumble(r, null, Vec2.Zero);
+            }
+        }
+    }
+}

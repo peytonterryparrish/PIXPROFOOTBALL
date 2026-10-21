@@ -4,6 +4,7 @@
     "references": [
         "PixFootball.Core",
         "PixFootball.League",
+        "PixFootball.Sim",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

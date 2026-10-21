@@ -21,11 +21,12 @@ Unity path: `C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Unity.exe`.
 |---|---|---|---|
 | `PixFootball.Core` | `Assets/_Project/Scripts/Core` | — (noEngineReferences: true) | Rng, Ratings, Positions, RuleSet, GameState (downs, clock, score, possession), Penalties, Playbook model (Formation/Set/Play/Route/Assignment), PlayResult |
 | `PixFootball.League` | `Assets/_Project/Scripts/League` | Core (noEngineReferences: true) | Team, School, Conference, Player (bio+ratings+contract), League, CollegeWorld, Generator (regen + names), QuickSim (box scores), Season/Schedule |
+| `PixFootball.Sim` | `Assets/_Project/Scripts/Sim` | Core, League (noEngineReferences: true) | Engine-free, deterministic 60 Hz simulation of one live play (22 agents + ball, yards/seconds): `PlaySimulation` (Setup/Tick/RunToCompletion), `AgentBody` kinematics, `BallSim` + `BallPhysics`, blocking/tackling/catch resolvers, offense/defense/special-teams AI, `PlayEventLog`, `PlayResult` for `GameState.Apply`, `PhysicalGameSim` (headless CPU-vs-CPU games) |
 | `PixFootball.Gameplay` | `Assets/_Project/Scripts/Gameplay` | Core, League, Unity.InputSystem, HDRP, Cinemachine | MatchDirector, PlayerAgent (momentum locomotion), BallController, Tackling, Blocking, AI (Offense/Defense/Coach), Cameras, Input |
 | `PixFootball.Presentation` | `Assets/_Project/Scripts/Presentation` | Core, Gameplay | Scorebug/overlays, replay recorder, broadcast camera director |
 | `PixFootball.UI` | `Assets/_Project/Scripts/UI` | Core, League, Gameplay | Menus, play-call screen |
 | `PixFootball.Editor` | `Assets/_Project/Scripts/Editor` | all, editor-only | ProjectBootstrap, asset importers, scene builders, build script |
-| `PixFootball.Tests.EditMode` | `Assets/_Project/Tests/EditMode` | Core, League | NUnit tests |
+| `PixFootball.Tests.EditMode` | `Assets/_Project/Tests/EditMode` | Core, League, Sim | NUnit tests |
 
 Namespaces mirror assembly names (`PixFootball.Core`, ...).
 

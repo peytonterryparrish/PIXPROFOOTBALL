@@ -1,0 +1,17 @@
+{
+    "name": "PixFootball.Sim",
+    "rootNamespace": "PixFootball.Sim",
+    "references": [
+        "PixFootball.Core",
+        "PixFootball.League"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

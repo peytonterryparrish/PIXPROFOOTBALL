@@ -1,0 +1,588 @@
+using System;
+using System.Collections.Generic;
+using PixFootball.Core;
+
+namespace PixFootball.Sim
+{
+    public enum RushMove { None, Bull, Swim, Rip, Spin, Speed, Disengage }
+
+    /// <summary>
+    /// A blocker (or two) locked with a defender. Each tick a leverage contest moves <see cref="Lev"/> between -1 (defender wins,
+    /// sheds) and +1 (blockers win, pancake). Position, momentum and mass feed the contest; the pair drifts as a unit.
+    /// </summary>
+    public sealed class BlockEngagement
+    {
+        public SimAgent Defender;
+        public readonly List<SimAgent> Blockers = new List<SimAgent>(2);
+        /// <summary>-1 defender dominant .. +1 blockers dominant.</summary>
+        public float Lev;
+        public bool RunMode;
+        public float Age;
+        public RushMove Move;
+        public float MoveTime;
+        public float MoveCooldown;
+        public bool IsShedding;
+        public float ShedLeft;
+        public float DominantTime;
+        public float HighLevTime;
+        public bool Finished;
+        public RushMove UserMove;
+        public int UserSide;
+
+        public SimAgent Primary { get { return Blockers.Count > 0 ? Blockers[0] : null; } }
+
+        public void UserHint(SimAgent a, ControlInput input)
+        {
+            if (a != Defender) return;
+            if (MoveCooldown > 0f) return;
+            if (input.Spin || input.JukeLeft || input.JukeRight || input.Dive || input.Tackle || input.Jump || input.StiffArm || input.Truck)
+            {
+                UserMove = input.Spin ? RushMove.Spin : (input.StiffArm || input.Truck ? RushMove.Bull : (input.JukeLeft || input.JukeRight ? RushMove.Swim : RushMove.Rip));
+                UserSide = input.JukeLeft ? -1 : (input.JukeRight ? 1 : (input.Move.X < -0.2f ? -1 : (input.Move.X > 0.2f ? 1 : 0)));
+            }
+        }
+    }
+
+    /// <summary>Owns all block engagements and drives non-engaged blockers (targets, pass sets, pulls, leads, stalks, escorts).</summary>
+    internal sealed partial class BlockingSystem
+    {
+        private readonly PlaySimulation S;
+        public readonly List<BlockEngagement> Active = new List<BlockEngagement>();
+        private readonly List<BlockEngagement> _remove = new List<BlockEngagement>();
+
+        /// <summary>Overrides who is blocking (kicks); null means "the side with the ball".</summary>
+        public SimSide? BlockerSideOverride;
+        public bool ForcePassMode;
+        public bool HandedOff;
+
+        public BlockingSystem(PlaySimulation s) { S = s; }
+
+        public SimSide BlockerSide { get { return BlockerSideOverride.HasValue ? BlockerSideOverride.Value : S.BallSide; } }
+
+        public bool PassMode
+        {
+            get
+            {
+                if (ForcePassMode) return true;
+                if (S.BallSide != SimSide.Offense) return false;
+                return S.OffAI.IsPassPlay && !S.PassCompleted && !S.QbHasCrossedLos;
+            }
+        }
+
+        // =====================================================================================
+        // Engagement lifecycle
+        // =====================================================================================
+
+        public void Release(SimAgent a)
+        {
+            BlockEngagement e = a.Engagement;
+            if (e == null) { if (a.State == AgentState.Engaged) a.State = AgentState.Normal; return; }
+            if (a == e.Defender) { End(e); return; }
+            e.Blockers.Remove(a);
+            a.Engagement = null;
+            if (a.State == AgentState.Engaged) a.State = AgentState.Normal;
+            if (e.Blockers.Count == 0) End(e);
+        }
+
+        public void ReleaseAll()
+        {
+            for (int i = Active.Count - 1; i >= 0; i--) End(Active[i]);
+        }
+
+        private void End(BlockEngagement e)
+        {
+            if (e.Finished) return;
+            e.Finished = true;
+            if (e.Defender != null)
+            {
+                e.Defender.Engagement = null;
+                if (e.Defender.State == AgentState.Engaged) e.Defender.State = AgentState.Normal;
+            }
+            for (int i = 0; i < e.Blockers.Count; i++)
+            {
+                e.Blockers[i].Engagement = null;
+                if (e.Blockers[i].State == AgentState.Engaged) e.Blockers[i].State = AgentState.Normal;
+            }
+            Active.Remove(e);
+        }
+
+        private bool CanBlock(SimAgent b)
+        {
+            if (b.Side != BlockerSide) return false;
+            if (b.HasBall || b.State != AgentState.Normal || b.Body.FallenTime > 0f) return false;
+            if (b.Engagement != null) return false;
+            if (b.Body.StumbleTime > 0.25f) return false;
+            if (S.Kind == PlayKind.Scrimmage && b.Side == SimSide.Offense && b.Slot == 0) return false; // the QB never blocks
+            if (S.Kind != PlayKind.Scrimmage && b.Side == SimSide.Offense && S.Specials.IsKickerOrHolder(b)) return false;
+            if (b.Assign is RouteAssignment && S.BallSide == SimSide.Offense && S.Kind == PlayKind.Scrimmage) return false;
+            if (b.Assign is CarryAssignment && S.BallSide == SimSide.Offense && S.Kind == PlayKind.Scrimmage && !(((CarryAssignment)b.Assign).IsFake && b.PullStage >= 99)) return false;
+            if (b.Assign is ReturnerAssignment) return false;
+            return true;
+        }
+
+        private bool CanBeBlocked(SimAgent d)
+        {
+            if (d.Side == BlockerSide) return false;
+            if (d.State == AgentState.Down || d.Body.FallenTime > 0.2f || d.State == AgentState.Tackling) return false;
+            if (d.HasBall) return false;
+            return true;
+        }
+
+        // =====================================================================================
+        // Per-tick update
+        // =====================================================================================
+
+        public void Update()
+        {
+            if (S.Phase != PlayPhase.Live) return;
+            ReleaseScreenLine();
+            DetectNewEngagements();
+
+            _remove.Clear();
+            for (int i = 0; i < Active.Count; i++)
+            {
+                BlockEngagement e = Active[i];
+                UpdateEngagement(e);
+                if (e.Finished) _remove.Add(e);
+            }
+            // (End() removes from Active while iterating over a copy)
+            for (int i = 0; i < _remove.Count; i++) Active.Remove(_remove[i]);
+        }
+
+        private void DetectNewEngagements()
+        {
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent b = S.Agents[i];
+                if (!CanBlock(b)) continue;
+                // a puller is off the line before he can lock up with whoever happens to be across from him
+                var pba = b.Assign as BlockAssignment;
+                if (pba != null && pba.Block == BlockKind.Pull && pba.Path.Count > 0 && b.PullStage < 1 && (b.Pos - b.StartPos).Length < 1.5f && S.Kind == PlayKind.Scrimmage) continue;
+                SimAgent best = null; float bestScore = float.MaxValue;
+                for (int j = 0; j < 22; j++)
+                {
+                    SimAgent d = S.Agents[j];
+                    if (d.Side == b.Side) continue;
+                    if (!CanBeBlocked(d)) continue;
+                    if (d.Engagement != null && d.Engagement.Blockers.Count >= 2) continue;
+                    if (d.NoEngageId == b.Id && S.Time < d.NoEngageUntil) continue;
+                    if (b.NoEngageId == d.Id && S.Time < b.NoEngageUntil) continue;
+                    if (S.Tackles.InTackleLock(b, d)) continue;
+                    Vec2 rel = d.Pos - b.Pos;
+                    float dist = rel.Length;
+                    float contact = b.Body.Radius + d.Body.Radius + 0.42f;
+                    if (dist > contact) continue;
+                    // must be roughly in front of the blocker (or his assigned man), unless pass blocking
+                    bool assigned = b.BlockTargetId == d.Id;
+                    float facing = b.Facing.Dot(rel.Norm());
+                    if (!assigned && facing < -0.25f && !PassMode) continue;
+                    // an engaged defender may be doubled only by an adjacent free lineman or his assigned blocker
+                    float score = dist - (assigned ? 0.6f : 0f);
+                    if (d.Engagement != null) score += 0.3f;
+                    if (score < bestScore) { bestScore = score; best = d; }
+                }
+                if (best != null) TryEngage(b, best);
+            }
+        }
+
+        private void TryEngage(SimAgent b, SimAgent d)
+        {
+            // edge rushers can slip contact on first touch with speed/agility (the "dip")
+            if (d.Engagement == null && PassMode && (d.Assign is RushAssignment || d.Assign is BlitzAssignment))
+            {
+                float edge = (d.Body.Agility01 * 0.5f + SimMath.Rating01(d.R.Speed) * 0.3f + SimMath.Rating01(d.R.Acceleration) * 0.2f)
+                             - (b.Body.Agility01 * 0.5f + SimMath.Rating01(b.R.PassBlocking) * 0.5f);
+                float pSlip = SimMath.Clamp(0.05f + edge * 0.5f, 0f, 0.28f);
+                if (d.Speed > 3.5f && S.Rng.NextFloat() < pSlip * 0.25f)
+                {
+                    d.NoEngageId = b.Id; d.NoEngageUntil = S.Time + 0.5f;
+                    b.NoEngageId = d.Id; b.NoEngageUntil = S.Time + 0.5f;
+                    b.BeatenTime = 0.5f; b.BeatenBy = d.Id;
+                    S.LogEvent(SimEventType.BlockLoss, b.Id, d.Id, TackleType.None, 0f, "slip");
+                    return;
+                }
+            }
+            BlockEngagement e = d.Engagement;
+            if (e == null)
+            {
+                e = new BlockEngagement { Defender = d, RunMode = !PassMode };
+                e.MoveCooldown = 0.25f + S.Rng.NextFloat() * 0.45f;
+                d.Engagement = e;
+                d.State = AgentState.Engaged;
+                d.StateTime = 0f;
+                Active.Add(e);
+            }
+            e.Blockers.Add(b);
+            b.Engagement = e;
+            b.State = AgentState.Engaged;
+            b.StateTime = 0f;
+            b.BlockTargetId = d.Id;
+        }
+
+
+        // =====================================================================================
+        // Engagement dynamics
+        // =====================================================================================
+
+        private static float MassScore(SimAgent a) { return SimMath.Clamp01((a.Body.Mass - 80f) / 80f) * 100f; }
+
+        private float BlockerScore(SimAgent b, bool run)
+        {
+            float skill = run ? b.R.RunBlocking : b.R.PassBlocking;
+            if (b.PlayPos == Position.WR || b.PlayPos == Position.CB || b.PlayPos == Position.FS || b.PlayPos == Position.SS) skill = Math.Max(skill, 35f);
+            if (!PositionGroup.IsOffensiveLine(b.PlayPos) && (S.Kind != PlayKind.Scrimmage || b.Side == SimSide.Defense)) skill = Math.Max(skill, 45f);
+            return 0.46f * skill + 0.30f * b.R.Strength + 0.09f * b.R.Awareness + 0.15f * MassScore(b);
+        }
+
+        private float DefenderScore(SimAgent d)
+        {
+            float shed = d.R.BlockShedding;
+            // skill players (gunners, corners, safeties) get off blocks with speed and quickness rather than technique
+            if (!d.IsDefensiveLineman && !PositionGroup.IsLinebacker(d.PlayPos)) shed = Math.Max(shed, 0.75f * (d.R.Agility + d.R.Speed) * 0.5f);
+            return 0.46f * shed + 0.30f * d.R.Strength + 0.09f * d.R.Awareness + 0.15f * MassScore(d);
+        }
+
+        private void UpdateEngagement(BlockEngagement e)
+        {
+            float dt = PlaySimulation.Dt;
+            SimAgent d = e.Defender;
+            if (e.Finished) return;
+            // invalid participants
+            for (int i = e.Blockers.Count - 1; i >= 0; i--)
+            {
+                SimAgent b = e.Blockers[i];
+                if (b.State == AgentState.Down || b.Body.FallenTime > 0f || b.HasBall)
+                {
+                    e.Blockers.RemoveAt(i);
+                    b.Engagement = null;
+                    if (b.State == AgentState.Engaged) b.State = AgentState.Normal;
+                }
+            }
+            if (e.Blockers.Count == 0 || d.State == AgentState.Down || d.Body.FallenTime > 0f || d.HasBall)
+            {
+                End(e);
+                return;
+            }
+            e.Age += dt;
+            if (e.MoveCooldown > 0f) e.MoveCooldown -= dt;
+            if (e.MoveTime > 0f) { e.MoveTime -= dt; if (e.MoveTime <= 0f) e.Move = RushMove.None; }
+
+            bool run = e.RunMode;
+            // the mode follows the play: a pass play that turns into a scramble or handoff becomes run-mode
+            run = !PassMode;
+            e.RunMode = run;
+
+            float bScore = BlockerScore(e.Blockers[0], run);
+            if (e.Blockers.Count > 1) bScore += 0.62f * BlockerScore(e.Blockers[1], run);
+            float dScore = DefenderScore(d);
+            float gap = (bScore - dScore) / 100f;
+
+            // momentum: a defender arriving fast against a flat-footed blocker wins the first beat
+            Vec2 n0 = (d.Pos - e.Blockers[0].Pos).Norm();
+            float closing = (e.Blockers[0].Vel - d.Vel).Dot(n0);
+            float momentum = SimMath.Clamp(-closing * 0.012f, -0.05f, 0.05f) * (e.Age < 0.35f ? 1f : 0f);
+
+            float bias = run ? 0.24f : 0.0f;
+            if (e.Age < 1.0f && !run) bias += 0.04f; // initial set favors the blocker
+            float noise = S.Rng.Gaussian(0f, 1f) * 0.62f * (float)Math.Sqrt(dt);
+            float kGain = run ? 1.05f : 1.55f;
+            float drift = (kGain * (gap + bias + momentum) - 0.28f * e.Lev) * dt;
+            // a fast, light edge rusher leans on speed rather than strength
+            e.Lev += drift + noise;
+
+            // ---- defender moves ----
+            if (!e.IsShedding)
+            {
+                if (e.UserMove != RushMove.None && e.MoveCooldown <= 0f) { ApplyMove(e, e.UserMove, e.UserSide, true); e.UserMove = RushMove.None; }
+                else if (e.MoveCooldown <= 0f && !d.ControlledByUser) ChooseMove(e, run);
+            }
+            e.Lev = SimMath.Clamp(e.Lev, -1.05f, 1.05f);
+
+            // ---- outcomes ----
+            if (!e.IsShedding && e.Lev <= -1f)
+            {
+                e.IsShedding = true;
+                e.ShedLeft = 0.14f + (1f - SimMath.Rating01(d.R.BlockShedding)) * 0.20f;
+                SimAgent b0 = e.Blockers[0];
+                S.LogEvent(SimEventType.BlockLoss, b0.Id, d.Id, TackleType.None, e.Age, e.Move.ToString());
+                S.LogEvent(SimEventType.Shed, d.Id, b0.Id, TackleType.None, e.Age, e.Move.ToString());
+                MaybeHolding(e, b0);
+            }
+            if (e.IsShedding)
+            {
+                e.ShedLeft -= dt;
+                if (e.ShedLeft <= 0f) { CompleteShed(e); ApplyPairMotion(e); return; }
+            }
+
+            if (e.Lev >= 1f)
+            {
+                e.HighLevTime += dt;
+                bool pancake = run ? e.HighLevTime > 0.18f : (e.HighLevTime > 1.4f && S.Rng.NextFloat() < 0.02f);
+                if (pancake)
+                {
+                    SimAgent b0 = e.Blockers[0];
+                    S.LogEvent(SimEventType.Pancake, b0.Id, d.Id);
+                    S.LogEvent(SimEventType.BlockWin, b0.Id, d.Id);
+                    d.Body.Fall(0.9f + S.Rng.NextFloat() * 0.5f);
+                    d.NoEngageId = b0.Id; d.NoEngageUntil = S.Time + 1.5f;
+                    b0.NoEngageId = d.Id; b0.NoEngageUntil = S.Time + 1.0f;
+                    End(e);
+                    return;
+                }
+            }
+            else e.HighLevTime = 0f;
+
+            // combo blocks: once the double team has the man controlled, one blocker climbs to the second level
+            if (e.Blockers.Count == 2 && run && e.Lev > 0.05f && e.Age > 0.4f)
+            {
+                SimAgent peel = PickPeel(e);
+                if (peel != null)
+                {
+                    peel.NoEngageId = d.Id; peel.NoEngageUntil = S.Time + 1.5f;
+                    peel.BlockTargetId = -1;
+                    peel.ReactionClock = 0f;
+                    e.Blockers.Remove(peel);
+                    peel.Engagement = null;
+                    peel.State = AgentState.Normal;
+                }
+            }
+            ApplyPairMotion(e);
+        }
+
+        private SimAgent PickPeel(BlockEngagement e)
+        {
+            // the blocker closest to an uncovered linebacker/safety climbs to him
+            SimAgent best = null; float bd = 9f;
+            for (int i = 0; i < e.Blockers.Count; i++)
+            {
+                SimAgent b = e.Blockers[i];
+                for (int j = 0; j < 22; j++)
+                {
+                    SimAgent t = S.Agents[j];
+                    if (t.Side == b.Side || t.Engagement != null || t.State == AgentState.Down) continue;
+                    if (!(PositionGroup.IsLinebacker(t.PlayPos) || PositionGroup.IsSafety(t.PlayPos))) continue;
+                    float d = (t.Pos - b.Pos).Length;
+                    if (d < bd) { bd = d; best = b; }
+                }
+            }
+            return best;
+        }
+
+        private void MaybeHolding(BlockEngagement e, SimAgent blocker)
+        {
+            if (!S.Options.Penalties || blocker.Side != SimSide.Offense || S.Kind != PlayKind.Scrimmage) return;
+            if (S.PendingPenalty != null) return;
+            if (S.BallSide != SimSide.Offense) return;
+            Vec2 focus = S.Carrier != null ? S.Carrier.Pos : S.Qb.Pos;
+            float near = (e.Defender.Pos - focus).Length;
+            if (near > 7f) return;
+            float p = 0.07f * (1.25f - SimMath.Rating01(blocker.R.Awareness)) * (1.1f - 0.5f * SimMath.Rating01(blocker.R.PassBlocking));
+            if (S.Rng.NextFloat() < p)
+                S.Flag(PenaltyType.OffensiveHolding, blocker, blocker.Pos.Y - S.LosY);
+        }
+
+        private void CompleteShed(BlockEngagement e)
+        {
+            SimAgent d = e.Defender;
+            for (int i = 0; i < e.Blockers.Count; i++)
+            {
+                SimAgent b = e.Blockers[i];
+                b.BeatenTime = 0.9f; b.BeatenBy = d.Id;
+                b.NoEngageId = d.Id; b.NoEngageUntil = S.Time + 1.1f;
+                d.NoEngageId = b.Id; d.NoEngageUntil = S.Time + 1.1f;
+            }
+            d.ShedBurst = 0.7f;
+            // a clean shed gives the defender a shot of acceleration downhill
+            Vec2 goal = DefenderGoalDir(e);
+            d.Body.Knock(goal * 1.6f);
+            End(e);
+        }
+
+        // =====================================================================================
+        // Pass-rush moves
+        // =====================================================================================
+
+        private void ChooseMove(BlockEngagement e, bool run)
+        {
+            SimAgent d = e.Defender;
+            SimAgent b = e.Blockers[0];
+            if (run)
+            {
+                e.MoveCooldown = 0.55f + S.Rng.NextFloat() * 0.5f;
+                float off = (0.6f * d.R.BlockShedding + 0.4f * d.R.Strength) - (0.6f * b.R.RunBlocking + 0.4f * b.R.Strength);
+                if (e.Blockers.Count > 1) off -= 12f;
+                float p = Sigmoid(off / 12f);
+                e.Move = RushMove.Disengage; e.MoveTime = 0.35f;
+                if (S.Rng.NextFloat() < p) e.Lev -= 0.22f + 0.15f * S.Rng.NextFloat();
+                else e.Lev += 0.05f;
+                return;
+            }
+            // pass rush: choose a move that fits the rusher's tools
+            float str = d.R.Strength, agi = d.R.Agility, spd = d.R.Speed;
+            float wBull = 0.7f + Math.Max(0f, (str - agi) / 40f) + (e.Lev > 0.2f ? 0.4f : 0f);
+            float wSwim = 1.0f + Math.Max(0f, (agi - 60f) / 40f);
+            float wRip = 0.9f + Math.Max(0f, (str - 60f) / 50f);
+            float wSpin = 0.4f + Math.Max(0f, (agi - 75f) / 30f);
+            float wSpeed = (d.Assign is RushAssignment && ((RushAssignment)d.Assign).Contain) || (d.Assign is BlitzAssignment && ((BlitzAssignment)d.Assign).Edge) ? 0.9f + Math.Max(0f, (spd - 70f) / 25f) : 0.1f;
+            float total = wBull + wSwim + wRip + wSpin + wSpeed;
+            float roll = S.Rng.NextFloat() * total;
+            RushMove m;
+            if ((roll -= wBull) < 0f) m = RushMove.Bull;
+            else if ((roll -= wSwim) < 0f) m = RushMove.Swim;
+            else if ((roll -= wRip) < 0f) m = RushMove.Rip;
+            else if ((roll -= wSpin) < 0f) m = RushMove.Spin;
+            else m = RushMove.Speed;
+            ApplyMove(e, m, 0, false);
+        }
+
+        private void ApplyMove(BlockEngagement e, RushMove m, int side, bool user)
+        {
+            SimAgent d = e.Defender;
+            SimAgent b = e.Blockers[0];
+            e.Move = m;
+            e.MoveTime = 0.45f;
+            e.MoveCooldown = 0.85f + S.Rng.NextFloat() * 0.55f;
+            float skill, counter, win, lose;
+            switch (m)
+            {
+                case RushMove.Bull:
+                    skill = 0.6f * d.R.Strength + 0.4f * d.R.BlockShedding + MassScore(d) * 0.1f;
+                    counter = 0.6f * b.R.Strength + 0.4f * b.R.PassBlocking + MassScore(b) * 0.1f;
+                    win = 0.34f; lose = 0.08f; break;
+                case RushMove.Swim:
+                    skill = 0.5f * d.R.BlockShedding + 0.3f * d.R.Agility + 0.2f * d.R.Acceleration;
+                    counter = 0.5f * b.R.PassBlocking + 0.3f * b.R.Agility + 0.2f * b.R.Awareness;
+                    win = 0.42f; lose = 0.10f; break;
+                case RushMove.Rip:
+                    skill = 0.5f * d.R.BlockShedding + 0.3f * d.R.Strength + 0.2f * d.R.Agility;
+                    counter = 0.5f * b.R.PassBlocking + 0.3f * b.R.Strength + 0.2f * b.R.Awareness;
+                    win = 0.40f; lose = 0.09f; break;
+                case RushMove.Spin:
+                    skill = 0.4f * d.R.BlockShedding + 0.4f * d.R.Agility + 0.2f * d.R.Acceleration;
+                    counter = 0.5f * b.R.PassBlocking + 0.5f * b.R.Agility;
+                    win = 0.55f; lose = 0.22f; break;
+                default:
+                    skill = 0.5f * d.R.Speed + 0.3f * d.R.Acceleration + 0.2f * d.R.BlockShedding;
+                    counter = 0.4f * b.R.Agility + 0.3f * b.R.PassBlocking + 0.3f * b.R.Speed;
+                    win = 0.38f; lose = 0.08f; break;
+            }
+            counter += 6f; // technique, help from the quarterback side, and the set of the pocket
+            if (e.Blockers.Count > 1) counter += 14f;
+            float p = Sigmoid((skill - counter) / 11f);
+            if (S.Rng.NextFloat() < p) e.Lev -= win * (0.8f + 0.4f * S.Rng.NextFloat());
+            else e.Lev += lose;
+            if (side != 0) e.UserSide = side;
+        }
+
+        private static float Sigmoid(float x) { return 1f / (1f + (float)Math.Exp(-x)); }
+
+        // =====================================================================================
+        // Pair motion
+        // =====================================================================================
+
+        private Vec2 DefenderGoalDir(BlockEngagement e)
+        {
+            SimAgent d = e.Defender;
+            // toward the passer in pass mode, otherwise toward the ball carrier / football
+            if (!e.RunMode)
+            {
+                Vec2 to = S.Qb.Pos - d.Pos;
+                if (to.LenSq() > 0.04f) return to.Norm();
+            }
+            SimAgent c = S.Carrier;
+            Vec2 target = c != null ? c.Pos : S.Ball.Pos.XY;
+            Vec2 dirv = target - d.Pos;
+            if (dirv.LenSq() < 0.04f) return new Vec2(0f, d.Side == SimSide.Defense ? -1f : 1f);
+            return dirv.Norm();
+        }
+
+        private void ApplyPairMotion(BlockEngagement e)
+        {
+            if (e.Finished) return;
+            SimAgent d = e.Defender;
+            SimAgent b0 = e.Blockers[0];
+            Vec2 toD = d.Pos - b0.Pos;
+            float dist = toD.Length;
+            Vec2 n = dist > 1e-3f ? toD * (1f / dist) : new Vec2(0f, 1f);
+            Vec2 dd = DefenderGoalDir(e);
+            Vec2 db;
+            if (!e.RunMode) db = (dd * -1f); // push the rusher back / mirror
+            else db = BlockDriveDir(b0, d);
+
+            float strRatio = (float)Math.Sqrt(Math.Max(0.3f, e.Blockers[0].R.Strength + 10f) / Math.Max(10f, d.R.Strength + 10f));
+            float pmax = e.RunMode ? 2.8f : 2.0f;
+            float lev = e.Lev;
+            Vec2 v = Vec2.Zero;
+            if (e.RunMode)
+            {
+                float f = SimMath.Clamp(0.40f + 1.1f * lev, -0.8f, 1.2f);
+                if (f >= 0f) v = db * (f * pmax * Math.Min(1.4f, strRatio));
+                else v = dd * (-f * pmax * Math.Min(1.4f, 1f / strRatio));
+            }
+            else if (lev > 0f) v = db * (lev * pmax * Math.Min(1.4f, strRatio));
+            else v = dd * (-lev * pmax * Math.Min(1.4f, 1f / strRatio));
+            // lateral arc for finesse / speed moves
+            if (e.Move == RushMove.Swim || e.Move == RushMove.Rip || e.Move == RushMove.Speed || e.Move == RushMove.Spin)
+            {
+                Vec2 lat = dd.Perp();
+                float sgn = e.UserSide != 0 ? e.UserSide : (d.Pos.X < b0.Pos.X ? -1f : 1f);
+                v = v + lat * (sgn * 1.4f) * (lev <= 0.2f ? 1f : 0.3f);
+            }
+            if (e.Move == RushMove.Bull) v = v + db * (-0.4f);
+            float spd = v.Length;
+            float cap = Math.Min(d.Body.EffectiveVMax, b0.Body.EffectiveVMax) * 0.45f;
+            if (spd > cap) v = v * (cap / spd);
+
+            float s0 = b0.Body.Radius + d.Body.Radius + 0.03f;
+            float err = dist - s0;
+            Vec2 spring = n * (err * 6f);
+            d.Want = v - spring * 0.5f;
+            b0.Want = v + spring * 0.5f;
+            d.HasFace = true; d.FaceDir = n * -1f;
+            b0.HasFace = true; b0.FaceDir = n;
+            d.Intent = AgentAction.Block;
+            b0.Intent = AgentAction.Block;
+            if (e.Blockers.Count > 1)
+            {
+                SimAgent b1 = e.Blockers[1];
+                // second blocker takes the opposite shoulder
+                float side = (b1.Pos - d.Pos).Cross(n) >= 0f ? 1f : -1f;
+                Vec2 post = d.Pos + n.Rotate(side * 1.9f) * -1f * s0;
+                Vec2 toPost = post - b1.Pos;
+                b1.Want = v + toPost * 6f;
+                b1.HasFace = true; b1.FaceDir = (d.Pos - b1.Pos).Norm();
+                b1.Intent = AgentAction.Block;
+            }
+        }
+
+        private Vec2 BlockDriveDir(SimAgent b, SimAgent d)
+        {
+            // run block: push the man away from the play's running lane, moving upfield
+            SimAgent c = S.Carrier;
+            Vec2 lane;
+            var ca = FindCarryAssignment();
+            if (ca != null && ca.Path.Count > 0)
+            {
+                var hole = ca.Path[Math.Min(1, ca.Path.Count - 1)];
+                lane = S.Rel(hole);
+            }
+            else lane = c != null ? c.Pos : new Vec2(S.BallX0, S.LosY + 3f);
+            float up = b.Side == SimSide.Offense ? 1f : -1f;
+            Vec2 away = d.Pos - lane;
+            away = new Vec2(away.X, 0f);
+            Vec2 lateral = away.LenSq() > 0.01f ? away.Norm() : new Vec2(0f, 0f);
+            Vec2 drive = new Vec2(lateral.X * 0.55f, up * 0.85f).Norm();
+            return drive;
+        }
+
+        private CarryAssignment FindCarryAssignment()
+        {
+            for (int i = 1; i < 11; i++)
+            {
+                var ca = S.Agents[i].Assign as CarryAssignment;
+                if (ca != null && !ca.IsFake) return ca;
+            }
+            return null;
+        }
+    }
+}
