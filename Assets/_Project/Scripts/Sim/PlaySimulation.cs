@@ -62,6 +62,8 @@ namespace PixFootball.Sim
         public float BallX0 { get; private set; }
         public int UserAgent { get; private set; }
         public bool FirstDownCrossed { get; private set; }
+        /// <summary>True once a forward pass has been released (presentation and user control read it).</summary>
+        public bool PassIsThrown { get { return PassThrown; } }
 
         // ---- outcome ----
         public EndReason EndReason { get; private set; }

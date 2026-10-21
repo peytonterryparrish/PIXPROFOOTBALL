@@ -8,9 +8,11 @@ namespace PixFootball.Gameplay
     {
         public const string MenuScene = "MainMenu";
         public const string StadiumScene = "Stadium_Pro";
+        public const string MatchScene = "Match_Pro";
 
         public static bool Paused { get; private set; }
 
+        public static void StartMatch(MatchConfig cfg) { if (cfg != null) MatchData.Current = cfg; SetPaused(false); SceneManager.LoadScene(MatchScene); }
         public static void StartFreeRoam() { SetPaused(false); SceneManager.LoadScene(StadiumScene); }
         public static void QuitToMenu() { SetPaused(false); SceneManager.LoadScene(MenuScene); }
 

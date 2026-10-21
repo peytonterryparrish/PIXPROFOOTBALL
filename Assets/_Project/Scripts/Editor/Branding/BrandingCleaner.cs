@@ -82,6 +82,17 @@ namespace PixFootball.EditorTools
             c.RowInterp(Sc(1316, s), Sc(2890, s), Sc(1434, s), Sc(3645, s), Sc(8, s));
             c.RowInterp(Sc(2174, s), Sc(2940, s), Sc(2276, s), Sc(3545, s), Sc(8, s));
             SaveTexture(c, p, "PIX_Uniform_BaseColor.png");
+            // the lettering is also embossed in the normal map and printed in the roughness / metallic maps: clean the same two columns there
+            string dir = Path.GetDirectoryName(p).Replace((char)92, '/');
+            foreach (var pair in new[] { new[] { "Uniform_MAT_Normal_OpenGL.png", "PIX_Uniform_Normal.png" }, new[] { "Uniform_MAT_Roughness.png", "PIX_Uniform_Roughness.png" }, new[] { "Uniform_MAT_Metallic.png", "PIX_Uniform_Metallic.png" } })
+            {
+                string sp = dir + "/" + pair[0];
+                if (!File.Exists(Disk(sp))) continue;
+                var cc = PixelCanvas.Load(Disk(sp)); float ss = cc.W / 4096f;
+                cc.RowInterp(Sc(1316, ss), Sc(2890, ss), Sc(1434, ss), Sc(3645, ss), Sc(8, ss));
+                cc.RowInterp(Sc(2174, ss), Sc(2940, ss), Sc(2276, ss), Sc(3545, ss), Sc(8, ss));
+                SaveTexture(cc, sp, pair[1]);
+            }
             AssetDatabase.Refresh();
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(TexDir + "/PIX_Uniform_BaseColor.png");
             var orig = MaterialFactory.FindMaterial("Mid_Size_Player_Uniform_MAT");
@@ -90,6 +101,11 @@ namespace PixFootball.EditorTools
             AssetDatabase.DeleteAsset(UniformMatPath);
             var m = new Material(orig) { name = "PIX_Uniform_MAT" };
             m.SetTexture("_Albedo", tex);
+            foreach (var pr in new[] { new[] { "_Normal", "PIX_Uniform_Normal.png" }, new[] { "_Roughness", "PIX_Uniform_Roughness.png" }, new[] { "_Metallic", "PIX_Uniform_Metallic.png" } })
+            {
+                var ct = AssetDatabase.LoadAssetAtPath<Texture2D>(TexDir + "/" + pr[1]);
+                if (ct != null) m.SetTexture(pr[0], ct);
+            }
             AssetDatabase.CreateAsset(m, UniformMatPath);
         }
 
@@ -232,6 +248,10 @@ namespace PixFootball.EditorTools
             SaveTexture(c, p, "PIX_stadium_grey_baseMap_2.png");
         }
 
+        public static void CleanJerseyOnly() { CleanJersey(); AssetDatabase.SaveAssets(); }
+
+        public static void CleanFieldMarkingsOnly() { CleanFieldMarkings(); AssetDatabase.SaveAssets(); }
+
         static void CleanFieldMarkings()
         {
             string p = Src + "/Props/Field/grassMarkings_NEW.png";
@@ -239,9 +259,9 @@ namespace PixFootball.EditorTools
             var c = PixelCanvas.Load(Disk(p)); float s = c.W / 4096f;
             // the marking plane is 137.75 x 76.75 m stretched over a square texture: 1 m = 29.7 px along u, 53.4 px along v
             float pxPerMU = c.W / 137.75f, pxPerMV = c.H / 76.75f;
-            float wM = 11.5f, hM = 11.5f * Logo.H / Logo.W;
+            float wM = 10.2f, hM = wM * Logo.H / Logo.W;   // regulation size: about 11 yards across (v0.2 fix: the texture maps uniformly, so use one px-per-metre for both axes)
             // the field plane is mapped rotated 180 degrees (near-side numbers come from the top half of the texture), so draw the logo rotated too
-            c.DrawScaled(Logo.Rotate90(2), 2048 * s, 2955 * s, wM * pxPerMU, hM * pxPerMV, 0.92f);
+            c.DrawScaled(Logo.Rotate90(2), 2048 * s, 2955 * s, wM * pxPerMU, hM * pxPerMU, 0.92f);
             SaveTexture(c, p, "PIX_grassMarkings_NEW.png", true);
         }
 

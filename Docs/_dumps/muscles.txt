@@ -1,0 +1,154 @@
+== Assets/_Licensed/DraftFever/Characters/Coaches/Rigged/Coach_Anims.fbx ref_idle len 3
+  LeftHandT.x t0=-0.22 tmid=-0.22 keys=2
+  LeftHandT.y t0=0.00 tmid=0.00 keys=7
+  LeftHandT.z t0=0.07 tmid=0.07 keys=4
+  LeftHandQ.x t0=0.70 tmid=0.70 keys=2
+  LeftHandQ.y t0=-0.22 tmid=-0.22 keys=2
+  LeftHandQ.z t0=0.45 tmid=0.45 keys=2
+  LeftHandQ.w t0=-0.52 tmid=-0.52 keys=2
+  RightHandT.x t0=0.22 tmid=0.22 keys=2
+  RightHandT.y t0=0.00 tmid=0.00 keys=8
+  RightHandT.z t0=0.07 tmid=0.07 keys=4
+  RightHandQ.x t0=0.22 tmid=0.22 keys=2
+  RightHandQ.y t0=-0.70 tmid=-0.70 keys=2
+  RightHandQ.z t0=-0.52 tmid=-0.52 keys=2
+  RightHandQ.w t0=0.45 tmid=0.45 keys=2
+  Spine Front-Back t0=0.02 tmid=0.03 keys=8
+  Spine Left-Right t0=0.00 tmid=0.00 keys=90
+  Spine Twist Left-Right t0=0.00 tmid=0.00 keys=88
+  Left Shoulder Down-Up t0=0.00 tmid=0.00 keys=91
+  Left Shoulder Front-Back t0=0.00 tmid=0.00 keys=91
+  Left Arm Down-Up t0=0.42 tmid=0.42 keys=2
+  Left Arm Front-Back t0=0.54 tmid=0.54 keys=3
+  Left Arm Twist In-Out t0=1.69 tmid=1.69 keys=2
+  Left Forearm Stretch t0=-1.66 tmid=-1.66 keys=2
+  Left Forearm Twist In-Out t0=-1.27 tmid=-1.27 keys=2
+  Left Hand Down-Up t0=0.00 tmid=0.00 keys=55
+  Left Hand In-Out t0=0.00 tmid=0.00 keys=45
+  Right Shoulder Down-Up t0=0.00 tmid=0.00 keys=89
+  Right Shoulder Front-Back t0=0.00 tmid=0.00 keys=89
+  Right Arm Down-Up t0=0.42 tmid=0.42 keys=2
+  Right Arm Front-Back t0=0.54 tmid=0.54 keys=3
+  Right Arm Twist In-Out t0=1.69 tmid=1.69 keys=2
+  Right Forearm Stretch t0=-1.66 tmid=-1.66 keys=2
+  Right Forearm Twist In-Out t0=-1.27 tmid=-1.27 keys=2
+  Right Hand Down-Up t0=0.00 tmid=0.00 keys=48
+  Right Hand In-Out t0=0.00 tmid=0.00 keys=51
+  LeftHand.Thumb.1 Stretched t0=-0.48 tmid=-0.48 keys=2
+  LeftHand.Thumb.Spread t0=-0.45 tmid=-0.45 keys=2
+  LeftHand.Thumb.2 Stretched t0=0.49 tmid=0.49 keys=2
+  LeftHand.Thumb.3 Stretched t0=0.49 tmid=0.49 keys=2
+  LeftHand.Index.1 Stretched t0=0.31 tmid=0.31 keys=2
+  LeftHand.Index.Spread t0=0.41 tmid=0.41 keys=2
+  LeftHand.Index.2 Stretched t0=0.56 tmid=0.56 keys=2
+  LeftHand.Index.3 Stretched t0=0.56 tmid=0.56 keys=2
+  LeftHand.Middle.1 Stretched t0=0.31 tmid=0.31 keys=2
+  LeftHand.Middle.Spread t0=0.74 tmid=0.74 keys=2
+  LeftHand.Middle.2 Stretched t0=0.44 tmid=0.44 keys=2
+  LeftHand.Middle.3 Stretched t0=0.44 tmid=0.44 keys=2
+  LeftHand.Ring.1 Stretched t0=0.37 tmid=0.37 keys=2
+  LeftHand.Ring.Spread t0=-0.61 tmid=-0.61 keys=2
+  LeftHand.Ring.2 Stretched t0=0.33 tmid=0.33 keys=2
+  LeftHand.Ring.3 Stretched t0=0.33 tmid=0.33 keys=2
+  LeftHand.Little.1 Stretched t0=0.38 tmid=0.38 keys=2
+  LeftHand.Little.Spread t0=-0.58 tmid=-0.58 keys=2
+  LeftHand.Little.2 Stretched t0=0.31 tmid=0.31 keys=2
+  LeftHand.Little.3 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Thumb.1 Stretched t0=-0.48 tmid=-0.48 keys=2
+  RightHand.Thumb.Spread t0=-0.45 tmid=-0.45 keys=2
+  RightHand.Thumb.2 Stretched t0=0.49 tmid=0.49 keys=2
+  RightHand.Thumb.3 Stretched t0=0.49 tmid=0.49 keys=2
+  RightHand.Index.1 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Index.Spread t0=0.41 tmid=0.41 keys=2
+  RightHand.Index.2 Stretched t0=0.56 tmid=0.56 keys=2
+  RightHand.Index.3 Stretched t0=0.56 tmid=0.56 keys=2
+  RightHand.Middle.1 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Middle.Spread t0=0.74 tmid=0.74 keys=2
+  RightHand.Middle.2 Stretched t0=0.44 tmid=0.44 keys=2
+  RightHand.Middle.3 Stretched t0=0.44 tmid=0.44 keys=2
+  RightHand.Ring.1 Stretched t0=0.37 tmid=0.37 keys=2
+  RightHand.Ring.Spread t0=-0.61 tmid=-0.61 keys=2
+  RightHand.Ring.2 Stretched t0=0.33 tmid=0.33 keys=2
+  RightHand.Ring.3 Stretched t0=0.33 tmid=0.33 keys=2
+  RightHand.Little.1 Stretched t0=0.38 tmid=0.38 keys=2
+  RightHand.Little.Spread t0=-0.58 tmid=-0.58 keys=2
+  RightHand.Little.2 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Little.3 Stretched t0=0.31 tmid=0.31 keys=2
+  avatar human bones: Hips=root.x, LeftShoulder=shoulder.l, RightShoulder=shoulder.r, LeftUpperArm=arm_stretch.l, RightUpperArm=arm_stretch.r, LeftLowerArm=forearm_stretch.l, RightLowerArm=forearm_stretch.r, LeftHand=hand.l, RightHand=hand.r
+== Assets/_Licensed/DraftFever/Characters/Coaches/Rigged/Coach_Anims.fbx coach_headset_idle len 4
+  LeftHandT.x t0=-0.16 tmid=-0.16 keys=5
+  LeftHandT.y t0=0.54 tmid=0.54 keys=4
+  LeftHandT.z t0=0.07 tmid=0.07 keys=4
+  LeftHandQ.x t0=0.12 tmid=0.12 keys=4
+  LeftHandQ.y t0=0.29 tmid=0.29 keys=4
+  LeftHandQ.z t0=0.61 tmid=0.61 keys=2
+  LeftHandQ.w t0=0.73 tmid=0.73 keys=2
+  RightHandT.x t0=0.22 tmid=0.22 keys=4
+  RightHandT.y t0=-0.01 tmid=-0.01 keys=4
+  RightHandT.z t0=0.06 tmid=0.06 keys=4
+  RightHandQ.x t0=0.22 tmid=0.22 keys=4
+  RightHandQ.y t0=-0.70 tmid=-0.70 keys=4
+  RightHandQ.z t0=-0.52 tmid=-0.52 keys=4
+  RightHandQ.w t0=0.45 tmid=0.45 keys=4
+  Spine Front-Back t0=0.02 tmid=0.02 keys=2
+  Spine Left-Right t0=0.00 tmid=0.00 keys=2
+  Spine Twist Left-Right t0=0.00 tmid=0.00 keys=2
+  Left Shoulder Down-Up t0=0.00 tmid=0.00 keys=121
+  Left Shoulder Front-Back t0=0.00 tmid=0.00 keys=121
+  Left Arm Down-Up t0=0.50 tmid=0.50 keys=4
+  Left Arm Front-Back t0=-0.35 tmid=-0.34 keys=5
+  Left Arm Twist In-Out t0=0.44 tmid=0.44 keys=5
+  Left Forearm Stretch t0=0.10 tmid=0.10 keys=5
+  Left Forearm Twist In-Out t0=0.00 tmid=0.00 keys=11
+  Left Hand Down-Up t0=-0.35 tmid=-0.35 keys=4
+  Left Hand In-Out t0=0.02 tmid=0.02 keys=11
+  Right Shoulder Down-Up t0=0.00 tmid=0.00 keys=116
+  Right Shoulder Front-Back t0=0.00 tmid=0.00 keys=117
+  Right Arm Down-Up t0=0.42 tmid=0.42 keys=4
+  Right Arm Front-Back t0=0.54 tmid=0.54 keys=4
+  Right Arm Twist In-Out t0=1.69 tmid=1.69 keys=2
+  Right Forearm Stretch t0=-1.66 tmid=-1.66 keys=2
+  Right Forearm Twist In-Out t0=-1.27 tmid=-1.27 keys=2
+  Right Hand Down-Up t0=0.00 tmid=0.00 keys=56
+  Right Hand In-Out t0=0.00 tmid=0.00 keys=60
+  LeftHand.Thumb.1 Stretched t0=-0.48 tmid=-0.48 keys=2
+  LeftHand.Thumb.Spread t0=-0.45 tmid=-0.45 keys=2
+  LeftHand.Thumb.2 Stretched t0=0.49 tmid=0.49 keys=2
+  LeftHand.Thumb.3 Stretched t0=0.49 tmid=0.49 keys=2
+  LeftHand.Index.1 Stretched t0=0.31 tmid=0.31 keys=2
+  LeftHand.Index.Spread t0=0.41 tmid=0.41 keys=2
+  LeftHand.Index.2 Stretched t0=0.56 tmid=0.56 keys=2
+  LeftHand.Index.3 Stretched t0=0.56 tmid=0.56 keys=2
+  LeftHand.Middle.1 Stretched t0=0.31 tmid=0.31 keys=2
+  LeftHand.Middle.Spread t0=0.74 tmid=0.74 keys=2
+  LeftHand.Middle.2 Stretched t0=0.44 tmid=0.44 keys=2
+  LeftHand.Middle.3 Stretched t0=0.44 tmid=0.44 keys=2
+  LeftHand.Ring.1 Stretched t0=0.37 tmid=0.37 keys=2
+  LeftHand.Ring.Spread t0=-0.61 tmid=-0.61 keys=2
+  LeftHand.Ring.2 Stretched t0=0.33 tmid=0.33 keys=2
+  LeftHand.Ring.3 Stretched t0=0.33 tmid=0.33 keys=2
+  LeftHand.Little.1 Stretched t0=0.38 tmid=0.38 keys=2
+  LeftHand.Little.Spread t0=-0.58 tmid=-0.58 keys=2
+  LeftHand.Little.2 Stretched t0=0.31 tmid=0.31 keys=2
+  LeftHand.Little.3 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Thumb.1 Stretched t0=-0.48 tmid=-0.48 keys=2
+  RightHand.Thumb.Spread t0=-0.45 tmid=-0.45 keys=2
+  RightHand.Thumb.2 Stretched t0=0.49 tmid=0.49 keys=2
+  RightHand.Thumb.3 Stretched t0=0.49 tmid=0.49 keys=2
+  RightHand.Index.1 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Index.Spread t0=0.41 tmid=0.41 keys=2
+  RightHand.Index.2 Stretched t0=0.56 tmid=0.56 keys=2
+  RightHand.Index.3 Stretched t0=0.56 tmid=0.56 keys=2
+  RightHand.Middle.1 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Middle.Spread t0=0.74 tmid=0.74 keys=2
+  RightHand.Middle.2 Stretched t0=0.44 tmid=0.44 keys=2
+  RightHand.Middle.3 Stretched t0=0.44 tmid=0.44 keys=2
+  RightHand.Ring.1 Stretched t0=0.37 tmid=0.37 keys=2
+  RightHand.Ring.Spread t0=-0.61 tmid=-0.61 keys=2
+  RightHand.Ring.2 Stretched t0=0.33 tmid=0.33 keys=2
+  RightHand.Ring.3 Stretched t0=0.33 tmid=0.33 keys=2
+  RightHand.Little.1 Stretched t0=0.38 tmid=0.38 keys=2
+  RightHand.Little.Spread t0=-0.58 tmid=-0.58 keys=2
+  RightHand.Little.2 Stretched t0=0.31 tmid=0.31 keys=2
+  RightHand.Little.3 Stretched t0=0.31 tmid=0.31 keys=2
+  avatar human bones: Hips=root.x, LeftShoulder=shoulder.l, RightShoulder=shoulder.r, LeftUpperArm=arm_stretch.l, RightUpperArm=arm_stretch.r, LeftLowerArm=forearm_stretch.l, RightLowerArm=forearm_stretch.r, LeftHand=hand.l, RightHand=hand.r

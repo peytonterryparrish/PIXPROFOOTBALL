@@ -1,0 +1,48 @@
+ref_startrun_left len=1.07 RootQ0=(291, 49, 314) RootQmid=(311, 336, 346) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+ref_walkf_loop len=1.30 RootQ0=(291, 41, 318) RootQmid=(292, 51, 316) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+empty.001action.002 len=1.00 RootQ0=none RootQmid=none RootT0=none hipsT0=none curves=0
+ref_gesture_lossofdown len=3.17 RootQ0=(293, 43, 320) RootQmid=(297, 40, 325) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_gesture_ballready len=1.43 RootQ0=(294, 43, 321) RootQmid=(293, 29, 323) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_gesture_illegalcontact len=2.13 RootQ0=(293, 43, 320) RootQmid=(295, 23, 322) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_gesture_deadball len=1.80 RootQ0=(294, 43, 321) RootQmid=(291, 26, 330) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_jog_turnright90_lf_transition len=0.83 RootQ0=(300, 38, 330) RootQmid=(313, 67, 342) RootT0=0.33 hipsT0=0.01,0.02 curves=130
+ref_gesture_falsestart len=3.33 RootQ0=(293, 43, 320) RootQmid=(299, 32, 331) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_walkb_loop len=1.13 RootQ0=(290, 50, 311) RootQmid=(290, 47, 312) RootT0=0.33 hipsT0=0.00,-0.01 curves=130
+ref_jog_turnright90_rf_transition len=1.13 RootQ0=(299, 28, 332) RootQmid=(310, 84, 338) RootT0=0.33 hipsT0=-0.01,0.02 curves=130
+ref_gesture_delayofgame len=2.47 RootQ0=(293, 43, 320) RootQmid=(296, 40, 325) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+empty.001action.003 len=1.00 RootQ0=none RootQmid=none RootT0=none hipsT0=none curves=0
+empty.001action.001 len=1.00 RootQ0=none RootQmid=none RootT0=none hipsT0=none curves=0
+ref_runf_loop_lookleft len=0.53 RootQ0=(330, 20, 352) RootQmid=(331, 4, 343) RootT0=0.29 hipsT0=0.00,0.08 curves=130
+ref_startwalk_turnright len=1.53 RootQ0=(293, 45, 319) RootQmid=(296, 111, 326) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+cameraaction len=1.00 RootQ0=none RootQmid=none RootT0=none hipsT0=none curves=0
+ref_startwalk_turnleft len=1.53 RootQ0=(293, 45, 319) RootQmid=(297, 323, 325) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+ref_shuffle_left len=0.67 RootQ0=(299, 33, 328) RootQmid=(304, 29, 332) RootT0=0.31 hipsT0=0.00,0.02 curves=130
+emptyaction len=1.00 RootQ0=none RootQmid=none RootT0=none hipsT0=none curves=0
+ref_gesture_refereetimeout len=3.33 RootQ0=(294, 43, 321) RootQmid=(292, 41, 321) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_gesture_incompletepass len=2.53 RootQ0=(293, 43, 320) RootQmid=(295, 41, 323) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_jog_turnleft90_lf_transition len=1.17 RootQ0=(300, 38, 330) RootQmid=(309, 328, 343) RootT0=0.33 hipsT0=0.01,0.02 curves=130
+emptyaction.002 len=1.00 RootQ0=none RootQmid=none RootT0=none hipsT0=none curves=0
+ref_gesture_safety len=1.53 RootQ0=(294, 43, 321) RootQmid=(296, 36, 327) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_runf_loop_lookright len=0.53 RootQ0=(326, 33, 358) RootQmid=(331, 16, 350) RootT0=0.29 hipsT0=0.01,0.07 curves=130
+ref_gesture_touchdown len=2.47 RootQ0=(295, 45, 321) RootQmid=(293, 43, 320) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_startrun_right len=0.80 RootQ0=(291, 49, 314) RootQmid=(310, 50, 342) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+ref_shuffle_right len=0.67 RootQ0=(299, 33, 328) RootQmid=(303, 29, 338) RootT0=0.31 hipsT0=0.00,0.02 curves=130
+ref_gesture_whistle_01 len=2.87 RootQ0=(293, 43, 320) RootQmid=(292, 53, 317) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_jog_forwardrf_loop len=0.63 RootQ0=(303, 41, 333) RootQmid=(305, 21, 333) RootT0=0.33 hipsT0=0.01,0.03 curves=130
+ref_gesture_timeout len=2.00 RootQ0=(294, 43, 321) RootQmid=(292, 41, 322) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+emptyaction.003 len=1.60 RootQ0=(16, 16, 5) RootQmid=(16, 16, 5) RootT0=0.46 hipsT0=-0.03,0.33 curves=130
+ref_gesture_firstdown len=1.60 RootQ0=(294, 43, 321) RootQmid=(298, 338, 333) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+ref_jog_turnleft90_rf_transition len=0.83 RootQ0=(299, 28, 332) RootQmid=(313, 339, 344) RootT0=0.33 hipsT0=-0.01,0.02 curves=130
+ref_startwalk_turnback_leftturn len=1.53 RootQ0=(293, 45, 319) RootQmid=(297, 319, 314) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+ref_startwalk_turnback_rightturn len=1.53 RootQ0=(293, 45, 319) RootQmid=(291, 120, 333) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+ref_jog_backwardrf_loop len=0.53 RootQ0=(289, 52, 305) RootQmid=(290, 63, 303) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+emptyaction.001 len=1.07 RootQ0=(16, 16, 5) RootQmid=(16, 16, 5) RootT0=0.54 hipsT0=0.13,0.37 curves=130
+ref_startjog_left len=0.97 RootQ0=(293, 45, 319) RootQmid=(304, 325, 336) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+ref_startjog_right len=0.97 RootQ0=(293, 45, 319) RootQmid=(304, 87, 336) RootT0=0.33 hipsT0=0.00,0.00 curves=130
+ref_gesture_personalfoul len=3.00 RootQ0=(293, 43, 320) RootQmid=(294, 36, 323) RootT0=0.34 hipsT0=0.00,-0.01 curves=130
+coach_headset_idle len=4.00 RootQ0=(359, 0, 0) RootQmid=(359, 0, 0) RootT0=1.00 hipsT0=0.00,-0.06 curves=130
+ref_spot_ball len=2.67 RootQ0=(359, 0, 0) RootQmid=(17, 0, 0) RootT0=0.99 hipsT0=0.00,-0.07 curves=130
+coach_clap len=2.40 RootQ0=(0, 0, 0) RootQmid=(0, 0, 0) RootT0=1.00 hipsT0=0.00,-0.05 curves=130
+coach_clipboard_idle len=4.00 RootQ0=(0, 0, 0) RootQmid=(0, 0, 0) RootT0=0.99 hipsT0=0.00,-0.05 curves=130
+ref_idle len=3.00 RootQ0=(359, 0, 0) RootQmid=(359, 0, 0) RootT0=0.99 hipsT0=0.00,-0.07 curves=130
+ref_penalty_flag len=2.00 RootQ0=(356, 0, 0) RootQmid=(1, 0, 0) RootT0=0.99 hipsT0=0.00,-0.08 curves=130

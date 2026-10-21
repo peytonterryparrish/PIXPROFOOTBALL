@@ -19,7 +19,7 @@ namespace PixFootball.EditorTools
     {
         const string OutDir = "Docs/Screens";
 
-        static Scene NewStudio(float exposure, out Light sun)
+        internal static Scene NewStudio(float exposure, out Light sun)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             // volume: fixed exposure + gradient sky
@@ -53,7 +53,7 @@ namespace PixFootball.EditorTools
             return scene;
         }
 
-        static Texture2D Render(Camera cam, int w, int h)
+        internal static Texture2D Render(Camera cam, int w, int h)
         {
             var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             cam.targetTexture = rt;
@@ -68,7 +68,7 @@ namespace PixFootball.EditorTools
             return tex;
         }
 
-        static Camera MakeCamera(Vector3 pos, Vector3 lookAt, float fov = 30f)
+        internal static Camera MakeCamera(Vector3 pos, Vector3 lookAt, float fov = 30f)
         {
             var go = new GameObject("ShotCam");
             var cam = go.AddComponent<Camera>();
@@ -83,7 +83,7 @@ namespace PixFootball.EditorTools
             return cam;
         }
 
-        static void Save(Texture2D t, string name)
+        internal static void Save(Texture2D t, string name)
         {
             Directory.CreateDirectory(OutDir);
             File.WriteAllBytes(OutDir + "/" + name + ".png", t.EncodeToPNG());
@@ -91,7 +91,7 @@ namespace PixFootball.EditorTools
             Debug.Log("[AssetScreenshots] wrote " + OutDir + "/" + name + ".png");
         }
 
-        static void Pose(GameObject go, AnimationClip clip, float t)
+        internal static void Pose(GameObject go, AnimationClip clip, float t)
         {
             var anim = go.GetComponent<Animator>();
             if (anim == null || clip == null) return;
@@ -108,6 +108,8 @@ namespace PixFootball.EditorTools
                 smr.BakeMesh(baked, false);
                 var child = new GameObject("baked_" + smr.name);
                 child.transform.SetParent(smr.transform, false);
+                // Blender-exported mesh nodes carry a 100x scale (and -90 degree rotation) that BakeMesh output expects to inherit only partly: cancel the scale
+                var ls = smr.transform.lossyScale; child.transform.localScale = new Vector3(1f / ls.x, 1f / ls.y, 1f / ls.z);
                 child.AddComponent<MeshFilter>().sharedMesh = baked;
                 child.AddComponent<MeshRenderer>().sharedMaterials = smr.sharedMaterials;
                 smr.enabled = false;

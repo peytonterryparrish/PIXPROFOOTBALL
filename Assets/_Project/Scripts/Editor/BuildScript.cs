@@ -16,6 +16,18 @@ namespace PixFootball.EditorTools
         static readonly string BackupDir = "Library/PIXBackup";
         static readonly string[] SlimPrefabs = { "player_medium", "player_small", "player_large" };
 
+        // clip keys used by AnimKit (see Docs/ARCHITECTURE.md v0.2 animation mapping); long BoNES takes are excluded by the length cap
+        const float SlimClipMaxSeconds = 12f; const int SlimClipVariants = 6;
+        static readonly System.Collections.Generic.HashSet<string> SlimClipKeys = new System.Collections.Generic.HashSet<string>
+        {
+            "stance_3pt", "dl_stance", "idle_alt", "stance_safety", "stance_halfback", "stance_2pt", "qb_stance_shotgun", "qb_stance_under",
+            "ol_pass_set", "ol_pass_set_b", "dl_bull_rush", "dl_bull_rush_b", "dl_rush_swim", "dl_rush_swim_b", "dl_rush_spin", "dl_rush_spin_b", "dl_shed", "dl_shed_b",
+            "qb_throw_bullet", "qb_throw_lob_short", "qb_throw_lob_long", "handoff", "handoff_b",
+            "catch_high", "catch_low", "catch_run", "catch_jump", "catch_side", "interception",
+            "tackle_wrap", "tackle_wrap_b", "tackle_success", "tackle_success_b", "tackle_dive", "tackle_dive_b", "tackle_arm", "tackle_arm_b", "qb_sack", "qb_sack_b", "fall",
+            "celebrate_td_2", "celebrate_td_3"
+        };
+
         static bool _swapped;
 
         static void SwapInSlimLibrary()
@@ -31,6 +43,17 @@ namespace PixFootball.EditorTools
             slim.playerAvatar = full.playerAvatar;
             foreach (var p in full.prefabs) if (p != null && SlimPrefabs.Contains(p.key)) slim.prefabs.Add(new ArtLibrary.PrefabEntry { key = p.key, prefab = p.prefab });
             foreach (var a in full.audio) if (a != null && (a.key == "crowd_ambience" || a.key == "crowd_cheer") && slim.audio.Count < 2) slim.audio.Add(new ArtLibrary.AudioEntry { key = a.key, clip = a.clip });
+            // v0.2: the 22-player match needs the mocap clips the animation mapping uses (clips under SlimClipMaxSeconds, a few variants per key) and the ball
+            var perKey = new System.Collections.Generic.Dictionary<string, int>();
+            foreach (var c in full.clips)
+            {
+                if (c == null || c.clip == null || !SlimClipKeys.Contains(c.key)) continue;
+                int n; perKey.TryGetValue(c.key, out n);
+                if (n >= SlimClipVariants || c.clip.length > (c.key.Contains("stance") ? 50f : SlimClipMaxSeconds)) continue;
+                perKey[c.key] = n + 1;
+                slim.clips.Add(new ArtLibrary.ClipEntry { key = c.key, clip = c.clip, source = c.source, length = c.length, loop = c.loop });
+            }
+            foreach (var p in full.prefabs) if (p != null && p.key == "prop_footballball") slim.prefabs.Add(new ArtLibrary.PrefabEntry { key = p.key, prefab = p.prefab });
             AssetDatabase.CreateAsset(slim, ResLib);
             AssetDatabase.SaveAssets();
             _swapped = true;
@@ -67,6 +90,7 @@ namespace PixFootball.EditorTools
             var scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray();
             if (scenes.Length == 0) throw new System.Exception("[PIX] No scenes in Build Settings");
 
+            PlayerSettings.enableFrameTimingStats = true;   // the autotest logs CPU / GPU frame times
             PlayerPrefabBuilder.RegisterDiffusionProfiles();
             BuildReport report;
             try

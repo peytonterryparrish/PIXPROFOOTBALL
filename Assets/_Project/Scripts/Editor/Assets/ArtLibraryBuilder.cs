@@ -167,14 +167,28 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.Punt, @"^punt|downpunt"),
             new Rule(ArtKeys.KickOff, @"^kickoff"),
             new Rule(ArtKeys.KickFieldGoal, @"^fieldgoal|^kick_fg"),
-            // ---- refs (no referee mocap exists in the source set; kept so the report shows them as missing)
+            // ---- refs: real BGS referee gestures / locomotion (Characters/Referee/Rigged/Referee_Gestures.fbx) + keyframed ones (Coach_Anims.fbx)
             new Rule(ArtKeys.RefSignalTd, @"^ref_.*touchdown"),
             new Rule(ArtKeys.RefSignalFirstDown, @"^ref_.*first"),
-            new Rule(ArtKeys.RefSignalPenalty, @"^ref_.*penalty"),
+            new Rule(ArtKeys.RefSignalPenalty, @"^ref_gesture_(personalfoul|illegalcontact|falsestart|delayofgame|lossofdown)|^ref_.*penalty"),
             new Rule(ArtKeys.RefSignalIncomplete, @"^ref_.*incomplete"),
             new Rule(ArtKeys.RefSignalTimeout, @"^ref_.*timeout"),
+            new Rule(ArtKeys.RefSignalSafety, @"^ref_gesture_safety"),
+            new Rule(ArtKeys.RefSignalDeadBall, @"^ref_gesture_deadball"),
+            new Rule(ArtKeys.RefBallReady, @"^ref_gesture_ballready"),
             new Rule(ArtKeys.RefWhistle, @"^ref_.*whistle"),
             new Rule(ArtKeys.RefSpotBall, @"^ref_.*spot"),
+            new Rule(ArtKeys.RefIdle, @"^ref_idle"),
+            new Rule(ArtKeys.RefRun, @"^ref_jog_forward|^ref_runf_loop"),
+            new Rule(ArtKeys.RefBackpedal, @"^ref_jog_backward"),
+            new Rule(ArtKeys.RefWalk, @"^ref_walkf_loop"),
+            new Rule(ArtKeys.RefWalkBack, @"^ref_walkb_loop"),
+            new Rule(ArtKeys.RefShuffleLeft, @"^ref_shuffle_left"),
+            new Rule(ArtKeys.RefShuffleRight, @"^ref_shuffle_right"),
+            // ---- sideline coaches (keyframed in Blender)
+            new Rule(ArtKeys.CoachClap, @"^coach_clap"),
+            new Rule(ArtKeys.CoachHeadsetIdle, @"^coach_headset_idle"),
+            new Rule(ArtKeys.CoachClipboardIdle, @"^coach_clipboard_idle"),
         };
 
         // Secondary keys: a clip that already won a primary rule can also be offered under these (gameplay-facing synonyms).
@@ -262,7 +276,10 @@ namespace PixFootball.EditorTools
         static void BuildClips(ArtLibrary lib)
         {
             var candidates = new List<KeyValuePair<string, AnimationClip>>();
-            foreach (string g in AssetDatabase.FindAssets("t:Model", new[] { Root + "/Animations" }))
+            var clipRoots = new List<string> { Root + "/Animations" };
+            foreach (string extra in new[] { Root + "/Characters/Referee/Rigged", Root + "/Characters/Coaches/Rigged" })
+                if (AssetDatabase.IsValidFolder(extra)) clipRoots.Add(extra);
+            foreach (string g in AssetDatabase.FindAssets("t:Model", clipRoots.ToArray()))
             {
                 string path = AssetDatabase.GUIDToAssetPath(g);
                 if (path.EndsWith("Motus_Football_Player_A_01.fbx")) continue;
@@ -320,6 +337,9 @@ namespace PixFootball.EditorTools
                 if (go == null) continue;
                 string k = Snake(go.name);
                 if (k.StartsWith("pix_")) k = k.Substring(4);
+                // the rigged humanoid referee owns the `referee` key; the old static T-pose mesh is kept as `referee_static`
+                if (k == "referee") k = "referee_static";
+                else if (k == "referee_rigged") k = "referee";
                 lib.prefabs.Add(new ArtLibrary.PrefabEntry { key = k, prefab = go });
             }
         }

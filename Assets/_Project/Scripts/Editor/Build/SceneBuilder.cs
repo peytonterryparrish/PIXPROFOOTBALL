@@ -19,6 +19,7 @@ namespace PixFootball.EditorTools
         public const string ScenesDir = "Assets/_Project/Scenes";
         public const string StadiumScenePath = ScenesDir + "/Stadium_Pro.unity";
         public const string MenuScenePath = ScenesDir + "/MainMenu.unity";
+        public const string MatchScenePath = ScenesDir + "/Match_Pro.unity";
         public const string VolumesDir = "Assets/_Project/Settings/Volumes";
         const string PrefabDir = CharacterSetup.Root + "/Prefabs";
 
@@ -26,6 +27,7 @@ namespace PixFootball.EditorTools
         public const float CrossbarHeight = 3.048f, UprightHeight = 10.668f;
 
         public static readonly string[] ExpectedStadiumObjects = { "Stadium", "Crowd", "Lighting", "Lighting_Night", "Lighting_Day", "Main Camera", "FreeRoam", "FreeRoamUI" };
+        public static readonly string[] ExpectedMatchObjects = { "Stadium", "Crowd", "Lighting", "Lighting_Night", "Lighting_Day", "Main Camera", "Match", "MatchUI" };
         public static readonly string[] ExpectedMenuObjects = { "Main Camera", "MainMenu", "MenuStage" };
 
         // ---------------------------------------------------------------------------------------------- helpers
@@ -60,7 +62,7 @@ namespace PixFootball.EditorTools
             var ao = AddOverride<ScreenSpaceAmbientOcclusion>(p); ao.intensity.Override(0.7f); ao.radius.Override(0.7f);
             var ssr = AddOverride<ScreenSpaceReflection>(p); ssr.enabled.Override(true); ssr.minSmoothness = 0.92f;
             var cs = AddOverride<ContactShadows>(p); cs.enable.Override(true); cs.length.Override(0.25f); cs.opacity.Override(1f);
-            var sh = AddOverride<HDShadowSettings>(p); sh.maxShadowDistance.Override(220f); sh.cascadeShadowSplitCount.Override(4);
+            var sh = AddOverride<HDShadowSettings>(p); sh.maxShadowDistance.Override(160f); sh.cascadeShadowSplitCount.Override(3);
             var dpl = AddOverride<DiffusionProfileList>(p); dpl.diffusionProfiles.overrideState = true; dpl.diffusionProfiles.value = PlayerPrefabBuilder.FindDiffusionProfiles();
         }
 
@@ -81,7 +83,7 @@ namespace PixFootball.EditorTools
         {
             var root = new GameObject("Lighting_Night");
             var prof = NewProfile("Night_Stadium");
-            var exp = AddOverride<Exposure>(prof); exp.mode.Override(ExposureMode.Fixed); exp.fixedExposure.Override(9.3f);
+            var exp = AddOverride<Exposure>(prof); exp.mode.Override(ExposureMode.Fixed); exp.fixedExposure.Override(8.55f);   // v0.2: brighter, closer to a TV broadcast
             var env = AddOverride<VisualEnvironment>(prof); env.skyType.Override((int)SkyType.Gradient); env.skyAmbientMode.Override(SkyAmbientMode.Dynamic);
             // night sky: dim blue gradient (gives the stands and roof underside a soft ambient fill)
             var sky = AddOverride<GradientSky>(prof);
@@ -93,18 +95,18 @@ namespace PixFootball.EditorTools
             var vol = root.AddComponent<Volume>(); vol.isGlobal = true; vol.priority = 10; vol.sharedProfile = prof;
 
             // moon / fill: soft blue directional with shadows
-            moon = MakeLight(root.transform, "Moon", LightType.Directional, new Vector3(0, 60, 0), Quaternion.Euler(52f, -35f, 0f), LightUnit.Lux, 220f, new Color(0.55f, 0.66f, 1f), true);
+            moon = MakeLight(root.transform, "Moon", LightType.Directional, new Vector3(0, 60, 0), Quaternion.Euler(52f, -35f, 0f), LightUnit.Lux, 420f, new Color(0.55f, 0.66f, 1f), true);
 
             // stadium floodlights: spot lights on the roof edges, aimed at the pitch (candela, roughly 1500 lux on the grass)
             var rig = new GameObject("Floodlights").transform; rig.SetParent(root.transform, false);
             Color warm = new Color(1f, 0.95f, 0.88f);
             int n = 0;
             foreach (float sx in new[] { -1f, 1f })
-                foreach (float z in new[] { -54f, -30f, -10f, 10f, 30f, 54f })
+                foreach (float z in new[] { -44f, -15f, 15f, 44f })
                 {
                     Vector3 pos = new Vector3(sx * 46f, 46f, z);
                     Vector3 aim = new Vector3(-sx * 4f, 0f, z * 0.45f);
-                    var l = MakeLight(rig, "Flood_" + (sx < 0 ? "W" : "E") + (++n), LightType.Spot, pos, Quaternion.LookRotation(aim - pos), LightUnit.Candela, 4200000f, warm, n % 3 == 0);
+                    var l = MakeLight(rig, "Flood_" + (sx < 0 ? "W" : "E") + (++n), LightType.Spot, pos, Quaternion.LookRotation(aim - pos), LightUnit.Candela, 9400000f, warm, n == 3);   // one floodlight shadow (player shadows are the single biggest GPU cost)
                     l.spotAngle = 74f; l.range = 260f;
                     l.GetComponent<HDAdditionalLightData>().innerSpotPercent = 75f;
                 }
@@ -113,7 +115,7 @@ namespace PixFootball.EditorTools
                 {
                     Vector3 pos = new Vector3(x, 44f, sz * 84f);
                     Vector3 aim = new Vector3(-x * 0.3f, 0f, sz * 28f);
-                    var l = MakeLight(rig, "FloodEnd_" + (++n), LightType.Spot, pos, Quaternion.LookRotation(aim - pos), LightUnit.Candela, 5000000f, warm, false);
+                    var l = MakeLight(rig, "FloodEnd_" + (++n), LightType.Spot, pos, Quaternion.LookRotation(aim - pos), LightUnit.Candela, 7200000f, warm, false);
                     l.spotAngle = 66f; l.range = 280f;
                 }
             return root;
@@ -150,6 +152,29 @@ namespace PixFootball.EditorTools
             m.vertices = v; m.RecalculateBounds();
             AssetDatabase.CreateAsset(m, path);
             return _goalPostMesh = m;
+        }
+
+        /// <summary>Simple colliders on the uprights, crossbar and pole so the chase camera (CinemachineDeoccluder) never clips through a goal post.</summary>
+        static void AddGoalPostColliders(GameObject stadium)
+        {
+            foreach (var t in stadium.GetComponentsInChildren<Transform>(true))
+            {
+                if (!t.name.StartsWith("GoalPost") || t.parent != null && t.parent.name.StartsWith("GoalPost")) continue;
+                var rs = t.GetComponentsInChildren<Renderer>(true);
+                if (rs.Length == 0) continue;
+                var b = rs[0].bounds; foreach (var r in rs) b.Encapsulate(r.bounds);
+                var holder = new GameObject("PostColliders"); holder.transform.SetParent(t, true); holder.transform.position = Vector3.zero; holder.transform.rotation = Quaternion.identity;
+                float half = 2.82f, cross = CrossbarHeight;
+                foreach (float sx in new[] { -1f, 1f })
+                {
+                    var up = new GameObject("Upright").AddComponent<CapsuleCollider>(); up.transform.SetParent(holder.transform, false);
+                    up.direction = 1; up.radius = 0.15f; up.height = UprightHeight; up.center = new Vector3(b.center.x + sx * half, cross + UprightHeight * 0.5f, b.center.z);
+                }
+                var bar = new GameObject("Crossbar").AddComponent<BoxCollider>(); bar.transform.SetParent(holder.transform, false);
+                bar.center = new Vector3(b.center.x, cross, b.center.z); bar.size = new Vector3(half * 2f, 0.3f, 0.3f);
+                var pole = new GameObject("Pole").AddComponent<BoxCollider>(); pole.transform.SetParent(holder.transform, false);
+                pole.center = new Vector3(b.center.x, cross * 0.5f, b.center.z); pole.size = new Vector3(0.5f, cross, 0.5f);
+            }
         }
 
         static void FixGoalPosts(GameObject stadium)
@@ -207,7 +232,12 @@ namespace PixFootball.EditorTools
         }
 
         [MenuItem("PIX Football/Scenes/Build Stadium Pro")]
-        public static void BuildStadiumScene()
+        public static void BuildStadiumScene() { BuildStadium(false); }
+
+        [MenuItem("PIX Football/Scenes/Build Match Pro")]
+        public static void BuildMatchScene() { BuildStadium(true); }
+
+        static void BuildStadium(bool match)
         {
             Ensure(ScenesDir);
             PlayerPrefabBuilder.RegisterDiffusionProfiles();
@@ -219,6 +249,7 @@ namespace PixFootball.EditorTools
             int swapped = BrandingCleaner.ApplyCleanMaterials(stadium);
             Debug.Log("[PIX] clean materials applied to stadium: " + swapped);
             FixGoalPosts(stadium);
+            if (match) AddGoalPostColliders(stadium);
             // the roof lattice would cast a grid of shadows over the pitch from the sun and the floodlights
             foreach (var r in stadium.GetComponentsInChildren<Renderer>(true)) if (r.name.StartsWith("Skeleton")) r.shadowCastingMode = ShadowCastingMode.Off;
 
@@ -234,6 +265,18 @@ namespace PixFootball.EditorTools
             day.SetActive(false);
 
             var cam = MakeMainCamera(new Vector3(-50f, 19f, -30f), Quaternion.LookRotation(new Vector3(50f, -17f, 0f)), 26f, false);
+
+            if (match)
+            {
+                var mui = new GameObject("MatchUI");
+                var hud = mui.AddComponent<MatchHud>();
+                var mg = new GameObject("Match");
+                var md = mg.AddComponent<MatchDirector>();
+                md.MainCamera = cam; md.Lighting = lc; md.UiBehaviour = hud;
+                EditorSceneManager.SaveScene(scene, MatchScenePath);
+                Debug.Log("[PIX] saved " + MatchScenePath);
+                return;
+            }
 
             var game = new GameObject("FreeRoam");
             var fr = game.AddComponent<FreeRoamGame>();
@@ -292,6 +335,7 @@ namespace PixFootball.EditorTools
             {
                 new EditorBuildSettingsScene(MenuScenePath, true),
                 new EditorBuildSettingsScene(StadiumScenePath, true),
+                new EditorBuildSettingsScene(MatchScenePath, true),
             };
         }
 
@@ -300,6 +344,7 @@ namespace PixFootball.EditorTools
         {
             AssetDatabase.Refresh();
             BuildStadiumScene();
+            BuildMatchScene();
             BuildMenuScene();
             SetBuildSettings();
             AssetDatabase.SaveAssets();

@@ -56,3 +56,20 @@ Namespaces mirror assembly names (`PixFootball.Core`, ...).
 
 ## Versions
 See `CHANGELOG.md` and `PatchNotes/`. Release flow in `Docs/RELEASING.md`.
+
+## v0.2 match architecture
+```
+MainMenu --Play Now--> TeamSelectPanel (UI) --GameSession.StartMatch(MatchConfig)--> Match_Pro scene
+Match_Pro:  MatchDirector (Gameplay) --- IMatchPresentation ---> MatchHud (UI)
+            |-- MatchFlow (engine-free: GameState + PhysicalGameSim coordinator + PlaySimulation per snap)
+            |-- PlayStage  (22 SimAgentViews pooled by body size + BallFollower; PlayFrame mapping)
+            |-- MatchCameraRig (Cinemachine: broadcast / behind / first person / debug close-up)
+            |-- FieldMarkers (blue LOS, yellow first-down strip, ring under the user's player)
+            `-- MatchAudio
+```
+- **MatchFlow** (`Gameplay/Match/MatchFlow.cs`) has no Unity types: `PrepareSnap` (burn the runoff, report period changes), `CpuCalls` / `DefenseAnswer`, `OffenseOptions` / `DefenseOptions` (the 4-6 plays on A/B/X/Y/LB/RB), `CreateSim`, `Finish` (apply to `GameState`, classify the outcome for banners / stats). The accelerated clock is `MatchConfig.RunoffScale` (1.0 = rule-book runoff, about 60-70 snaps for 5-minute quarters).
+- **Coordinates** (`PlayFrame`): the simulation always has the offense driving toward +Y. `PlayFrame.For(possession, quarter)` rotates the frame 180 degrees about the vertical axis when the offense attacks the -Z end zone (X and Z both mirrored, so handedness is kept). Home attacks +Z in odd quarters, -Z in even ones; the broadcast camera moves to the side that makes the offense drive left to right.
+- **Animation**: `SimAgentView.ApplyMatch` feeds locomotion (velocity / facing) to the controller inside a `PlayableGraph` (`ActionAnimator`: layer mixer, controller at the bottom, one clip on top with manual time, fade in / out, loop / hold). `AnimKit` maps each `AgentAction` to ArtLibrary clip keys; `ClipTimingTable` (built by `ClipTimingBuilder`) gives the throw-release and catch moments so the clip is trimmed to line up with the ball. Paired takes (`<key>` for the first actor, `<key>_b` for the second) are used for engaged blocks, handoffs, tackles and sacks, aligned by variant name. Carrier moves (juke, spin, stiff-arm, truck, hurdle, dive) reuse the v0.1 action layer.
+- **Kicks / punts**: there is no kicking mocap in the source set. `SimAgentView.LateUpdate` drives the right hip and knee procedurally (back-swing, contact at 0.12 s, follow-through) over the running animation when the simulation reports `AgentAction.Kick`.
+- **User control**: `MatchInput` polls the pad / keyboard directly (no input-action asset). The director picks the controlled agent (QB pre-snap; ball carrier; intended receiver while a pass is in the air; the defender nearest the ball) and only hands him to the simulation when the user is actually steering, so the AI keeps playing the rest of the time.
+- **Autotest**: `MatchDirector.ForceAutopilot` / `Autopilot` makes the director play the user's side; `AutoTest` listens to `PlayStarted`, `PlayFinished`, `SimEvent` and `Milestone`, and `MatchCameraRig.CloseUp` takes close shots of tackles, catches, throws and kicks.

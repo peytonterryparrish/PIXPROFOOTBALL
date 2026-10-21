@@ -13,7 +13,8 @@ namespace PixFootball.UI
     {
         public Transform StageAnchor;
         public Camera StageCamera;
-        GameObject _menuRoot, _settingsRoot;
+        GameObject _menuRoot, _settingsRoot, _teamRoot;
+        TeamSelectPanel _teamSelect;
         SettingsPanel _settings;
         Button _firstButton;
         AudioSource _music;
@@ -54,10 +55,10 @@ namespace PixFootball.UI
             {
                 var logo = UiKit.Panel(menu, "Logo", Color.white, logoSprite); logo.preserveAspect = true;
                 UiKit.Anchor(logo.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(110, -44), new Vector2(430, 442));
-                var tag = UiKit.Label(menu, "FREE ROAM", 52, UiColors.Gold, true, TextAlignmentOptions.TopLeft, "Mode");
+                var tag = UiKit.Label(menu, "PLAY NOW", 52, UiColors.Gold, true, TextAlignmentOptions.TopLeft, "Mode");
                 UiKit.Anchor(tag.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(580, -150), new Vector2(400, 70)); tag.characterSpacing = 6f;
                 var rule = UiKit.Panel(menu, "TagRule", UiColors.Gold); UiKit.Anchor(rule.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(586, -222), new Vector2(200, 6));
-                var verTag = UiKit.Label(menu, "v" + GameplayInfo.Version + "  /  PLAYABLE PROTOTYPE", 24, UiColors.TextSecondary, true, TextAlignmentOptions.TopLeft, "Build");
+                var verTag = UiKit.Label(menu, "v" + GameplayInfo.Version + "  /  KICKOFF", 24, UiColors.TextSecondary, true, TextAlignmentOptions.TopLeft, "Build");
                 UiKit.Anchor(verTag.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(586, -238), new Vector2(400, 40)); verTag.characterSpacing = 3f;
             }
             else
@@ -69,9 +70,10 @@ namespace PixFootball.UI
             }
 
             var col = UiKit.Rect(menu, "Buttons");
-            UiKit.Anchor(col, new Vector2(0, 1f), new Vector2(0, 1f), new Vector2(110, -520), new Vector2(640, 380));
+            UiKit.Anchor(col, new Vector2(0, 1f), new Vector2(0, 1f), new Vector2(110, -520), new Vector2(640, 480));
             var v = col.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 14; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false;
-            _firstButton = UiKit.MenuButton(col, "FREE ROAM", () => GameSession.StartFreeRoam(), 640, 90, 40);
+            _firstButton = UiKit.MenuButton(col, "PLAY NOW", OpenTeamSelect, 640, 90, 40);
+            UiKit.MenuButton(col, "FREE ROAM", () => GameSession.StartFreeRoam(), 640, 90, 40);
             var settingsBtn = UiKit.MenuButton(col, "SETTINGS", OpenSettings, 640, 90, 40);
             UiKit.MenuButton(col, "QUIT", GameSession.Quit, 640, 90, 40);
             _settingsBtn = settingsBtn;
@@ -79,6 +81,8 @@ namespace PixFootball.UI
             // ---- settings ----
             _settings = SettingsPanel.Build(root, CloseSettings);
             _settingsRoot = _settings.gameObject; _settingsRoot.SetActive(false);
+            _teamSelect = TeamSelectPanel.Build(root, CloseTeamSelect);
+            _teamRoot = _teamSelect.gameObject; _teamRoot.SetActive(false);
 
             // ---- footer prompts ----
             var bar = UiKit.Panel(root, "Footer", UiColors.BgPanelDark); UiKit.Anchor(bar.rectTransform, new Vector2(0, 0), new Vector2(0, 0), Vector2.zero, new Vector2(0, 76)); bar.rectTransform.anchorMax = new Vector2(1, 0); bar.rectTransform.sizeDelta = new Vector2(0, 76);
@@ -95,6 +99,18 @@ namespace PixFootball.UI
         {
             _menuRoot.SetActive(false); _settingsRoot.SetActive(true);
             StartCoroutine(SelectFirst(_settings.First != null ? _settings.First.gameObject : null));
+        }
+
+        void OpenTeamSelect()
+        {
+            _menuRoot.SetActive(false); _teamRoot.SetActive(true);
+            StartCoroutine(SelectFirst(_teamSelect.First != null ? _teamSelect.First.gameObject : null));
+        }
+
+        void CloseTeamSelect()
+        {
+            _teamRoot.SetActive(false); _menuRoot.SetActive(true);
+            StartCoroutine(SelectFirst(_firstButton != null ? _firstButton.gameObject : null));
         }
 
         void CloseSettings()

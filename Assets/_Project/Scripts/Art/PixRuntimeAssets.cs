@@ -24,6 +24,10 @@ namespace PixFootball.Art
         public List<SpriteEntry> sprites = new List<SpriteEntry>();
         public List<AudioClip> menuMusic = new List<AudioClip>();
         public AudioClip crowdAmbience, crowdCheer, footstep, whistle, uiClick, uiMove;
+        [Header("Match SFX (v0.2)")]
+        public List<AudioClip> sfxTackle = new List<AudioClip>(), sfxHit = new List<AudioClip>(), sfxCatch = new List<AudioClip>(), sfxKick = new List<AudioClip>(), sfxWhistle = new List<AudioClip>(), sfxCheers = new List<AudioClip>(), sfxBeds = new List<AudioClip>(), sfxUi = new List<AudioClip>();
+        [Header("Match materials (v0.2)")]
+        public Material lineLos, lineFirstDown, ringMarker;
         public float[] clipSpeeds = new float[0];
         public TextAsset teamsCsv;
 

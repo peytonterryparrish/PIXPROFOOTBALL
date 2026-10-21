@@ -206,6 +206,11 @@ namespace PixFootball.Art
         public const string RefIdle = "ref_idle", RefSignalTd = "ref_signal_td", RefSignalFirstDown = "ref_signal_first_down",
             RefSignalPenalty = "ref_signal_penalty", RefSignalIncomplete = "ref_signal_incomplete", RefSignalTimeout = "ref_signal_timeout",
             RefWhistle = "ref_whistle", RefSpotBall = "ref_spot_ball", RefRun = "ref_run", RefBackpedal = "ref_backpedal";
+        // extra referee clips (real BGS gestures / locomotion + keyframed ones)
+        public const string RefSignalSafety = "ref_signal_safety", RefSignalDeadBall = "ref_signal_dead_ball", RefBallReady = "ref_ball_ready",
+            RefWalk = "ref_walk", RefWalkBack = "ref_walk_back", RefShuffleLeft = "ref_shuffle_left", RefShuffleRight = "ref_shuffle_right";
+        // sideline coaches
+        public const string CoachClap = "coach_clap", CoachHeadsetIdle = "coach_headset_idle", CoachClipboardIdle = "coach_clipboard_idle";
         // kicking
         public const string KickOff = "kick_off", KickFieldGoal = "kick_field_goal", Punt = "punt", Snapper = "long_snap";
     }

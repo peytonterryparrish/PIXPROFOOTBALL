@@ -1,0 +1,46 @@
+PIX_Coach_A + coach_headset_idle : Head=(0.00, 1.64, -0.02) LeftLowerArm=(-0.34, 1.38, 0.18) LeftHand=(-0.21, 1.54, 0.37) RightHand=(0.23, 1.23, 0.06)  avatarValid=True human=True
+PIX_Referee_Rigged + coach_headset_idle : Head=(0.00, 1.59, 0.00) LeftLowerArm=(-0.27, 1.34, 0.17) LeftHand=(-0.16, 1.45, 0.39) RightHand=(0.14, 1.23, 0.04)  avatarValid=True human=True
+PIX_Coach_A + coach_clipboard_idle : Head=(0.00, 1.64, 0.00) LeftLowerArm=(-0.37, 1.24, 0.00) LeftHand=(-0.47, 1.09, 0.22) RightHand=(0.44, 1.08, 0.23)  avatarValid=True human=True
+PIX_Referee_Rigged + coach_clipboard_idle : Head=(0.00, 1.59, 0.03) LeftLowerArm=(-0.29, 1.21, -0.01) LeftHand=(-0.35, 1.05, 0.21) RightHand=(0.32, 1.05, 0.22)  avatarValid=True human=True
+PIX_Coach_A + coach_clap : Head=(0.00, 1.64, -0.02) LeftLowerArm=(-0.32, 1.20, 0.01) LeftHand=(-0.36, 1.05, 0.25) RightHand=(0.35, 1.05, 0.25)  avatarValid=True human=True
+PIX_Referee_Rigged + coach_clap : Head=(0.00, 1.59, 0.01) LeftLowerArm=(-0.23, 1.18, 0.00) LeftHand=(-0.24, 1.02, 0.23) RightHand=(0.23, 1.02, 0.23)  avatarValid=True human=True
+PIX_Coach_A + ref_idle : Head=(0.00, 1.63, -0.01) LeftLowerArm=(-0.44, 1.32, -0.10) LeftHand=(-0.23, 1.22, 0.07) RightHand=(0.23, 1.22, 0.07)  avatarValid=True human=True
+PIX_Referee_Rigged + ref_idle : Head=(0.00, 1.59, 0.01) LeftLowerArm=(-0.36, 1.27, -0.10) LeftHand=(-0.14, 1.23, 0.05) RightHand=(0.14, 1.23, 0.05)  avatarValid=True human=True
+PIX_Coach_A + coach_clap : Head=(0.00, 1.64, -0.02) LeftLowerArm=(-0.32, 1.21, 0.01) LeftHand=(-0.36, 1.06, 0.25) RightHand=(0.35, 1.06, 0.25)  avatarValid=True human=True
+PIX_Coach_A + ref_gesture_touchdown : Head=(0.00, 1.64, -0.06) LeftLowerArm=(-0.42, 1.33, 0.05) LeftHand=(-0.46, 1.38, 0.32) RightHand=(0.46, 1.33, 0.31)  avatarValid=True human=True
+PIX_Referee_Rigged + coach_clap : Head=(0.00, 1.59, 0.01) LeftLowerArm=(-0.23, 1.18, 0.00) LeftHand=(-0.24, 1.02, 0.23) RightHand=(0.23, 1.02, 0.23)  avatarValid=True human=True
+PIX_Referee_Rigged + ref_gesture_touchdown : Head=(0.00, 1.60, -0.03) LeftLowerArm=(-0.34, 1.28, 0.05) LeftHand=(-0.39, 1.26, 0.31) RightHand=(0.38, 1.22, 0.29)  avatarValid=True human=True
+PIX_Coach_A SMR Coach_A_Arms lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 1.22, 0.08), Extents: (0.64, 0.30, 0.20)
+PIX_Coach_A SMR Coach_A_Cap lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 1.80, 0.05), Extents: (0.09, 0.10, 0.16)
+PIX_Coach_A SMR Coach_A_Clipboard lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 1.22, 0.30), Extents: (0.21, 0.21, 0.21)
+PIX_Coach_A SMR Coach_A_Eyes lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 1.75, 0.09), Extents: (0.04, 0.01, 0.01)
+PIX_Coach_A SMR Coach_A_Hair lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 1.73, 0.00), Extents: (0.09, 0.10, 0.13)
+PIX_Coach_A SMR Coach_A_Head lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 1.71, 0.02), Extents: (0.10, 0.17, 0.13)
+PIX_Coach_A SMR Coach_A_Headset lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.01, 1.78, 0.06), Extents: (0.10, 0.12, 0.10)
+PIX_Coach_A SMR Coach_A_Pants lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 0.59, -0.01), Extents: (0.27, 0.57, 0.16)
+PIX_Coach_A SMR Coach_A_Shoes lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 0.06, 0.04), Extents: (0.26, 0.17, 0.19)
+PIX_Coach_A SMR Coach_A_Top lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.04, 1.26, 0.01), Extents: (0.47, 0.42, 0.23)
+PIX_Coach_A SMR Coach_A_Watch lpos=(0.000, 0.000, 0.000) lrot=(270, 0, 0) lscale=(100.000, 100.000, 100.000) rootBone=c_traj bounds=Center: (0.00, 1.09, 0.13), Extents: (0.55, 0.05, 0.05)
+PIX_Coach_A baked baked_Coach_A_Arms bounds=Center: (-0.01, 1.13, 0.10), Extents: (0.41, 0.37, 0.22) active=True
+PIX_Coach_A baked baked_Coach_A_Cap bounds=Center: (0.00, 1.79, 0.11), Extents: (0.09, 0.10, 0.16) active=True
+PIX_Coach_A baked baked_Coach_A_Clipboard bounds=Center: (0.09, 0.88, -0.21), Extents: (0.21, 0.20, 0.17) active=True
+PIX_Coach_A baked baked_Coach_A_Eyes bounds=Center: (0.00, 1.74, 0.15), Extents: (0.04, 0.01, 0.01) active=True
+PIX_Coach_A baked baked_Coach_A_Hair bounds=Center: (0.00, 1.72, 0.07), Extents: (0.09, 0.10, 0.13) active=True
+PIX_Coach_A baked baked_Coach_A_Head bounds=Center: (0.00, 1.70, 0.08), Extents: (0.15, 0.17, 0.13) active=True
+PIX_Coach_A baked baked_Coach_A_Headset bounds=Center: (0.01, 1.77, 0.12), Extents: (0.10, 0.12, 0.10) active=True
+PIX_Coach_A baked baked_Coach_A_Pants bounds=Center: (0.02, 0.60, 0.05), Extents: (0.28, 0.57, 0.24) active=True
+PIX_Coach_A baked baked_Coach_A_Shoes bounds=Center: (0.00, 0.07, 0.10), Extents: (0.26, 0.17, 0.19) active=True
+PIX_Coach_A baked baked_Coach_A_Top bounds=Center: (0.00, 1.19, -0.02), Extents: (0.40, 0.47, 0.32) active=True
+PIX_Coach_A baked baked_Coach_A_Watch bounds=Center: (0.00, 0.98, 0.18), Extents: (0.32, 0.06, 0.06) active=True
+PIX_Referee_Rigged SMR Referee_Arms_LOD00 lpos=(0.000, 0.000, 0.000) lrot=(0, 0, 0) lscale=(1.000, 1.000, 1.000) rootBone=c_traj bounds=Center: (0.00, 1.12, 0.06), Extents: (0.60, 0.21, 0.18)
+PIX_Referee_Rigged SMR Referee_Eyes_LOD00 lpos=(0.000, 0.000, 0.000) lrot=(0, 0, 0) lscale=(1.000, 1.000, 1.000) rootBone=c_traj bounds=Center: (0.00, 1.69, 0.09), Extents: (0.04, 0.01, 0.01)
+PIX_Referee_Rigged SMR Referee_Head_LOD00 lpos=(0.000, 0.000, 0.000) lrot=(0, 0, 0) lscale=(1.000, 1.000, 1.000) rootBone=c_traj bounds=Center: (0.00, 1.63, 0.00), Extents: (0.10, 0.16, 0.13)
+PIX_Referee_Rigged SMR Referee_Uniform_LOD00 lpos=(0.000, 0.000, 0.000) lrot=(0, 0, 0) lscale=(1.000, 1.000, 1.000) rootBone=c_traj bounds=Center: (-0.06, 0.85, 0.01), Extents: (0.46, 0.97, 0.24)
+PIX_Referee_Rigged SMR Referee_Uniform_LOD00.001 lpos=(0.000, 0.000, 0.000) lrot=(0, 0, 0) lscale=(1.000, 1.000, 1.000) rootBone=c_traj bounds=Center: (0.00, 1.38, 0.08), Extents: (0.05, 0.13, 0.05)
+PIX_Referee_Rigged SMR Referee_Uniform_PocketStuff lpos=(0.000, 0.000, 0.000) lrot=(0, 0, 0) lscale=(1.000, 1.000, 1.000) rootBone=c_traj bounds=Center: (-0.13, 1.33, 0.09), Extents: (0.04, 0.06, 0.02)
+PIX_Referee_Rigged baked baked_Referee_Arms_LOD00 bounds=Center: (0.00, 1.24, 0.23), Extents: (0.47, 0.12, 0.28) active=True
+PIX_Referee_Rigged baked baked_Referee_Eyes_LOD00 bounds=Center: (0.00, 1.70, 0.06), Extents: (0.04, 0.01, 0.01) active=True
+PIX_Referee_Rigged baked baked_Referee_Head_LOD00 bounds=Center: (0.00, 1.64, -0.01), Extents: (0.10, 0.17, 0.14) active=True
+PIX_Referee_Rigged baked baked_Referee_Uniform_LOD00 bounds=Center: (-0.01, 0.85, 0.07), Extents: (0.43, 0.98, 0.29) active=True
+PIX_Referee_Rigged baked baked_Referee_Uniform_LOD00.001 bounds=Center: (0.00, 1.38, 0.07), Extents: (0.05, 0.13, 0.06) active=True
+PIX_Referee_Rigged baked baked_Referee_Uniform_PocketStuff bounds=Center: (-0.13, 1.33, 0.09), Extents: (0.04, 0.06, 0.02) active=True

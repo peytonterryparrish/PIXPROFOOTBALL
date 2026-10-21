@@ -3,6 +3,7 @@
     "rootNamespace": "PixFootball.Tests",
     "references": [
         "PixFootball.Core",
+        "PixFootball.League",
         "PixFootball.Art",
         "PixFootball.Sim",
         "PixFootball.Gameplay",

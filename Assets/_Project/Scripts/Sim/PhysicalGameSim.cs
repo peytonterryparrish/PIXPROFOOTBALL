@@ -59,6 +59,14 @@ namespace PixFootball.Sim
             Index();
         }
 
+        /// <summary>Wraps an externally driven game (the live match director owns the state and runs the plays itself; this object only supplies CPU play calling).</summary>
+        public PhysicalGameSim(LeagueTeam home, LeagueTeam away, GameState state, Rng rng, Playbook book = null)
+        {
+            Home = home; Away = away; State = state; Rules = state.Rules; Rng = rng;
+            Book = book ?? DefaultPlaybooks.Create();
+            Index();
+        }
+
         private void Index()
         {
             foreach (Play p in Book.AllPlays)
@@ -179,7 +187,7 @@ namespace PixFootball.Sim
             return sub.Count > 0 ? Pick(sub) : Pick(list);
         }
 
-        private void ChoosePlays(out Play off, out Play def)
+        public void ChoosePlays(out Play off, out Play def)
         {
             switch (State.Phase)
             {
@@ -269,6 +277,19 @@ namespace PixFootball.Sim
             }
             else off = Pick(_runs);
             def = DefenseFor(goalLine);
+        }
+
+        /// <summary>CPU defensive call that answers a chosen offensive/special-teams play (used when the human picks the offense).</summary>
+        public Play DefenseResponseTo(Play off)
+        {
+            switch (off.Category)
+            {
+                case PlayCategory.Kickoff: case PlayCategory.Onside: return Pick(_kickReturns);
+                case PlayCategory.Punt: return Pick(_puntReturns);
+                case PlayCategory.FieldGoal: case PlayCategory.PointAfter: return Pick(_fgBlocks);
+            }
+            bool goal = State.Phase == GamePhase.PointAfter || 100 - State.BallSpot <= 3;
+            return DefenseFor(goal);
         }
 
         private Play DefenseFor(bool goalLineCall)

@@ -66,6 +66,25 @@ namespace PixFootball.EditorTools
             rt.sprites.Add(new PixRuntimeAssets.SpriteEntry { key = key, sprite = s });
         }
 
+        /// <summary>HDRP/Unlit material for the on-field overlays; a texture turns it into an alpha-tested decal (the marker ring).</summary>
+        static Material MakeUnlit(string path, Color color, Texture2D map)
+        {
+            var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (m == null) { m = new Material(Shader.Find("HDRP/Unlit")); AssetDatabase.CreateAsset(m, path); }
+            m.shader = Shader.Find("HDRP/Unlit");
+            m.SetColor("_UnlitColor", color);
+            if (map != null)
+            {
+                m.SetTexture("_UnlitColorMap", map);
+                m.SetColor("_UnlitColor", Color.white);
+                m.SetFloat("_AlphaCutoffEnable", 1f); m.SetFloat("_AlphaCutoff", 0.35f);
+                m.SetFloat("_DoubleSidedEnable", 1f);
+            }
+            UnityEditor.Rendering.HighDefinition.HDShaderUtils.ResetMaterialKeywords(m);
+            EditorUtility.SetDirty(m);
+            return m;
+        }
+
         [MenuItem("PIX Football/Build/Build Runtime Assets")]
         public static void Build()
         {
@@ -121,6 +140,28 @@ namespace PixFootball.EditorTools
                 rt.uiClick = lib.Audio("ui_click", 0);
                 rt.uiMove = lib.Audio("ui_click", 3);
             }
+
+            // ---- v0.2 match UI sprites, SFX and field-marker materials ----
+            rt.sfxTackle.Clear(); rt.sfxHit.Clear(); rt.sfxCatch.Clear(); rt.sfxKick.Clear(); rt.sfxWhistle.Clear(); rt.sfxCheers.Clear(); rt.sfxBeds.Clear();
+            AddSprite(rt, "sb_local", "HUD/sb_holder_property_1_local.png");
+            AddSprite(rt, "sb_visitor", "HUD/sb_holder_property_1_visitor.png");
+            AddSprite(rt, "sb_timer", "HUD/sb_timerholder.png");
+            AddSprite(rt, "sb_notification", "HUD/sb_notification.png");
+            AddSprite(rt, "sb_flag", "HUD/sb_flag_1.png");
+            AddSprite(rt, "sb_arrow", "HUD/sb_arrow_1.png");
+            AddSprite(rt, "sb_to_on", "HUD/sb_timeoutactive_property_1_available.png");
+            AddSprite(rt, "sb_to_off", "HUD/sb_timeoutactive_property_1_used.png");
+            foreach (string k in new[] { "a", "b", "c", "d" }) AddSprite(rt, "ring_" + k, "HUD/Markers/marker_ring_" + k + ".png");
+            if (lib != null)
+            {
+                System.Action<System.Collections.Generic.List<AudioClip>, string, int> take = (list, key, n) => { int cnt = lib.AudioVariantCount(key); for (int i = 0; i < cnt && i < n; i++) { var c = lib.Audio(key, i); if (c != null) list.Add(c); } };
+                take(rt.sfxTackle, "tackle_hit_hard", 5); take(rt.sfxHit, "tackle_hit", 2); take(rt.sfxHit, "ball_hit", 4); take(rt.sfxCatch, "ball_catch", 4);
+                take(rt.sfxKick, "kick", 3); take(rt.sfxWhistle, "whistle", 2); take(rt.sfxCheers, "crowd_cheer", 4); take(rt.sfxBeds, "crowd_ambience", 2);
+            }
+            MaterialFactory.EnsureFolder(PixDir + "/Materials");
+            rt.lineLos = MakeUnlit(PixDir + "/Materials/PIX_LineLos.mat", new Color(0.12f, 0.42f, 1f, 1f), null);
+            rt.lineFirstDown = MakeUnlit(PixDir + "/Materials/PIX_LineFirstDown.mat", new Color(1f, 0.86f, 0.1f, 1f), null);
+            rt.ringMarker = MakeUnlit(PixDir + "/Materials/PIX_RingMarker.mat", new Color(0.7f, 0.35f, 1f, 1f), AssetDatabase.LoadAssetAtPath<Texture2D>(UiRoot + "/HUD/Markers/marker_ring_a.png"));
 
             // animator
             var speeds = new float[5];
