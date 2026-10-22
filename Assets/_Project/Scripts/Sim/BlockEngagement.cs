@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using PixFootball.Core;
+using PixFootball.League;
 
 namespace PixFootball.Sim
 {
@@ -237,6 +238,7 @@ namespace PixFootball.Sim
         private float BlockerScore(SimAgent b, bool run)
         {
             float skill = run ? b.R.RunBlocking : b.R.PassBlocking;
+            if (b.Fx != null && b.Pos.Y > S.LosY + 2.5f && run) skill += b.FxOnly(SimHook.RunBlock, PlaySimulation.CtxOpenField);   // v0.8.0 Lead Puller: his blocks downfield
             if (b.PlayPos == Position.WR || b.PlayPos == Position.CB || b.PlayPos == Position.FS || b.PlayPos == Position.SS) skill = Math.Max(skill, 35f);
             else if (b.PlayPos == Position.TE || b.PlayPos == Position.FB || b.PlayPos == Position.RB) skill = Math.Max(skill, 42f);   // tight ends and backs block better than receivers do
             if (!PositionGroup.IsOffensiveLine(b.PlayPos) && (S.Kind != PlayKind.Scrimmage || b.Side == SimSide.Defense)) skill = Math.Max(skill, 45f);
@@ -496,7 +498,9 @@ namespace PixFootball.Sim
             }
             counter += 6f; // technique, help from the quarterback side, and the set of the pocket
             if (e.Blockers.Count > 1) counter += 14f;
+            if (d.Fx != null && !e.RunMode && S.OffAI.PocketPressure(S.Qb) >= 0.3f) skill += d.FxOnly(SimHook.PassRush, PlaySimulation.CtxUnderPressure);   // v0.8.0 Bull Rusher: once the pocket is collapsing his moves hit harder
             float p = Sigmoid((skill - counter) / 11f);
+            if (m == RushMove.Bull && b.Fx != null) p *= Math.Max(0f, 1f - b.Fxv(SimHook.BullRushResist) / 100f);   // v0.8.0 Immovable Anchor
             if (S.Rng.NextFloat() < p) e.Lev -= win * (0.8f + 0.4f * S.Rng.NextFloat());
             else e.Lev += lose;
             if (side != 0) e.UserSide = side;

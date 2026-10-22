@@ -9,6 +9,8 @@
         "PixFootball.Gameplay",
         "PixFootball.UI",
         "PixFootball.Presentation",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
         "Unity.RenderPipelines.HighDefinition.Runtime",
         "Unity.RenderPipelines.Core.Runtime",
         "UnityEngine.TestRunner",

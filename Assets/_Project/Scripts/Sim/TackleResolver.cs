@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using PixFootball.Core;
+using PixFootball.League;
 
 namespace PixFootball.Sim
 {
@@ -14,6 +15,9 @@ namespace PixFootball.Sim
         private readonly PlaySimulation S;
         private readonly List<SimAgent> _draggers = new List<SimAgent>();
         private bool _qbHitLogged;
+
+        /// <summary>v0.8.0 tackle-contest points per percent of the ShortYardage / YardsAfterCatch ability effect.</summary>
+        public const float ShortYardageSkillPerPercent = 0.8f, YardsAfterCatchSkillPerPercent = 0.35f;
 
         public TackleResolver(PlaySimulation s) { S = s; }
 
@@ -141,6 +145,12 @@ namespace PixFootball.Sim
             float tkEff = d.R.Tackling >= 75 ? 75f + (d.R.Tackling - 75f) * 1.45f : 75f + (d.R.Tackling - 75f) * 0.46f;
             float tackleSkill = 0.52f * tkEff + 0.16f * d.R.Strength + 0.12f * d.R.Awareness + 0.10f * d.R.Agility + 0.10f * d.R.Speed;
             float carrierSkill = 0.34f * c.R.BreakTackle + 0.22f * c.R.Strength + 0.14f * c.R.Carrying + 0.18f * c.R.Elusiveness + 0.12f * c.R.Agility;
+            if (c.Fx != null)
+            {
+                // v0.8.0: Short-Yardage Bruiser (third-and-one, goal line) and Yards Machine (after the catch) make the carrier harder to bring down
+                carrierSkill += c.Fxv(SimHook.ShortYardage) * ShortYardageSkillPerPercent;
+                if (c.Id == S.CatcherId && S.PassCompleted) carrierSkill += c.Fxv(SimHook.YardsAfterCatch) * YardsAfterCatchSkillPerPercent;
+            }
             float mod = 0f;
             mod += category == 0 ? 5f : (category == 2 ? -14f : -3f);
             if (diving) mod -= 14f;
@@ -160,6 +170,18 @@ namespace PixFootball.Sim
 
             // sack bookkeeping
             bool sackCandidate = c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown && c.Pos.Y <= S.LosY + 0.01f && S.BallSide == SimSide.Offense;
+            if (d.Fx != null && margin <= 0f)
+            {
+                // v0.8.0: Sure Tackler turns that share of would-be misses into clean stops
+                float tr = d.Fxv(SimHook.TackleReliability);
+                if (tr > 0f && S.Rng.NextFloat() < tr / 100f) margin = 1f;
+            }
+            if (c.Fx != null && sackCandidate && margin > 0f)
+            {
+                // v0.8.0: Escape Artist slips that share of would-be sacks
+                float pe = c.Fxv(SimHook.PocketEscape);
+                if (pe > 0f && S.Rng.NextFloat() < pe / 100f) margin = -20f;
+            }
             if (S.Options.ForceTackleAfter > 0f && !sackCandidate && c.Pos.Y < S.LosY + S.Options.ForceTackleAfter) return;   // test hook: open-field contact only
             if (S.Options.ForceTackle.HasValue) { ForceOutcome(d, c, S.Options.ForceTackle.Value, diving, closing, category, sackCandidate); return; }
 
@@ -216,7 +238,7 @@ namespace PixFootball.Sim
             if (margin > 0f)
             {
                 // clean stop
-                bool big = margin > 31f && closing > 6.2f && category != 2 && !diving;   // QA-185: a big hit is a highlight, not every routine tackle
+                bool big = margin > 31f - 0.2f * d.Fxv(SimHook.HitPower) && closing > 6.2f && category != 2 && !diving;   // QA-185: a big hit is a highlight, not every routine tackle
                 TackleType type;
                 if (c.DragMass > 0f) type = TackleType.GangTackle;
                 else if (diving) type = TackleType.DiveTackle;
@@ -269,18 +291,9 @@ namespace PixFootball.Sim
             }
         }
 
-        private void BringDown(SimAgent d, SimAgent c, TackleType type, float closing, int category, bool sack)
+        /// <summary>Chance that the ball comes out on a tackle (before the whistle): the tackle type, the carrier's Carrying, the tackler's skill and closing speed, a passer's strip-sack, and the v0.8.0 abilities (Strip Artist / Bone Rattler on the tackler, Wrecking Ball on the carrier).</summary>
+        internal float FumbleChance(SimAgent d, SimAgent c, TackleType type, float closing, bool qbPass)
         {
-            // push out of bounds
-            float toLine = FieldGeometry.DistanceToSideline(c.Pos.X);
-            float towardX = c.Pos.X < FieldGeometry.CenterX ? -c.Vel.X : c.Vel.X;
-            if (type != TackleType.BigHit && !sack && toLine < 1.3f && towardX > 1.0f && c.Side == S.BallSide && S.Rng.NextFloat() < 0.45f + 0.5f * SimMath.Rating01(d.R.Tackling))
-            {
-                type = TackleType.PushOutOfBounds;
-            }
-
-            bool qbPass = sack;
-            // fumble roll before the whistle
             float pFum = 0.0040f;
             if (type == TackleType.BigHit) pFum = 0.030f;
             else if (type == TackleType.GangTackle) pFum = 0.012f;
@@ -291,7 +304,22 @@ namespace PixFootball.Sim
             if (qbPass) pFum = 0.05f * (1.55f - SimMath.Rating01(c.R.Carrying)) * (0.8f + d.R.Strength / 200f);
             if (c.Move == CarrierMove.Spin || c.Move == CarrierMove.Truck) pFum *= 1.6f;
             pFum *= 0.92f;   // QA-351: lost fumbles were 0.35 per team-game against about 0.5 in the NFL
-            bool fumble = S.Rng.NextFloat() < pFum && !S.Options.ForceTackle.HasValue;
+            if (d.Fx != null) pFum *= Math.Max(0.1f, 1f + d.Fxv(SimHook.ForcedFumble) / 100f);   // v0.8.0 Strip Artist, Bone Rattler
+            if (c.Fx != null) pFum *= Math.Max(0.1f, 1f + c.Fxv(SimHook.FumbleResist) / 100f);   // v0.8.0 Wrecking Ball
+            return pFum;
+        }
+
+        private void BringDown(SimAgent d, SimAgent c, TackleType type, float closing, int category, bool sack)
+        {
+            // push out of bounds
+            float toLine = FieldGeometry.DistanceToSideline(c.Pos.X);
+            float towardX = c.Pos.X < FieldGeometry.CenterX ? -c.Vel.X : c.Vel.X;
+            if (type != TackleType.BigHit && !sack && toLine < 1.3f && towardX > 1.0f && c.Side == S.BallSide && S.Rng.NextFloat() < 0.45f + 0.5f * SimMath.Rating01(d.R.Tackling))
+            {
+                type = TackleType.PushOutOfBounds;
+            }
+
+            bool fumble = S.Rng.NextFloat() < FumbleChance(d, c, type, closing, sack) && !S.Options.ForceTackle.HasValue;
 
             FinishTackle(d, c, type, sack, fumble, closing);
         }
@@ -305,6 +333,7 @@ namespace PixFootball.Sim
             Vec2 dirv = (c.Pos - d.Pos).Norm();
             // carrier falls forward a little with the contact
             float slide = SimMath.Clamp(0.12f * c.Speed + 0.08f * Math.Max(0f, closing), 0.1f, 1.2f);
+            if (d.Fx != null) slide *= 1f + d.Fxv(SimHook.HitPower) / 100f;   // v0.8.0 Bone Rattler: the hit carries the runner further back
 
             c.Body.Fall(1.1f);
             c.Body.Vel = c.Body.Vel * 0.55f + dirv * (slide * 0.8f);

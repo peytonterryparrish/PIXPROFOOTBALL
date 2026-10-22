@@ -10,6 +10,10 @@ namespace PixFootball.UI.Glass
     public sealed class HubContext
     {
         public Action PlayNow, FreeRoam, Quit;
+        /// <summary>v0.8: opens the career (franchise) flow; null keeps the tile locked.</summary>
+        public Action Career;
+        /// <summary>One line under the CAREER tile (the open save, or what the mode is).</summary>
+        public string CareerSubtitle;
         /// <summary>Opens the settings screen on a page (0 video .. 4 audio).</summary>
         public Action<int> Settings;
         /// <summary>Told the normalised (-1..1) position of the focused tile so the stage camera can drift.</summary>
@@ -86,6 +90,12 @@ namespace PixFootball.UI.Glass
             };
         }
 
+        HubTileSpec CareerTile(int col, int row)
+        {
+            bool on = _ctx.Career != null;
+            return Spec("CAREER", on ? (_ctx.CareerSubtitle ?? "Build a dynasty over endless seasons") : "", "fb_franchise_hub", _ctx.Career, col, row, 2, 1, !on);
+        }
+
         List<HubTile> BuildPage(RectTransform root, int page)
         {
             var specs = new List<HubTileSpec>();
@@ -96,13 +106,13 @@ namespace PixFootball.UI.Glass
                     specs.Add(Spec("FREE ROAM", "Run the empty stadium: moves, cameras, lights", "fb_field_compass", _ctx.FreeRoam, 2, 0, 2, 1));
                     specs.Add(Spec("SETTINGS", "Video, camera, audio", "ui_settings", () => _ctx.Settings(0), 2, 1));
                     specs.Add(Spec("QUIT", "Back to the desktop", "ui_close", _ctx.Quit, 3, 1));
-                    specs.Add(Spec("FRANCHISE", "", "fb_franchise_hub", null, 0, 2, 2, 1, true));
+                    specs.Add(CareerTile(0, 2));
                     specs.Add(Spec("COLLEGE NETWORK", "", "fb_scout_binoculars", null, 2, 2, 1, 1, true));
                     specs.Add(Spec("TROPHY ROOM", "", "ui_trophy", null, 3, 2, 1, 1, true));
                     break;
                 case 1:
                     specs.Add(PlayHero(3));
-                    specs.Add(Spec("FRANCHISE", "", "fb_franchise_hub", null, 2, 0, 2, 1, true));
+                    specs.Add(CareerTile(2, 0));
                     specs.Add(Spec("COLLEGE NETWORK", "", "fb_scout_binoculars", null, 2, 1, 2, 1, true));
                     specs.Add(Spec("TROPHY ROOM", "", "ui_trophy", null, 2, 2, 2, 1, true));
                     break;

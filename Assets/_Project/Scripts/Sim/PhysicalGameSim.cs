@@ -48,6 +48,10 @@ namespace PixFootball.Sim
         public FatigueTracker Fatigue = new FatigueTracker();
         /// <summary>CPU coaches use their timeouts in the two-minute drill (set false for the old behavior).</summary>
         public bool CpuTimeouts = true;
+        /// <summary>v0.8.0: apply abilities, morale and leadership to the players of every play (see <see cref="PlaySimOptions.PlayerModifiers"/>); false = the pre-0.8.0 ratings.</summary>
+        public bool PlayerModifiers = true;
+        /// <summary>v0.8.0: apply the coaching staff's own play-calling rates (blitz, man coverage, deep shots, no-huddle tempo) on top of the coach profile; false = the pre-0.8.0 calling.</summary>
+        public bool StaffTendencies = true;
         private int _lastQuarter;
 
         private readonly List<Play> _runs = new List<Play>(), _passes = new List<Play>(), _screens = new List<Play>(),
@@ -109,6 +113,13 @@ namespace PixFootball.Sim
 
         public LeagueTeam TeamOf(CoreTeam t) { return t == CoreTeam.Home ? Home : Away; }
 
+        /// <summary>v0.8.0: multiplier on a player's chance of being hurt in a game or play (Iron Man: x0.85 / x0.75 / x0.65). League.Season.RollInjuries applies the same scale to every game line; an in-match injury model should use this too.</summary>
+        public static float InjuryScale(Player p)
+        {
+            if (p == null || p.Abilities == null || p.Abilities.Count == 0) return 1f;
+            return Math.Max(0.3f, 1f + AbilityCatalog.Modifier(p, SimHook.InjuryResist) / 100f);
+        }
+
         // ===================================================================================================
 
         /// <summary>Runs every play until the game ends (or maxPlays safety stop). Returns the number of plays executed.</summary>
@@ -157,7 +168,7 @@ namespace PixFootball.Sim
             var sim = new PlaySimulation();
             // game conditions: the wind of this quarter in the offense's frame, and the fatigue the players carry into the snap
             bool attacksPositiveZ = (State.Possession == CoreTeam.Home) == (State.Quarter % 2 == 1);
-            var simOptions = new PlaySimOptions { Playbook = Book, Fatigue = Fatigue };
+            var simOptions = new PlaySimOptions { Playbook = Book, Fatigue = Fatigue, PlayerModifiers = PlayerModifiers };
             if (State.Conditions != null) simOptions.SetWind(State.Conditions.ForQuarter(State.Quarter), attacksPositiveZ);
             if (rec.Quarter != _lastQuarter) { if (_lastQuarter > 0 && Fatigue != null) Fatigue.Rest(_lastQuarter == 2 ? 600f : 90f); _lastQuarter = rec.Quarter; }
             sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions);
@@ -184,6 +195,7 @@ namespace PixFootball.Sim
             }
             if (KeepLogs) rec.Log = sim.Log;
             State.Apply(result);
+            ApplyTempo(State.Possession);
             rec.HomeScore = State.HomeScore; rec.AwayScore = State.AwayScore;
             Plays.Add(rec);
             return rec;
@@ -291,10 +303,31 @@ namespace PixFootball.Sim
                 c.FrontBias = dcoord.DefScheme == DefenseScheme.Base34 ? 1f : (dcoord.DefScheme == DefenseScheme.Base43 ? -1f : 0f);
                 c.NickelBias = dcoord.DefScheme == DefenseScheme.Nickel ? 1f : 0f;
             }
+            // v0.8.0: the staff's own play-calling rates (StaffManager.Tendencies), relative to the league-average staff (blitz 0.25, man 0.40, deep shots 0.148, no-huddle 0.21), so the league as a whole plays as before while a Zone or Air Raid staff differs
+            PlaycallTendencies tend = StaffManager.Tendencies(t);
+            float dcAgg = dcoord != null ? dcoord.Aggression : 50;
+            c.BlitzBias = (tend.BlitzRate - Math.Max(0.10f, Math.Min(0.45f, 0.25f + (dcAgg - 50f) * 0.002f))) * 0.5f;   // the coordinator's aggression is already in c.Aggression; this is the scheme part
+            c.ManBias = (tend.ManCoverageRate - 0.40f) * 0.8f;
+            c.DeepShotBias = (tend.DeepShotRate - 0.148f) * 5f;
+            c.NoHuddleBias = tend.NoHuddleRate - 0.21f;
             return c;
         }
 
-        public CoachProfile ProfileOf(CoreTeam t) { return ProfileOf(TeamOf(t)); }
+        public CoachProfile ProfileOf(CoreTeam t)
+        {
+            CoachProfile p = ProfileOf(TeamOf(t));
+            if (!StaffTendencies) { p.BlitzBias = 0f; p.ManBias = 0f; p.DeepShotBias = 0f; p.NoHuddleBias = 0f; }
+            return p;
+        }
+
+        /// <summary>v0.8.0 no-huddle: an offense whose staff runs more snaps without a huddle burns less clock between snaps (about 3.5 seconds for a 0.18 higher rate; a slow, power-run staff burns a little more). The headless game calls it after every play; a live match that keeps its own clock can call it after <c>State.Apply</c> with the team that has the ball next.</summary>
+        public void ApplyTempo(CoreTeam offense)
+        {
+            if (State.Phase != GamePhase.Scrimmage || !State.ClockRunning || State.PendingRunoff <= 0f) return;
+            float bias = ProfileOf(offense).NoHuddleBias;
+            if (bias == 0f) return;
+            State.PendingRunoff = Math.Max(6f, State.PendingRunoff - bias * 20f);
+        }
 
         /// <summary>QA-622: explicit scheme mapping (an enum cast silently changed every coach if either enum was reordered).</summary>
         public static PlayStyle StyleOf(OffenseScheme s)

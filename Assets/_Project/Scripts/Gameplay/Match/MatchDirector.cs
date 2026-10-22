@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using PixFootball.Art;
@@ -815,6 +815,7 @@ namespace PixFootball.Gameplay
         {
             Phase = MatchPhase.Final;
             Finished = true;
+            PostCareerResult();   // v0.8: a franchise game posts its result before any postgame show
             if (_fade > 0.01f) yield return Fade(0f, 0.3f);
             var s = Flow.State;
             Note("final " + Flow.Summary());

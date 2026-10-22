@@ -394,7 +394,7 @@ namespace PixFootball.Tests
             {
                 int a = rng.Range(0, 32), b = rng.Range(0, 32);
                 while (b == a) b = rng.Range(0, 32);
-                var game = new PhysicalGameSim(lg.Teams[a], lg.Teams[b], RuleSet.Pro(), new Rng(700 + g));
+                var game = new PhysicalGameSim(lg.Teams[a], lg.Teams[b], RuleSet.Pro(), new Rng(700 + g)) { PlayerModifiers = false, StaffTendencies = false };   // v0.8.0: this calibrates the engine itself on a fixed seed set; the career layer (abilities, moods, staff rates) has its own league test (SimStaffTendencyTests)
                 game.Run();
                 Assert.IsTrue(game.State.IsFinal);
                 pts += game.State.HomeScore + game.State.AwayScore;

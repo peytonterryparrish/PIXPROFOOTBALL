@@ -6,7 +6,7 @@ using PixFootball.Core;
 namespace PixFootball.League
 {
     /// <summary>
-    /// What an ability changes in the match simulation. The Sim does not read these yet (v0.8.0 logs the integration points in Docs/Career.md):
+    /// What an ability changes in the match simulation. Since v0.8.0 the Sim reads every hook (PlaySimulation.Abilities.cs, AbilityFx.cs; table in Docs/QA/v080/sim_abilities.md):
     /// each hook names one number in the Sim that an ability nudges, see <see cref="AbilityCatalog.Modifier"/>.
     /// </summary>
     public enum SimHook
@@ -319,7 +319,28 @@ namespace PixFootball.League
             return l;
         }
 
-        /// <summary>"Rocket Arm ** - Throws the ball harder (+4 ThrowPower)" for player cards.</summary>
+        /// <summary>
+        /// Calibration gain per hook: the size the match actually applies is the catalogue size times this factor (so a league full of abilities scores like the plain league,
+        /// see Docs/QA/v080/sim_abilities.md). The Sim (<c>AbilityFx.Scale</c>) and the player card (<see cref="Describe"/>) both read it, so the card tells the truth.
+        /// </summary>
+        public static float Gain(SimHook hook, AbilityContext ctx = AbilityContext.Always)
+        {
+            switch (hook)
+            {
+                case SimHook.TopSpeed: case SimHook.Acceleration: return ctx == AbilityContext.OpenField ? 0.8f : 0.4f;
+                case SimHook.YardsAfterCatch: return 0.4f;
+                case SimHook.BreakTackle: case SimHook.JukeSuccess: case SimHook.SpinSuccess:
+                case SimHook.CatchInTraffic: case SimHook.ContestedCatch:
+                case SimHook.CutSpeedLoss: case SimHook.RouteSeparation: return 0.5f;
+                case SimHook.RunBlock: case SimHook.PassBlock: return 0.4f;
+                case SimHook.BullRushResist: return 0.8f;
+                case SimHook.PassRush: case SimHook.RunStop: case SimHook.TackleReliability: case SimHook.ManCoverage: case SimHook.ZoneRange: return 1.5f;
+                case SimHook.InterceptionCatch: return 0.45f;
+                default: return 1f;
+            }
+        }
+
+        /// <summary>"Rocket Arm ** - Throws the ball harder (+4 ThrowPower)" for player cards. The numbers are the in-match sizes (catalogue size times <see cref="Gain"/>).</summary>
         public static string Describe(PlayerAbility a)
         {
             AbilityDef d = Get(a.Id);
@@ -329,7 +350,7 @@ namespace PixFootball.League
             for (int e = 0; e < d.Effects.Length; e++)
             {
                 AbilityEffect fx = d.Effects[e];
-                float v = fx.At(a.Tier);
+                float v = fx.At(a.Tier) * Gain(fx.Hook, fx.Context);
                 sb.Append(e == 0 ? " (" : ", ").Append(v >= 0 ? "+" : "").Append(v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)).Append(' ').Append(fx.Hook);
                 if (fx.Context != AbilityContext.Always) sb.Append(" [").Append(fx.Context).Append(']');
             }

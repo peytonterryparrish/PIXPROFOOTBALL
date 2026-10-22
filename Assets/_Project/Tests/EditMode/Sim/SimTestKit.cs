@@ -21,7 +21,9 @@ namespace PixFootball.Tests
         public static Player MakePlayer(Rng rng, Position pos, int ovr)
         {
             var used = new HashSet<string>();
-            return PlayerFactory.Create(rng, new Ids(), used, pos, ovr, 25, Archetype.None, DevTrait.Normal, true);
+            Player p = PlayerFactory.Create(rng, new Ids(), used, pos, ovr, 25, Archetype.None, DevTrait.Normal, true);
+            p.Morale = 70;   // v0.8.0: the factory rolls a mood (55-90) and the simulation turns it into rating points; the kit players are neutral so the engine bands stay about the engine
+            return p;
         }
 
         /// <summary>One player per formation slot, all around <paramref name="ovr"/> overall.</summary>
@@ -31,7 +33,10 @@ namespace PixFootball.Tests
             var used = new HashSet<string>();
             var r = new Player[f.Slots.Length];
             for (int i = 0; i < r.Length; i++)
+            {
                 r[i] = PlayerFactory.Create(rng, ids, used, f.Slots[i].Position, ovr, 25, Archetype.None, DevTrait.Normal, true);
+                r[i].Morale = 70;   // v0.8.0 (see MakePlayer)
+            }
             return r;
         }
 

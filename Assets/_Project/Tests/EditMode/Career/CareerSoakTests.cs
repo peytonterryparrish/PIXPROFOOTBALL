@@ -59,6 +59,7 @@ namespace PixFootball.Tests
         }
 
         [Test]
+        [Category("Slow")]   // multi-season: excluded from the release run (-testCategory "!Slow")
         public void TenSeasonsRunWithValidRostersTheCapAndAStableLeague()
         {
             RunSoak();
@@ -90,6 +91,7 @@ namespace PixFootball.Tests
         }
 
         [Test]
+        [Category("Slow")]   // multi-season: excluded from the release run (-testCategory "!Slow")
         public void TheSoakIsDeterministicBySeed()
         {
             RunSoak();
@@ -109,6 +111,7 @@ namespace PixFootball.Tests
         }
 
         [Test]
+        [Category("Slow")]   // multi-season: excluded from the release run (-testCategory "!Slow")
         public void ThePlayersAndLedgersOfTheSoakAreConsistent()
         {
             RunSoak();

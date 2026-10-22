@@ -4,7 +4,46 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-Nothing yet. Next: **v0.8.0 "Franchise"** - the league and Career Mode (32-team pro league, 138-school college world, drafts, contracts, injuries, season flow, played games feeding the simulation).
+Nothing yet. Next: **v0.9.0 "College Network"** - a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools.
+
+## [0.8.0] - 2026-10-22 - "Franchise"
+
+Career Mode: an endless franchise on the 32-team pro league, played game by game in the real match scene, with the match now reading player abilities, morale and the coaches' tendencies. Three tracks: the franchise logic (`League/Career`, `Docs/Career.md`), the simulation integration (`Docs/QA/v080/sim_abilities.md`) and the franchise UI (`Docs/QA/v080/career_ui.md`).
+
+### Added
+- **Career Mode** (CAREER tile of the menu hub): new career (32 crests, difficulty, quarter length, standard or random league, five save slots), continue / load / delete. The franchise shell has HOME / TEAM / LEAGUE / OFFICE tabs with sub tabs:
+  - HOME: matchup card, PLAY GAME / SIM GAME / SIM OPTIONS (this week, to week N, to the playoffs, to the offseason, a whole season), division standings, owner goals, cap and roster status, league wire ticker, and the offseason steps with blockers and "resolve it for me".
+  - TEAM: roster (sortable, filters, photoreal player card with ratings, abilities, contract, morale), depth chart editor with eligibility rules and auto sort, injuries, practice squad, injured reserve and waivers.
+  - LEAGUE: schedule with box scores, standings (division, conference, league, power rankings, playoff picture), leaders, awards and All-Pro, record book, trophy case, Hall of Fame, news feed.
+  - OFFICE: cap and contracts (restructure, release, franchise tag, auto-fix), re-sign negotiation, free agency (14 bidding days, the four decision scores of each player), trades (value meter, CPU counters, inbox, deadline), coaching staff, owner trust and legacy.
+  - The draft (scouting points, big board, live pick list with grades, pick clock, trade-up offers, rookie scale contracts) and training camp results.
+- **Played games count:** PLAY launches the match scene with the career league (rosters, depth charts, abilities); the result, the box score and the player lines post to the franchise (`CareerSession`, `MatchDirector.Career`, `BroadcastDirector.Result`), the menu reopens the hub and shows the box score. Autosave after every week, phase and draft pick.
+- **Franchise engine** (`League/Career`, engine-free, 99 tests): season calendar with 12 phases, roster 53 / practice squad 16 / IR rules, cap, dead money and contracts, free agency, trades and picks, staff and morale, 41 abilities (assignment, progression, scouting hints), draft and rookies, history, Hall of Fame, owner goals, news. Ten-season soaks across six seeds with zero validator problems.
+- **Abilities in the match** (`AbilityFx`, `PlaySimulation.Abilities`): every ability hook is read by the simulation (throw accuracy and power, juke / spin / break tackle, catching in traffic, route separation, blocking, pass rush, run stop, coverage, tackling, fumbles, kicking, return speed, fatigue, leadership). Measured effects per ability in `Docs/QA/v080/sim_abilities.md`.
+- **Morale and staff tendencies in the match:** every rating moves by the player's morale modifier (-2..+2); the coordinators' blitz, man coverage, deep shot and no-huddle rates shape the CPU play calling, and a no-huddle offense burns less clock between snaps (`MatchFlow` now calls `ApplyTempo`).
+- Player cards show the in-match effect sizes (`AbilityCatalog.Gain` is the one calibration table shared by the card and the simulation).
+- **Box scores of the user's games are saved** with the career (`CareerSave.UserBoxes`, newest 40).
+- `-pixAutotestCareer` autotest of the built player (`UI/Franchise/CareerAutoTest.cs`): new career, the real match scene, the result and box score in the hub, save and load, sim to the draft and the auto draft, screenshots `career_*.png`. Saves go to a private folder under the output directory.
+- 1,041 EditMode tests, all green (career, ability, calibration and franchise UI tests added).
+
+### Changed
+- `PlaySimOptions.PlayerModifiers` / `PhysicalGameSim.StaffTendencies` switches (default on); the 40-game engine calibration test opts out of the career layer.
+- `SimTestKit` players carry neutral morale so every other Sim test measures the engine.
+
+### Fixed
+- A strip-sack was credited to nobody in the box score (the sacker was lost when the ball came loose); the sack now belongs to the sacker (`PlaySimulation.Result`).
+- Franchise screens fixes found while building (CU-001..CU-007): unreadable tables over the bright stadium, overlapping columns and tiles, clipped card lines, stale pages after an action, wrong team on tracker lines after a trade.
+- A playoff game that ends level is posted with the home team one point ahead (sudden death makes ties rare).
+
+### Known Issues
+- Draft classes are synthetic: the college world is not part of the career yet (v0.9.0 "College Network").
+- No in-match injuries: injuries are rolled by the season after the game (Iron Man scales that roll).
+- The career settings (auto depth chart, auto IR, trade deadline week, free agency days, injuries on / off) have defaults and no screen yet.
+- A regular-season game that ends level is a tie (record 0-0-1); short autotest quarters often end 0-0.
+- Ability descriptions are cut off at the card width on long texts.
+- Player portraits render live in the card (one 392 x 504 render texture); edit-mode renders show the T pose.
+- The play-call strip is not shown when the autopilot plays (the career autotest shows the live game instead).
+- QA: the multi-season soaks and fuzz tests are marked `[Category("Slow")]` (career and v0.9 college tests) so the release run can use `-testCategory "!Slow"`; the 0.8.0 run in this release executed the career soaks too (all 1,041 green).
 
 ## [0.7.0] - 2026-10-22 - "Motion"
 
@@ -273,7 +312,8 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Some head models and logo source files still carry real-person / real-school names internally; to be replaced before any public release.
 
 
-[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.4.0...v0.5.0

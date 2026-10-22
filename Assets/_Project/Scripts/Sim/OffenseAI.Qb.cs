@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using PixFootball.Core;
+using PixFootball.League;
 
 namespace PixFootball.Sim
 {
@@ -425,6 +426,7 @@ namespace PixFootball.Sim
             aim = new Vec3(T, 1.6f);
             tf = 0.9f;
             style = ThrowStyle.Auto;
+            float vBoost = ThrowBoost(q);
             int power = q.R.ThrowPower;
             bool feasible = true;
             Vec3 lastVel = Vec3.Zero;
@@ -437,7 +439,7 @@ namespace PixFootball.Sim
                 float d = (T - q.Pos).Length;
                 // style fixed above
                 bool high;
-                float speed = StyleSpeed(style, d, power, out high);
+                float speed = StyleSpeed(style, d, power, out high, vBoost);
                 aim = new Vec3(T, high ? 1.9f : 1.6f);
                 Vec3 vel;
                 feasible = BallPhysics.SolveLaunch(from, aim, speed, high, out vel, out tf);
@@ -527,8 +529,11 @@ namespace PixFootball.Sim
             return ThrowStyle.Lob;
         }
 
+        /// <summary>v0.8.0 Rocket Arm: extra launch velocity (yd/s) for this passer.</summary>
+        private static float ThrowBoost(SimAgent q) { return q.Fx == null ? 0f : q.Fxv(SimHook.ThrowPower) * PlaySimulation.ThrowVelocityPerPoint; }
+
         /// <summary>Launch speed (yd/s) for a pass style over horizontal distance d.</summary>
-        public static float StyleSpeed(ThrowStyle style, float d, int power, out bool high)
+        public static float StyleSpeed(ThrowStyle style, float d, int power, out bool high, float boost = 0f)
         {
             float vmax = BallPhysics.MaxThrowSpeed(power);
             float flat = SimMath.Clamp(14.0f + 0.45f * d, 16.5f, vmax); // ~37 mph on a 10-yard out, 52 mph on a 30-yard dig: real flight times (0.55 s at 10 yd, 1.0 s at 25 yd)
@@ -536,7 +541,7 @@ namespace PixFootball.Sim
             float minV = (float)Math.Sqrt(SimMath.Gravity * Math.Max(1f, d)) * 1.12f;
             switch (style)
             {
-                case ThrowStyle.Bullet: return Math.Max(flat, Math.Min(vmax, minV));
+                case ThrowStyle.Bullet: return Math.Max(flat, Math.Min(vmax, minV)) + boost;   // v0.8.0: boost = Rocket Arm velocity (flat and touch throws only; a lob's arc is set by gravity)
                 case ThrowStyle.Lob:
                 {
                     if (d < 9f) return Math.Max(flat * 0.8f, Math.Min(vmax, minV));
@@ -546,7 +551,7 @@ namespace PixFootball.Sim
                 }
                 case ThrowStyle.Touch:
                 default:
-                    return Math.Max(flat * 0.83f, Math.Min(vmax, minV));
+                    return Math.Max(flat * 0.83f, Math.Min(vmax, minV)) + boost;
             }
         }
 
@@ -648,7 +653,7 @@ namespace PixFootball.Sim
             }
             float d = (aim.XY - q.Pos).Length;
             bool high;
-            float v = StyleSpeed(d > 22f ? ThrowStyle.Touch : ThrowStyle.Bullet, d, q.R.ThrowPower, out high);
+            float v = StyleSpeed(d > 22f ? ThrowStyle.Touch : ThrowStyle.Bullet, d, q.R.ThrowPower, out high, ThrowBoost(q));
             Vec3 vel; float tf;
             BallPhysics.SolveLaunch(from, aim, v, false, out vel, out tf);
             S.Ball.Launch(BallState.Pass, from, vel, q.Id);
@@ -700,12 +705,13 @@ namespace PixFootball.Sim
             bool high = false;
             ThrowStyle style = q.PendingStyle;
             int power = q.R.ThrowPower;
+            float vBoost = ThrowBoost(q);
             for (int it = 0; it < 3; it++)
             {
                 Vec2 T = ClampField(PredictPos(t, t_)) + q.PendingNudge;
                 float d = (T - q.Pos).Length;
                 if (style == ThrowStyle.Auto) style = ChooseStyle(d, power);
-                float speed = StyleSpeed(style, d, power, out high);
+                float speed = StyleSpeed(style, d, power, out high, vBoost);
                 float z = high ? 1.95f : 1.6f;
                 aim = new Vec3(T, z);
                 BallPhysics.SolveLaunch(from, aim, speed, high, out vel, out tf);
@@ -713,10 +719,19 @@ namespace PixFootball.Sim
             }
 
             // accuracy: error cone grows with distance, pressure, throwing on the run, and drops with ThrowAccuracy
-            float acc01 = SimMath.Rating01(q.R.ThrowAccuracy);
-            float sd = 0.125f - 0.095f * acc01;
             float press = PocketPressure(q);
             float dist = (aim.XY - q.Pos).Length;
+            float accPts = 0f;
+            if (q.Fx != null)
+            {
+                // v0.8.0: Cool Under Fire (a collapsing pocket) and Deep Touch (a throw 18+ yards downfield) on top of the accuracy already baked for the down and clock
+                int dyn = 0;
+                if (press >= PlaySimulation.UnderPressureAt) dyn |= PlaySimulation.CtxUnderPressure;
+                if (aim.Y - q.Pos.Y >= 18f) dyn |= PlaySimulation.CtxDeep;
+                accPts = q.FxOnly(SimHook.ThrowAccuracy, dyn & ~q.CtxMask) + q.Fxv(SimHook.DeepAccuracy, dyn);
+            }
+            float acc01 = SimMath.Rating01(q.R.ThrowAccuracy + (int)Math.Round(accPts, MidpointRounding.AwayFromZero));
+            float sd = 0.125f - 0.095f * acc01;
             float mult = 1f + 0.9f * press;
             mult *= 1f + 0.55f * SimMath.Clamp01(q.Speed / Math.Max(1f, q.Body.VMax));
             if (style == ThrowStyle.Lob) mult *= 0.85f; else if (style == ThrowStyle.Touch) mult *= 0.92f;
@@ -730,8 +745,9 @@ namespace PixFootball.Sim
             float eZ = S.Rng.Gaussian(0f, err * dist * 0.30f);
             Vec3 aimErr = new Vec3(aim.X + lat.X * eLat + dirH.X * eDep, aim.Y + lat.Y * eLat + dirH.Y * eDep, Math.Max(0.3f, aim.Z + eZ));
             float d2 = (aimErr.XY - q.Pos).Length;
-            float sp2 = StyleSpeed(style, d2, power, out high);
+            float sp2 = StyleSpeed(style, d2, power, out high, vBoost);
             BallPhysics.SolveLaunch(from, aimErr, sp2, high, out vel, out tf);
+            S.NoteThrow((aimErr.XY - aim.XY).Length, dist, press, vel.Length);
 
             BallPhysics.WindScale = windScale0;
             S.Ball.Launch(BallState.Pass, from, vel, q.Id);

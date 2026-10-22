@@ -393,6 +393,7 @@ namespace PixFootball.Gameplay
             }
             catch (Exception) { }
             o.Applied = State.Apply(r);
+            Cpu.ApplyTempo(State.Possession);   // v0.8: the staff's no-huddle rate shortens the runoff between snaps
             State.PendingRunoff *= Config.RunoffScale;
             Snaps++;
 

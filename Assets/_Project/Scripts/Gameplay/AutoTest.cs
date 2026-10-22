@@ -22,7 +22,7 @@ namespace PixFootball.Gameplay
     {
         public static bool Requested
         {
-            get { foreach (string a in Environment.GetCommandLineArgs()) if (a == "-pixAutotest") return true; return false; }
+            get { foreach (string a in Environment.GetCommandLineArgs()) if (a == "-pixAutotest" || a == "-pixAutotestCareer") return true; return false; }
         }
         static bool Flag(string name) { foreach (string a in Environment.GetCommandLineArgs()) if (a == name) return true; return false; }
         static string ArgValueOf(string name) { var a = Environment.GetCommandLineArgs(); for (int i = 0; i < a.Length - 1; i++) if (a[i] == name) return a[i + 1]; return null; }
@@ -50,6 +50,11 @@ namespace PixFootball.Gameplay
         // ---- v0.5: the Presentation assembly (replays, shows, overlays) registers its own autotest segment here
         public static readonly List<Func<AutoTest, IEnumerator>> ExtraParts = new List<Func<AutoTest, IEnumerator>>();
         public static bool BroadcastOnly { get { return Flag("-pixAutotestBroadcastOnly"); } }
+        /// <summary>v0.8: the career play-through (-pixAutotestCareer), registered by the UI assembly.</summary>
+        public static Func<AutoTest, IEnumerator> CareerPart;
+        public static string ArgOf(string name) { return ArgValueOf(name); }
+        public static bool HasFlag(string name) { return Flag(name); }
+        public void AddFrameSample(float dt) { _matchFrames.Add(dt); }
         public IEnumerator Capture(string name) { return Shot(name); }
         public void LogLine(string s) { Log(s); }
         public int ErrorCount { get { return _errors; } }
@@ -98,6 +103,15 @@ namespace PixFootball.Gameplay
         {
             Log("PIX autotest starting. " + Screen.width + "x" + Screen.height + " fullscreen=" + Screen.fullScreen + " gpu=" + SystemInfo.graphicsDeviceName + " api=" + SystemInfo.graphicsDeviceType + " quality=" + QualitySettings.names[QualitySettings.GetQualityLevel()]);
             Log("scene: " + SceneManager.GetActiveScene().name);
+            if (Flag("-pixAutotestCareer"))
+            {
+                if (CareerPart == null) { Log("FAIL: the career autotest is not registered"); Finish(2); yield break; }
+                yield return CareerPart(this);
+                ReportMatchFps();
+                Log("errors/exceptions logged: " + _errors);
+                Finish(_errors > 0 ? 3 : 0);
+                yield break;
+            }
             if (Flag("-pixAutotestLookOnly"))
             {
                 yield return new WaitForSeconds(1.0f);

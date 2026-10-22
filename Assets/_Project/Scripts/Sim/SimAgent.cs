@@ -32,6 +32,12 @@ namespace PixFootball.Sim
         public Assignment Assign;
         public Ratings R;
         public AgentBody Body;
+        /// <summary>v0.8.0 abilities of this player (null when he has none). See <see cref="AbilityFx"/>.</summary>
+        internal AbilityFx Fx;
+        /// <summary>v0.8.0 play / agent context bits for <see cref="Fx"/> (third down, two-minute, short yardage, close game late, return, man coverage, blitz).</summary>
+        internal int CtxMask;
+        /// <summary>v0.8.0: points added to (or taken from) every rating of this agent by morale and team leadership (0 for a neutral player).</summary>
+        public int PlayerModPoints;
 
         // ---- exposed state for the presentation layer ----
         public AgentAction Action = AgentAction.Stance;
@@ -85,6 +91,8 @@ namespace PixFootball.Sim
         public float RouteClock;
         public bool RouteDone;
         public bool IsReceiverEligible;
+        /// <summary>v0.8.0: until this simulation time a receiver who just planted at a sharp break (Crisp Routes) comes out of it with extra burst.</summary>
+        public float BreakBurstUntil;
         public int BlockTargetId = -1;
         public BlockEngagement Engagement;
         public float BeatenTime;
@@ -139,6 +147,11 @@ namespace PixFootball.Sim
         {
             Id = id; Side = side; Slot = slot; Player = player; PlayPos = playPos; Label = label ?? ""; Assign = assign;
         }
+
+        /// <summary>Ability effect for a hook in this agent's play contexts plus the dynamic ones passed in (0 for a player without abilities).</summary>
+        internal float Fxv(SimHook hook, int dynMask = 0) { return Fx == null ? 0f : Fx.Sum(hook, CtxMask | dynMask); }
+        /// <summary>Only the contextual part of an ability effect that applies right now (what a dynamic context adds on top of the baked ratings).</summary>
+        internal float FxOnly(SimHook hook, int dynMask) { return Fx == null ? 0f : Fx.SumOnly(hook, dynMask); }
 
         public Vec2 Pos { get { return Body.Pos; } }
         public Vec2 Vel { get { return Body.Vel; } }

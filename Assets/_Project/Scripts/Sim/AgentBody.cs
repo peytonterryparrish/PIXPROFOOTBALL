@@ -89,6 +89,8 @@ namespace PixFootball.Sim
         public float FallenTime;
         /// <summary>External speed multiplier (ball security, jog, injuries, etc.).</summary>
         public float SpeedMultiplier = 1f;
+        /// <summary>v0.8.0 ability multipliers (1 = no ability): top speed, acceleration time constant (below 1 = quicker), the speed lost in a plant-and-cut and the energy drained while running. Set per tick by the simulation from the player's abilities; a player without any keeps 1.</summary>
+        public float AbilityVMax = 1f, AbilityTau = 1f, CutBleed = 1f, DrainScale = 1f;
 
         // traits
         public float VMax, Tau, AccelCap, LatBase, DecelBase, TurnRate, BackpedalFactor, ShuffleFactor;
@@ -134,7 +136,7 @@ namespace PixFootball.Sim
         {
             get
             {
-                float v = VMax * Fatigue * SpeedMultiplier;
+                float v = VMax * Fatigue * SpeedMultiplier * AbilityVMax;
                 if (StumbleTime > 0f) v *= 0.55f;
                 return v;
             }
@@ -167,7 +169,7 @@ namespace PixFootball.Sim
         /// <summary>Instant ceiling applied after every impulse (tackles, dives, collisions): 1.08 x this body's own top speed, so no player is ever clocked above about 24 mph.</summary>
         public void LimitSpeed()
         {
-            float cap = VMax * Fatigue * SpeedMultiplier * (Mass > 105f ? 1.03f : 1.08f);   // v0.7: big men (linemen) never exceed 1.03 x their top speed, shed bursts and lunges included
+            float cap = VMax * Fatigue * SpeedMultiplier * AbilityVMax * (Mass > 105f ? 1.03f : 1.08f);   // v0.7: big men (linemen) never exceed 1.03 x their top speed, shed bursts and lunges included
             float sp = Vel.Length;
             if (sp > cap) Vel = Vel * (cap / sp);
         }
@@ -229,7 +231,7 @@ namespace PixFootball.Sim
             float at = dv.Dot(h) / dt;
             float al = dv.Dot(hp) / dt;
 
-            float fwdCap = Math.Min(AccelCap * (StumbleTime > 0f ? 0.6f : 1f), Math.Max(0f, (vEff - speed) / Tau));
+            float fwdCap = Math.Min(AccelCap * (StumbleTime > 0f ? 0.6f : 1f), Math.Max(0f, (vEff - speed) / (Tau * AbilityTau)));
             float decelCap = DecelBase * (StumbleTime > 0f ? 0.7f : 1f);
             float latCap = LatBase * (1f - 0.40f * SimMath.Clamp01(speed / Math.Max(1f, VMax))) * stumbleF;
             if (speed < 2.5f) latCap = Math.Max(latCap, AccelCap);
@@ -246,7 +248,7 @@ namespace PixFootball.Sim
                 if (ang > 1.0472f)
                 {
                     float sev = SimMath.SmoothStep(1.0472f, 2.6f, ang);
-                    float bleed = 9.5f * speed * sev * (1f - 0.55f * Agility01) / Math.Max(1f, VMax);
+                    float bleed = CutBleed * 9.5f * speed * sev * (1f - 0.55f * Agility01) / Math.Max(1f, VMax);
                     at -= bleed;
                 }
             }
@@ -285,6 +287,7 @@ namespace PixFootball.Sim
             {
                 float drain = (frac > 0.78f ? 1f : 0.25f) * dt / (45f + 0.6f * 99f * Stamina01);
                 drain += exertion * dt / (10f + 0.18f * 99f * Stamina01);
+                drain *= DrainScale;
                 Energy = Math.Max(0f, Energy - drain);
             }
             else if (frac < 0.5f) Energy = Math.Min(1f, Energy + dt / 60f);

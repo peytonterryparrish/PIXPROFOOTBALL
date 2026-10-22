@@ -95,6 +95,7 @@ namespace PixFootball.Tests
         [TestCase(301)]
         [TestCase(302)]
         [TestCase(303)]
+        [Category("Slow")]   // multi-season: excluded from the release run (-testCategory "!Slow")
         public void RandomManagementNeverBreaksTheFranchise(int seed)
         {
             CareerSave s = CareerTestUtil.Fresh(seed, seed % 32);

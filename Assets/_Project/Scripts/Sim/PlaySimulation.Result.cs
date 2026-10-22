@@ -59,6 +59,7 @@ namespace PixFootball.Sim
             int targetPid = Pid(TargetId);
             int rusherPid = Pid(RusherId >= 0 ? RusherId : LastOffenseCarrier);
             int tacklerPid = Pid(TacklerId);
+            int sackerPid = Pid(SackerId >= 0 ? SackerId : TacklerId);   // a strip-sack clears TacklerId when the ball comes loose: the sack still belongs to the sacker
 
             if (reason == EndReason.Touchdown)
             {
@@ -78,7 +79,7 @@ namespace PixFootball.Sim
 
             if (reason == EndReason.Safety)
             {
-                if (QbSack) r = PlayResult.Sack(Math.Max(1, RoundYards(LosY - EndY)), time, passerPid, tacklerPid);
+                if (QbSack) r = PlayResult.Sack(Math.Max(1, RoundYards(LosY - EndY)), time, passerPid, sackerPid);
                 else r = PlayResult.Run(yds, time, false, rusherPid, tacklerPid);
                 r.Safety = true;
                 return r;
@@ -86,7 +87,7 @@ namespace PixFootball.Sim
 
             if ((reason == EndReason.Sack || QbSack) && !Turnover)
             {
-                r = PlayResult.Sack(Math.Max(0, RoundYards(LosY - EndY)), time, Pid(0), tacklerPid);
+                r = PlayResult.Sack(Math.Max(0, RoundYards(LosY - EndY)), time, Pid(0), sackerPid);
                 if (EndY <= 0f) r.Safety = true;
                 return r;
             }

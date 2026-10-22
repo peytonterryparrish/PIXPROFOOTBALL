@@ -500,6 +500,10 @@ namespace PixFootball.League
         public List<NewsItem> News = new List<NewsItem>();
         public List<InjuryEvent> InjuryLog = new List<InjuryEvent>();
         public List<CampResult> LastCamp = new List<CampResult>();
+        /// <summary>Box scores of the user's own games (newest last, at most <see cref="MaxStoredBoxes"/>), kept in the save so the schedule and the hub can show them after a reload.</summary>
+        public List<StoredBox> UserBoxes = new List<StoredBox>();
+        public const int MaxStoredBoxes = 40;
+
 
         // history
         public List<TeamSeasonRecord> TeamSeasons = new List<TeamSeasonRecord>();
@@ -581,5 +585,16 @@ namespace PixFootball.League
             for (int t = 0; t < Pro.Teams.Count; t++) if (Pro.Teams[t].FindAnyPlayer(playerId) != null) return t;
             return -1;
         }
+    }
+}
+
+namespace PixFootball.League
+{
+    /// <summary>One stored box score of a user game (season year and week make the key; the play-by-play text is not kept to keep the save small).</summary>
+    [System.Serializable]
+    public class StoredBox
+    {
+        public int Year, Week;
+        public GameResult Result;
     }
 }

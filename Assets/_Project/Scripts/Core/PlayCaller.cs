@@ -18,6 +18,8 @@ namespace PixFootball.Core
         public float FrontBias;
         /// <summary>0 = no preference, 1 = a nickel-first coordinator (adds up to 0.4 to the chance of the nickel against two-back personnel).</summary>
         public float NickelBias;
+        /// <summary>v0.8.0 staff tendencies (from the coordinators, see StaffManager.Tendencies), relative to the league-average staff = 0: BlitzBias and ManBias are added to the chance of a blitz call and of a man-coverage call, the weight of deep passes is multiplied by 1 + DeepShotBias, and NoHuddleBias (extra share of snaps without a huddle) shortens the clock runoff between snaps (PhysicalGameSim.ApplyTempo).</summary>
+        public float BlitzBias, ManBias, DeepShotBias, NoHuddleBias;
 
         public static CoachProfile Neutral { get { return new CoachProfile { PassTendency = 50, Aggression = 50, Style = PlayStyle.Balanced }; } }
         /// <summary>Symmetric bands around the neutral 50 (QA-500): 57 and up reads PASS HEAVY, 43 and down reads RUN HEAVY.</summary>
@@ -191,6 +193,7 @@ namespace PixFootball.Core
                 case PlayCategory.MediumPass: w *= s.Distance >= 6 ? 1.5f : 0.8f; break;
                 case PlayCategory.DeepPass:
                     w *= s.Distance >= 9 ? 1.2f : 0.45f;
+                    if (c.DeepShotBias != 0f) w *= Math.Max(0.3f, 1f + c.DeepShotBias);
                     if (c.Style == PlayStyle.AirRaid) w *= 1.4f;
                     if (toGoal < 12 && p.Name != "Fade") w *= 0.3f;
                     if (p.Name == "Fade") w *= toGoal <= 8 ? 3f : 0.4f;
@@ -362,11 +365,13 @@ namespace PixFootball.Core
             }
             float aggr = c.Aggression / 100f;
             float pBlitz = 0.07f + aggr * 0.26f;
+            pBlitz += c.BlitzBias;
             if (s.Down == 3 && s.Distance >= 6) pBlitz += 0.08f;
             if (s.Distance <= 2) pBlitz += 0.05f;
             if (toGoal <= 12) pBlitz += 0.04f;
             if (late && diff > 0) pBlitz *= 0.4f;
             float pMan = 0.30f + (toGoal <= 12 ? 0.12f : 0f);
+            pMan += c.ManBias;
             if (s.Down == 3 && s.Distance >= 8) pMan -= 0.1f;
             float r = _rng.NextFloat();
             PlayCategory want = r < pBlitz ? PlayCategory.Blitz : (r < pBlitz + pMan ? PlayCategory.ManCoverage : PlayCategory.ZoneCoverage);

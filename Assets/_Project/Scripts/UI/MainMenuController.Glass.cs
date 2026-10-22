@@ -38,12 +38,35 @@ namespace PixFootball.UI
             // the last setup (or the defaults) decides the hero tile's crests and the kit of the menu player
             var teams = TeamCatalog.Teams;
             var cfg = TeamSelectPanel.InitialConfig(teams, PixSettings.LoadMatchConfig(), MatchData.Current, TeamCatalog.SavedTeamId);
-            var home = TeamCatalog.ById(cfg.HomeId); var away = TeamCatalog.ById(cfg.AwayId);
             _hubHomeId = cfg.HomeId;
 
             GlassWidgets.SideShade(root, true, 1500f, 0.62f, "LeftShade");
             _glassNav = GlassWidgets.TopBar(root, "MAIN MENU", MainMenuHub.TabNames, 0, i => { if (_hub != null) _hub.SetPage(i); }, true);
 
+            BuildHub(root, 0);
+            // ---- settings and team select (same panels as Classic; they build their glass layout themselves)
+            _settings = SettingsPanel.Build(root, CloseSettings); _settings.OnReset = RebuildSettings;
+            _settingsRoot = _settings.gameObject; _settingsRoot.SetActive(false);
+            _teamSelect = TeamSelectPanel.Build(root, CloseTeamSelect, StartMatchWithFade);
+            _teamSelect.OnHomeChanged = DressStage;
+            _teamSelect.OnScreen = GlassSection;
+            _teamRoot = _teamSelect.gameObject; _teamRoot.SetActive(false);
+
+            BuildCareerUi(root);
+
+            // ---- footer prompts
+            var foot = GlassWidgets.BottomBar(root, "PIX FOOTBALL  v" + GameplayInfo.Version);
+            _footer = foot.Prompts;
+            SetFooter(false);
+            ReopenFranchiseIfReturning();   // a franchise game just ended: back to the franchise hub
+        }
+
+        /// <summary>Builds (or rebuilds) the tile hub on <paramref name="page"/>: the hero tile's crests come from the last exhibition setup, the CAREER tile from the newest save.</summary>
+        void BuildHub(RectTransform root, int page)
+        {
+            var teams = TeamCatalog.Teams;
+            var cfg = TeamSelectPanel.InitialConfig(teams, PixSettings.LoadMatchConfig(), MatchData.Current, TeamCatalog.SavedTeamId);
+            var home = TeamCatalog.ById(cfg.HomeId); var away = TeamCatalog.ById(cfg.AwayId);
             List<string> headlines = null;
             try { headlines = MenuHubModel.Headlines(MatchData.League); }
             catch (System.Exception e) { Debug.LogWarning("[PIX] menu headlines: " + e.Message); }
@@ -54,28 +77,16 @@ namespace PixFootball.UI
                 FreeRoam = () => StartWithFade(GameSession.StartFreeRoam),
                 Quit = ConfirmQuit,
                 Settings = OpenSettingsAt,
+                Career = OpenCareerStart, CareerSubtitle = CareerTileSubtitle(),
                 Parallax = v => { var st = GetComponent<GlassStage>(); if (st != null) st.Parallax = v; },
                 CrestAway = away != null ? UiKit.Sprite("crest_" + away.Id) : null, CrestHome = home != null ? UiKit.Sprite("crest_" + home.Id) : null,
                 NameAway = away != null ? away.Nickname.ToUpperInvariant() : "", NameHome = home != null ? home.Nickname.ToUpperInvariant() : "",
                 Headlines = headlines
             };
             _hub = MainMenuHub.Build(root, _glassNav, ctx);
+            _hub.SetPage(page);
             _menuRoot = _hub.Root.gameObject; _firstButton = _hub.First; _settingsBtn = _hub.SettingsTile;
-
-            // ---- settings and team select (same panels as Classic; they build their glass layout themselves)
-            _settings = SettingsPanel.Build(root, CloseSettings); _settings.OnReset = RebuildSettings;
-            _settingsRoot = _settings.gameObject; _settingsRoot.SetActive(false);
-            _teamSelect = TeamSelectPanel.Build(root, CloseTeamSelect, StartMatchWithFade);
-            _teamSelect.OnHomeChanged = DressStage;
-            _teamSelect.OnScreen = GlassSection;
-            _teamRoot = _teamSelect.gameObject; _teamRoot.SetActive(false);
-
-            // ---- footer prompts
-            var foot = GlassWidgets.BottomBar(root, "PIX FOOTBALL  v" + GameplayInfo.Version);
-            _footer = foot.Prompts;
-            SetFooter(false);
         }
-
         /// <summary>Hub footer: A selects, LB RB switch the tab, the stick / d-pad navigates (the sub screens show BACK instead of the tab hint).</summary>
         void SetHubFooter()
         {

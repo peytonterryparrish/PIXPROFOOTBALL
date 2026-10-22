@@ -23,13 +23,18 @@ namespace PixFootball.UI
         void Awake()
         {
             GameSession.ResetTime();
+            CareerSession.OnMenuLoaded();   // v0.8: the exhibition uses the standalone league again
             UiKit.EnsureEventSystem();
             BuildUi();
             BuildStage();
             StartMusic();
         }
 
-        void Start() { StartCoroutine(SelectFirst(_firstButton != null ? _firstButton.gameObject : null)); }
+        void Start()
+        {
+            if (_franchise != null) { GlassSection("FRANCHISE"); if (_stageView != null) _stageView.gameObject.SetActive(false); }   // the stage framing follows the open screen
+            if (_menuRoot != null && _menuRoot.activeInHierarchy) StartCoroutine(SelectFirst(_firstButton != null ? _firstButton.gameObject : null));
+        }
 
         IEnumerator SelectFirst(GameObject g)
         {

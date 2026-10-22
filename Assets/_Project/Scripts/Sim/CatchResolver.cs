@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using PixFootball.Core;
+using PixFootball.League;
 
 namespace PixFootball.Sim
 {
@@ -13,6 +14,9 @@ namespace PixFootball.Sim
     {
         private readonly PlaySimulation S;
         private readonly List<SimAgent> _near = new List<SimAgent>(8);
+
+        /// <summary>v0.8.0: contested-catch duel points per point of man / zone coverage ability (the baked rating adds a quarter point more).</summary>
+        public const float DuelCoveragePerPoint = 0.5f;
 
         public CatchResolver(PlaySimulation s) { S = s; }
 
@@ -258,6 +262,7 @@ namespace PixFootball.Sim
                 // an interception needs the ball to be reachable and "thrown to" him: more likely when the receiver is already beaten
                 hands *= 0.36f;
                 if (rng.NextFloat() < hands) Intercept(bestD);
+                else if (BallHawk(bestD)) Intercept(bestD);
                 else Deflect(bestD, 1.0f);
                 return;
             }
@@ -266,7 +271,9 @@ namespace PixFootball.Sim
             SimAgent R = bestR, D = bestD;
             float rCov = D.Assign is CoverageAssignment && ((CoverageAssignment)D.Assign).IsMan ? D.R.ManCoverage : D.R.ZoneCoverage;
             float rScore = 0.36f * R.R.Catching + 0.18f * R.R.Jumping + 0.14f * R.R.Strength + 0.10f * R.R.Awareness + 0.12f * R.R.Agility + 0.10f * R.R.Speed;
+            if (R.Fx != null) rScore += 0.5f * CatchBonus(R, true);   // v0.8.0 Sticky Hands, Fearless Middle, Sky Walker
             float dScore = 0.22f * D.R.Catching + 0.26f * rCov + 0.16f * D.R.Jumping + 0.12f * D.R.Awareness + 0.12f * D.R.Strength + 0.12f * D.R.Agility;
+            if (D.Fx != null) dScore += DuelCoveragePerPoint * D.Fxv(D.Assign is CoverageAssignment && ((CoverageAssignment)D.Assign).IsMan ? SimHook.ManCoverage : SimHook.ZoneRange);   // v0.8.0 Shutdown Shadow, Range Rover, Sideline To Sideline: the coverage ability on top of the rating already baked in
             // position: who is closer to the ball, who is looking at it
             float pos = (dBall - rBall) * 9f;
             Vec2 bd = (ball.Pos.XY - D.Pos).Norm();
@@ -308,6 +315,7 @@ namespace PixFootball.Sim
                 float front = (D.Pos - R.Pos).Dot(towardPasser);
                 pInt *= SimMath.Clamp(0.30f + 0.55f * front, 0.12f, 1f) * 0.30f;
                 if (rng.NextFloat() < pInt) Intercept(D);
+                else if (BallHawk(D)) Intercept(D);
                 else Deflect(D, 1.0f);
             }
         }
@@ -316,10 +324,38 @@ namespace PixFootball.Sim
         // Probabilities and outcomes
         // =====================================================================================
 
+        /// <summary>v0.8.0 catching points from abilities: Sticky Hands / Fearless Middle with a defender within a yard (or in the duel), Sky Walker on a contested ball.</summary>
+        private float CatchBonus(SimAgent r, bool contested)
+        {
+            if (r.Fx == null) return 0f;
+            float pts = 0f;
+            bool traffic = contested;
+            if (!traffic)
+            {
+                for (int i = 11; i < 22; i++)
+                {
+                    SimAgent d = S.Agents[i];
+                    if (d.State == AgentState.Down || d.Body.FallenTime > 0.3f) continue;
+                    if ((d.Pos - r.Pos).Length < 1.0f) { traffic = true; break; }
+                }
+            }
+            if (traffic) pts += r.Fxv(SimHook.CatchInTraffic, S.IsOverMiddle(r) ? PlaySimulation.CtxOverMiddle : 0);
+            if (contested) pts += r.Fxv(SimHook.ContestedCatch);
+            return pts;
+        }
+
+        /// <summary>v0.8.0 Ball Hawk: a share of the passes this defender gets a hand on become interceptions.</summary>
+        private bool BallHawk(SimAgent d)
+        {
+            if (d.Fx == null) return false;
+            float p = d.Fxv(SimHook.InterceptionCatch) / 100f;
+            return p > 0f && S.Rng.NextFloat() < p;
+        }
+
         public float CatchProbability(SimAgent r, SimAgent contester)
         {
             BallSim ball = S.Ball;
-            float skill = SimMath.Rating01(r.R.Catching);
+            float skill = SimMath.Rating01(r.R.Catching + (r.Fx != null ? (int)Math.Round(CatchBonus(r, contester != null), MidpointRounding.AwayFromZero) : 0));
             float p = 0.755f + 0.17f * skill;
             float difficulty = 0f;
             float speed = ball.Vel.Length;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using PixFootball.Core;
+using PixFootball.League;
 
 namespace PixFootball.Sim
 {
@@ -320,7 +321,9 @@ namespace PixFootball.Sim
         {
             a.Intent = AgentAction.Run;
             float vmax = a.Body.EffectiveVMax;
-            if (S.Time < ba.Delay)
+            float delay = ba.Delay;
+            if (a.Fx != null) delay *= Math.Max(0.2f, 1f - 2f * a.Fxv(SimHook.BlitzTiming) / 100f);   // v0.8.0 Sniper Blitz: times the snap and arrives sooner
+            if (S.Time < delay)
             {
                 // the disguise: creep to the gap he will attack (never stand frozen behind his own line)
                 Vec2 creep = new Vec2(S.BallX0 + GapOffset(ba.Gap), S.LosY + 0.9f) - a.Pos;
@@ -333,7 +336,7 @@ namespace PixFootball.Sim
             Vec2 target = c != null && c.Side == SimSide.Offense ? c.Pos : qb;
             Vec2 aim;
             float gapX = S.BallX0 + GapOffset(ba.Gap);
-            if (S.Time < ba.Delay + 0.55f && a.Pos.Y > S.LosY + 0.5f)
+            if (S.Time < delay + 0.55f && a.Pos.Y > S.LosY + 0.5f)
             {
                 aim = new Vec2(gapX, S.LosY - 0.4f);
             }
@@ -401,6 +404,7 @@ namespace PixFootball.Sim
             float aw = SimMath.Rating01(a.R.Awareness);
             float man = SimMath.Rating01(a.R.ManCoverage);
             float react = 0.12f + (1f - aw) * 0.12f + (1f - man) * 0.08f;   // the defender mirrors the stem he saw, not the break that has not happened yet
+            float shadow = a.Fx != null ? a.Fxv(SimHook.ManCoverage) : 0f;   // v0.8.0 Shutdown Shadow (his man-to-man context is already in his mask)
             Vec2 rp = r.PosAgo(react);
             Vec2 rpPrev = r.PosAgo(react + 0.1f);
             Vec2 rv = (rp - rpPrev) * 10f;
@@ -428,6 +432,7 @@ namespace PixFootball.Sim
                 if (turn > 0.9f && S.Time > a.FrozenUntil + 0.2f)
                 {
                     float hip = 0.09f + (1f - man) * 0.20f + (1f - a.Body.Agility01) * 0.08f + (1f - aw) * 0.05f;
+                    if (shadow > 0f) hip *= Math.Max(0.4f, 1f - shadow * ShadowHipPerPoint);
                     a.FrozenUntil = S.Time + hip;
                 }
             }
@@ -458,7 +463,7 @@ namespace PixFootball.Sim
             Vec2 to = desired - a.Pos;
             float dist = to.Length;
             Vec2 want = rv * 0.88f + to * 3.6f;
-            float cap = vmax;
+            float cap = vmax * (1f + shadow * ShadowSpeedPerPoint);
             // face the receiver while backpedaling/shuffling; turn and run when he gets vertical behind the cushion
             bool vertical = rv.Y > 0.55f * r.Body.VMax && dist > 0.5f && desired.Y > a.Pos.Y - 0.5f;
             bool faceReceiver = cushion > 2.0f && !vertical && S.Time < 3.0f;
@@ -485,9 +490,16 @@ namespace PixFootball.Sim
             }
         }
 
+        /// <summary>v0.8.0 Shutdown Shadow: per point of man-coverage ability, the share of the hip-turn delay removed and of top speed gained.</summary>
+        public const float ShadowHipPerPoint = 0.025f, ShadowSpeedPerPoint = 0.002f;
+
+        /// <summary>Yards a zone defender widens his reaction window per point of ZoneRange ability.</summary>
+        public const float ZoneRangeYardsPerPoint = 0.15f;
+
         private void PressJam(SimAgent d, SimAgent r)
         {
             float jam = 0.40f * d.R.Strength + 0.35f * d.R.ManCoverage + 0.25f * d.R.Agility;
+            if (d.Fx != null) jam += 0.8f * d.Fxv(SimHook.PressCoverage, PlaySimulation.CtxLineOfScrimmage);   // v0.8.0 Jam Master
             float rel = 0.35f * r.R.Strength + 0.35f * r.R.Agility + 0.30f * r.R.Awareness;
             float p = 1f / (1f + (float)Math.Exp(-(jam - rel) / 10f));
             bool win = S.Rng.NextFloat() < p;
@@ -534,6 +546,8 @@ namespace PixFootball.Sim
             // find the most dangerous receiver working into the zone
             SimAgent tgt = null; float bestScore = float.MinValue;
             float halfW = z.Width * 0.5f + 2.5f;
+            float range = a.Fx != null ? Math.Max(0f, a.Fxv(SimHook.ZoneRange)) * ZoneRangeYardsPerPoint : 0f;   // v0.8.0 Sideline To Sideline, Range Rover: a wider reaction radius
+            halfW += range;
             float depthLo = deep ? z.CenterY - 4f : z.CenterY - z.Height * 0.5f - 2.5f;
             float depthHi = deep ? 80f : z.CenterY + z.Height * 0.5f + 2.5f;
             for (int i = 1; i < 11; i++)

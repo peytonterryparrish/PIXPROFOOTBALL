@@ -122,7 +122,7 @@ Helpers: `CareerFlow.NewCareer(CareerOptions)`, `Blockers(save)`, `AutoResolveUs
 
 `GameSetup` (from `SetupGame` / `SetupUserGame`) carries the scheduled game, home and away `Team`s (their depth charts feed the match), the `RuleSet`, `SimOptions` (neutral site, forced winner in the playoffs) and a weather seed. The match must return a `GameResult` for the same two teams with `HomeScore/AwayScore`, `Overtime` and `PlayerLines` (same stat format as `QuickSim`, so stats, awards and records work). If the match simulates injuries, fill `GameResult.Injuries` and set `InjuriesProvided = true` (otherwise the season rolls them). `SubmitUserGame` posts stats, records and injuries; the rest of the week is simulated when the user advances, so a played game and a simmed game leave the same traces.
 
-## 6. Sim integration points (not wired yet - the Sim was not touched)
+## 6. Sim integration points (wired in v0.8.0, see Docs/QA/v080/sim_abilities.md for every hook, gain and measured effect)
 
 | Data | Where the Sim should read it |
 |---|---|
@@ -153,5 +153,5 @@ Soak (6 seeds x 10 seasons with full offseasons, user on auto pilot): zero valid
 
 * Compensatory draft picks are not modelled (224 picks, the existing standalone draft has 260); scouts are not individual people, scouting is a point budget.
 * Pro Bowl, suspensions and the practice-squad poaching rule are not modelled.
-* Ability effects are data only until the Sim integration above is done (the Iron Man injury effect is live).
+* Abilities, morale and leadership are live in the match simulation (`PlaySimulation.Abilities.cs`, `AbilityFx.cs`); the Sim applies the catalogue sizes times a calibration gain (`AbilityFx.Scale`), so the player card shows the catalogue numbers, not the in-match ones. `QuickSim` (simulated games) does not read abilities, and the match has no in-play injuries (Iron Man works through `Season.RollInjuries` and `PhysicalGameSim.InjuryScale`). Staff blitz / man / deep-shot rates reach the CPU coach through `CoachProfile`; the no-huddle tempo needs `PhysicalGameSim.ApplyTempo` from the live clock.
 * The college world's own coach and recruiting decisions are not part of Career (it simulates alongside and feeds the draft class).

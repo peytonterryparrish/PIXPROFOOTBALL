@@ -37,6 +37,9 @@ namespace PixFootball.Sim
         /// <summary>v0.7.0 (animation sync): seconds from the start of a quarterback throw (ball at the chest) to the release. 0 = the calibrated default (0.20 to 0.26 s by awareness). The match sets about 0.42 s so the throwing take (about 0.5 s of wind-up) plays at its natural tempo and the release lands on the release frame; a throw off a scramble uses 80 percent of it.</summary>
         public float QbWindupSeconds;
 
+        /// <summary>v0.8.0: apply the career layer to the players on the field: abilities (<see cref="PixFootball.League.AbilityCatalog"/>), morale rating points and team leadership. A player with no ability and a neutral morale is unchanged, so turning this off only matters for a league that has them. Tests that compare "with" and "without" use it as the control.</summary>
+        public bool PlayerModifiers = true;
+
         /// <summary>Sets the wind from the game's conditions for a play in which the offense (or kicking team) drives toward the given end zone.</summary>
         public PlaySimOptions SetWind(MatchConditions conditions, bool offenseAttacksPositiveZ)
         {
@@ -190,6 +193,7 @@ namespace PixFootball.Sim
             UserAgent = -1;
 
             DetermineKind();
+            ComputePlayContexts(offenseRoster, defenseRoster);
             LosY = state.Phase == GamePhase.Kickoff ? state.KickSpot : state.BallSpot;
             if (IsExtraPoint) LosY = Rules.PatSpot;
             if (IsTwoPoint) LosY = Rules.TwoPointSpot;
@@ -262,9 +266,11 @@ namespace PixFootball.Sim
         {
             var a = new SimAgent(id, side, slot, player, spec.Position, spec.Label, assign);
             a.R = player.Ratings;
+            BakeAbilities(a, player, side, assign);
             int wt = player.Bio != null && player.Bio.WeightLb > 100 ? player.Bio.WeightLb : 215;
             int ht = player.Bio != null && player.Bio.HeightIn > 55 ? player.Bio.HeightIn : 72;
             a.Body = new AgentBody(a.R, wt, ht, GamePace.For(spec.Position));
+            ApplyStaticBodyAbilities(a);
             if (Options != null && Options.Fatigue != null) a.Body.Energy = Options.Fatigue.EnergyOf(player.Id);
             a.Body.Facing = facing;
             a.IsReceiverEligible = side == SimSide.Offense && PositionGroup.IsEligibleReceiver(spec.Position);
@@ -520,6 +526,7 @@ namespace PixFootball.Sim
                 if (a.OverrideLeft > 0f) a.OverrideLeft -= Dt;
             }
 
+            UpdateAbilityBodies();
             OffAI.Update();
             DefAI.Update();
             Specials.Update();

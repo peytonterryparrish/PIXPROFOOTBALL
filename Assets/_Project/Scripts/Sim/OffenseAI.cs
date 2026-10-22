@@ -286,6 +286,7 @@ namespace PixFootball.Sim
             if (dist < arrive)
             {
                 a.PathIdx++;
+                if (a.Fx != null && cornerAng > 0.8f) a.BreakBurstUntil = S.Time + PlaySimulation.BreakBurstSeconds;   // v0.8.0 Crisp Routes: a hard plant is followed by a burst
                 if (a.PathIdx >= wps.Count) { a.RouteDone = true; FinishRoute(a, ra); return; }
                 target = S.RouteRel(wps[a.PathIdx].Point);
                 dist = (target - a.Pos).Length;

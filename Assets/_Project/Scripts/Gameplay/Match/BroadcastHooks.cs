@@ -37,3 +37,12 @@ namespace PixFootball.Gameplay
         bool HasReplay { get; }
     }
 }
+
+namespace PixFootball.Gameplay
+{
+    /// <summary>v0.8 Franchise: the broadcast layer owns the live box score (player lines, team box scores, drives, scoring); the match asks it to fill the <see cref="PixFootball.League.GameResult"/> it hands to the career.</summary>
+    public interface IBroadcastResult
+    {
+        void FillResult(PixFootball.League.GameResult r);
+    }
+}

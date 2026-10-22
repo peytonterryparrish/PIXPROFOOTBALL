@@ -36,6 +36,7 @@ namespace PixFootball.Gameplay
         {
             get
             {
+                if (CareerSession.MatchLeague != null) return CareerSession.MatchLeague;   // v0.8: a franchise game plays with the career league (rosters, depth charts, injuries)
                 if (_league == null)
                 {
                     string csv = CsvText();

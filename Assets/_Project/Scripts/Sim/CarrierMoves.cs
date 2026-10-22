@@ -1,5 +1,6 @@
 using System;
 using PixFootball.Core;
+using PixFootball.League;
 
 namespace PixFootball.Sim
 {
@@ -211,6 +212,12 @@ namespace PixFootball.Sim
                 }
                 default: return;
             }
+            if (c.Fx != null)
+            {
+                // v0.8.0: Ankle Shaker adds to a juke, Whirlwind to a spin (percentage points of success)
+                if (m == CarrierMove.JukeLeft || m == CarrierMove.JukeRight) win = SimMath.Clamp(win + c.Fxv(SimHook.JukeSuccess) / 100f, 0.02f, 0.97f);
+                else if (m == CarrierMove.Spin) win = SimMath.Clamp(win + c.Fxv(SimHook.SpinSuccess) / 100f, 0.02f, 0.97f);
+            }
             c.MoveResolved = true;
             bool success = S.Rng.NextFloat() < win;
             S.LogEvent(SimEventType.CarrierMove, c.Id, t.Id, TackleType.None, success ? 1f : 0f, m.ToString());
@@ -241,7 +248,7 @@ namespace PixFootball.Sim
                 if (m == CarrierMove.Truck)
                 {
                     c.Body.Vel = c.Body.Vel * 0.55f;
-                    if (S.Rng.NextFloat() < 0.035f * (1.5f - SimMath.Rating01(c.R.Carrying)) * (1f + 0.8f * S.Options.BallSlickness)) S.Fumble(c, t, (t.Pos - c.Pos).Norm() * -1.5f);
+                    if (S.Rng.NextFloat() < 0.035f * (1.5f - SimMath.Rating01(c.R.Carrying)) * (1f + 0.8f * S.Options.BallSlickness) * Math.Max(0.1f, 1f + c.Fxv(SimHook.FumbleResist) / 100f)) S.Fumble(c, t, (t.Pos - c.Pos).Norm() * -1.5f);
                 }
                 else if (m == CarrierMove.Hurdle) c.Body.Stumble(0.5f);
                 else if (m == CarrierMove.Spin) c.Body.Vel = c.Body.Vel * 0.85f;
