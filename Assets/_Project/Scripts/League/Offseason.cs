@@ -240,7 +240,7 @@ namespace PixFootball.League
             return rep;
         }
 
-        private static void Retire(ProLeague league, Player p)
+        internal static void Retire(ProLeague league, Player p)
         {
             p.Retired = true;
             p.TeamId = -1;
@@ -250,7 +250,7 @@ namespace PixFootball.League
             if (league.RetiredPlayers.Count > 1500) league.RetiredPlayers.RemoveRange(0, league.RetiredPlayers.Count - 1500);
         }
 
-        private static void Release(ProLeague league, Player p, Team from = null)
+        internal static void Release(ProLeague league, Player p, Team from = null)
         {
             if (from != null) AddDeadCap(from, p.Contract);
             p.TeamId = -1;
@@ -277,7 +277,7 @@ namespace PixFootball.League
             team.DeadCapNext += dead - now;
         }
 
-        private static bool IsStarter(Team team, Player p)
+        public static bool IsStarter(Team team, Player p)
         {
             List<int> ids;
             if (!team.Depth.TryGet(p.Position, out ids)) return false;
@@ -287,13 +287,13 @@ namespace PixFootball.League
         }
 
         // -------------------------------------------------------------- free agency
-        private static float Value(Player p)
+        public static float Value(Player p)
         {
             return p.Ratings.Overall(p.Position) + (p.Potential - p.Ratings.Overall(p.Position)) * 0.3f
                    - (p.Bio.Age >= 32 ? (p.Bio.Age - 31) * 1.5f : 0f);
         }
 
-        private static int Deficit(Team t, Position pos)
+        public static int Deficit(Team t, Position pos)
         {
             return LeagueRules.ProSlots(pos) - t.CountAt(pos);
         }
@@ -355,7 +355,7 @@ namespace PixFootball.League
             return ContractModel.MarketAav(p.Position, p.Ratings.Overall(p.Position), p.Bio.Age);
         }
 
-        private static float BestOvr(Team t, Position pos)
+        public static float BestOvr(Team t, Position pos)
         {
             float best = 0f;
             int starters = LeagueRules.Starters(pos);
@@ -392,7 +392,7 @@ namespace PixFootball.League
         }
 
         // -------------------------------------------------------------- roster management
-        private static float KeepValue(Player p)
+        public static float KeepValue(Player p)
         {
             int ovr = p.Ratings.Overall(p.Position);
             return ovr + (p.Potential - ovr) * 0.35f + (p.Bio.Age <= 24 ? 2f : 0f) - (p.Bio.Age >= 33 ? 3f : 0f);
@@ -481,7 +481,7 @@ namespace PixFootball.League
         }
 
         /// <summary>Every "First Last" name in use on rosters, in the pool and on the coaching staffs (QA-612).</summary>
-        internal static HashSet<string> LeagueUsedNames(ProLeague league)
+        public static HashSet<string> LeagueUsedNames(ProLeague league)
         {
             var used = new HashSet<string>();
             for (int t = 0; t < league.Teams.Count; t++)
@@ -550,7 +550,7 @@ namespace PixFootball.League
         }
 
         /// <summary>The part of this year's cap hit that a restructure could convert (half the base salary above the prorated bonus), 0 when the deal cannot be restructured.</summary>
-        private static long RestructureRoom(Contract c)
+        public static long RestructureRoom(Contract c)
         {
             if (c.Years <= 0 || c.CapHits.Count == 0 || c.YearsLeft < 2) return 0L;
             if (CapHitsLeft(c) < 2) return 0L;

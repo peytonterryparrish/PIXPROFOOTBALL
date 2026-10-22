@@ -482,7 +482,7 @@ namespace PixFootball.League
     /// <summary>Builds and maintains depth charts.</summary>
     public static class DepthChartBuilder
     {
-        private static Position[] Related(Position p)
+        internal static Position[] Related(Position p)
         {
             switch (p)
             {

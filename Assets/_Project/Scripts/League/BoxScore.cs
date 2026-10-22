@@ -68,6 +68,18 @@ namespace PixFootball.League
         public int NetPassYards { get { return PassYds - SackYdsLost; } }
     }
 
+    /// <summary>An injury suffered in a game (v0.8.0): who, what and how many weeks. Season rolls them after each simulated game; a played match may supply its own.</summary>
+    [Serializable]
+    public class GameInjury
+    {
+        public int PlayerId;
+        public string Name;
+        public int TeamId;
+        public Position Pos;
+        public string Type = "";
+        public int Weeks;
+    }
+
     [Serializable]
     public class GameResult
     {
@@ -83,6 +95,10 @@ namespace PixFootball.League
         public List<DriveRecord> Drives = new List<DriveRecord>();
         public List<ScoringEvent> Scoring = new List<ScoringEvent>();
         public List<string> PlayLog = new List<string>();
+        /// <summary>Injuries from this game with their durations (filled by the season simulation or by the played match).</summary>
+        public List<GameInjury> Injuries = new List<GameInjury>();
+        /// <summary>True when <see cref="Injuries"/> already holds the injuries of a played match (the season then rolls no extra ones).</summary>
+        public bool InjuriesProvided;
 
         public bool Tie { get { return HomeScore == AwayScore; } }
         /// <summary>Winning team id or -1 for a tie.</summary>

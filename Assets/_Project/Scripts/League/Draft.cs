@@ -264,7 +264,7 @@ namespace PixFootball.League
             return picks;
         }
 
-        private static Prospect ChoosePick(Team team, List<Prospect> board, HashSet<int> taken, int round, Rng rng)
+        internal static Prospect ChoosePick(Team team, List<Prospect> board, HashSet<int> taken, int round, Rng rng)
         {
             Prospect best = null;
             float bestScore = float.MinValue;

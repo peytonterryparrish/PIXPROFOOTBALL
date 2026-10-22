@@ -64,6 +64,8 @@ namespace PixFootball.League
         public string Type = "";
         /// <summary>Accumulated wear from past injuries (raises retirement odds, lowers durability).</summary>
         public int Wear;
+        /// <summary>Weeks spent on injured reserve this stay (v0.8.0 career layer; -1 = not on IR).</summary>
+        public int IrWeeks = -1;
 
         public bool IsInjured { get { return WeeksOut > 0; } }
         public void Heal(int weeks = 1) { WeeksOut = Math.Max(0, WeeksOut - weeks); if (WeeksOut == 0) Type = ""; }
@@ -231,6 +233,8 @@ namespace PixFootball.League
         public int DraftPick;
         public bool Retired;
         public List<SeasonStats> Career = new List<SeasonStats>();
+        /// <summary>Special abilities (v0.8.0 career layer, see <see cref="AbilityCatalog"/>); empty for players that never got any.</summary>
+        public List<PlayerAbility> Abilities = new List<PlayerAbility>();
 
         public int Id { get { return Bio.Id; } }
         public string Name { get { return Bio.FullName; } }
@@ -348,6 +352,10 @@ namespace PixFootball.League
         /// <summary>True when the stadium is a dome (decided by the city climate, see LeagueFactory.IsDomeCity): the weather system should not rain or snow on a dome game.</summary>
         public bool IsDome { get { return StadiumName != null && StadiumName.EndsWith(" Dome"); } }
         public List<Player> Roster = new List<Player>();
+        /// <summary>Practice squad (v0.8.0 career layer): under contract and on the cap, never plays in simulated games.</summary>
+        public List<Player> PracticeSquad = new List<Player>();
+        /// <summary>Injured reserve (v0.8.0 career layer): off the active roster, on the cap, heals every week.</summary>
+        public List<Player> InjuredReserve = new List<Player>();
         public DepthChart Depth = new DepthChart();
         public List<Coach> Staff = new List<Coach>();
         public long SalaryCap = LeagueRules.SalaryCap;
@@ -370,6 +378,8 @@ namespace PixFootball.League
             {
                 long t = DeadCap;
                 for (int i = 0; i < Roster.Count; i++) t += Roster[i].Contract.CapHit;
+                for (int i = 0; i < PracticeSquad.Count; i++) t += PracticeSquad[i].Contract.CapHit;
+                for (int i = 0; i < InjuredReserve.Count; i++) t += InjuredReserve[i].Contract.CapHit;
                 return t;
             }
         }
@@ -397,6 +407,16 @@ namespace PixFootball.League
             // roster may have been mutated in place (swap); rebuild once and retry
             RebuildIndex();
             return _index.TryGetValue(id, out p) ? p : null;
+        }
+
+        /// <summary>Finds a player on the active roster, practice squad or injured reserve (null when he is not under contract here).</summary>
+        public Player FindAnyPlayer(int id)
+        {
+            Player p = GetPlayer(id);
+            if (p != null) return p;
+            for (int i = 0; i < PracticeSquad.Count; i++) if (PracticeSquad[i].Id == id) return PracticeSquad[i];
+            for (int i = 0; i < InjuredReserve.Count; i++) if (InjuredReserve[i].Id == id) return InjuredReserve[i];
+            return null;
         }
 
         public void AddPlayer(Player p)

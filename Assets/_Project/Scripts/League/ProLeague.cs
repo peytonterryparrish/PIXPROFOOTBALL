@@ -71,7 +71,7 @@ namespace PixFootball.League
         {
             for (int i = 0; i < Teams.Count; i++)
             {
-                Player p = Teams[i].GetPlayer(id);
+                Player p = Teams[i].FindAnyPlayer(id);
                 if (p != null) return p;
             }
             for (int i = 0; i < FreeAgents.Count; i++) if (FreeAgents[i].Id == id) return FreeAgents[i];

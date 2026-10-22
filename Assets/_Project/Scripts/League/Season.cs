@@ -97,6 +97,7 @@ namespace PixFootball.League
         [NonSerialized] private ProLeague _pro;
         [NonSerialized] private CollegeWorld _college;
         [NonSerialized] private Dictionary<int, SeasonTeam> _info;
+        [NonSerialized] private List<Player> _pendingHurt;
 
         public bool IsCollege { get { return Kind == SeasonKind.College; } }
         public bool IsComplete { get { return Phase == SeasonPhase.Complete; } }
@@ -197,7 +198,9 @@ namespace PixFootball.League
             LastWeekResults = new List<GameResult>();
             var games = GamesOfWeek(Week);
             Rng rng = GetRng();
-            var hurt = InjuredNow();   // QA-563: only players already hurt at kickoff heal after this week's games, so a fresh injury always costs at least one game
+            var hurt = _pendingHurt ?? InjuredNow();   // v0.8.0: a played game applied before this call snapshots the injured list first
+            _pendingHurt = null;
+            // QA-563: only players already hurt at kickoff heal after this week's games, so a fresh injury always costs at least one game
             for (int i = 0; i < games.Count; i++)
             {
                 ScheduledGame g = games[i];
@@ -312,12 +315,15 @@ namespace PixFootball.League
                 Player p = t.GetPlayer(l.PlayerId);
                 if (p == null || p.Injury.IsInjured) continue;
                 float prob = 0.0085f * (1f + (75f - p.Ratings.Injury) / 70f);
+                if (p.Abilities.Count > 0) prob *= Math.Max(0.3f, 1f + AbilityCatalog.Modifier(p, SimHook.InjuryResist) / 100f);   // v0.8.0: the Iron Man ability
                 if (rng.NextFloat() >= prob) continue;
                 string type = InjuryTypes[rng.Range(0, InjuryTypes.Length)];
                 int weeks = RollInjuryWeeks(type, rng);
                 p.Injury.WeeksOut = weeks;
                 p.Injury.Type = type;
+                p.Injury.IrWeeks = -1;
                 if (weeks >= 6) p.Injury.Wear++;
+                r.Injuries.Add(new GameInjury { PlayerId = p.Id, Name = p.Name, TeamId = t.Id, Pos = p.Position, Type = type, Weeks = weeks });
             }
         }
 
