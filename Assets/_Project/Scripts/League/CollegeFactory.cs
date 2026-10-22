@@ -167,7 +167,7 @@ namespace PixFootball.League
                 school.StadiumCapacity = 28000 + school.Prestige * 9500 + sr.Range(0, 9000);
                 school.Team = new Team
                 {
-                    Id = i, City = def.NamePrefix, Nickname = school.Mascot, Abbreviation = school.Abbreviation,
+                    Id = i, City = def.NamePrefix, Nickname = school.Mascot, Abbreviation = school.Abbreviation, Key = def.Id, Logo = def.Logo ?? "",
                     PrimaryColor = school.PrimaryColor, SecondaryColor = school.SecondaryColor,
                     ConferenceId = school.ConferenceId, DivisionId = -1, IsCollege = true, StadiumName = school.StadiumName,
                     Prestige = Math.Min(5, school.Prestige), SalaryCap = 0   // the pro scale is 1-5 stars; School.Prestige keeps the 6th (elite) tier

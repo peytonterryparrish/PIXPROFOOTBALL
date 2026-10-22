@@ -34,7 +34,9 @@ namespace PixFootball.League
         // ---------------------------------------------------------------- scouting
         public static void PrepareClass(CareerSave s, Rng rng)
         {
-            Offseason.PrepareDraftClass(s.Pro, s.College, rng);
+            s.Pro.LastDraft = new List<DraftPickRecord>();   // "last draft" means last year's: it used to keep growing by a class every year
+            if (s.College != null) CollegeDraftClass.Prepare(s, rng);   // v0.9.0: declares, combine, honors, scouts' reports
+            else Offseason.PrepareDraftClass(s.Pro, s.College, rng);
             var cls = s.Pro.DraftClass;
             // no prospect shares a name with anybody already in the league (practice squads and reserves included)
             var taken = CareerFactory.UsedNames(s, false);
@@ -46,6 +48,7 @@ namespace PixFootball.League
                 string first, last;
                 NameGenerator.PersonName(nrng, taken, out first, out last);
                 bio.FirstName = first; bio.LastName = last;
+                if (s.College != null) for (int h = 0; h < s.Net.Honors.Count; h++) if (s.Net.Honors[h].PlayerId == cls[i].Id) s.Net.Honors[h].Name = bio.FullName;
             }
             // a league without a college world still gets schools: the colleges its pros came from
             var schools = new List<string>();
@@ -61,13 +64,15 @@ namespace PixFootball.League
                     if (string.IsNullOrEmpty(cls[i].Player.Bio.College)) { string c = schools[arng.Range(0, schools.Count)]; cls[i].Player.Bio.College = c; cls[i].SchoolName = c; }
             for (int i = 0; i < cls.Count; i++) AbilityCatalog.AssignInitial(cls[i].Player, arng);
             // the user starts with a blurry board and his whole scouting budget (the CPU reports were built with their budgets already spent)
-            for (int i = 0; i < s.Pro.ScoutingReports.Count; i++)
+            // (a college career keeps what the user learned during the season: his report was carried over by CollegeDraftClass.Prepare)
+            for (int i = 0; i < s.Pro.ScoutingReports.Count && s.College == null; i++)
             {
                 ScoutingReport old = s.Pro.ScoutingReports[i];
                 if (old.TeamId != s.UserTeamId) continue;
                 s.Pro.ScoutingReports[i] = new ScoutingReport(old.TeamId, old.Year, old.Seed, old.PointsBudget);
             }
             s.Draft = new DraftState { Year = s.Year };
+            if (s.College != null) s.Draft.BigBoard = CollegeScouting.BoardIds(s);
         }
 
         public static ScoutingReport UserReport(CareerSave s)
@@ -97,12 +102,18 @@ namespace PixFootball.League
             if (points <= 0) return OpResult.Fail("Spend at least one point.");
             if (r.PointsRemaining <= 0) return OpResult.Fail("No scouting points left.");
             int before = r.PointsSpent;
-            r.Reveal(p, points);
+            CollegeScouting.Apply(r, p, points, true);   // v0.9.0: same as Reveal, plus the exact tier
             return OpResult.Success("Spent " + (r.PointsSpent - before) + " points; " + r.PointsRemaining + " left.");
         }
 
         public static void SetStarred(CareerSave s, int prospectId, bool starred)
         {
+            if (s.College != null)
+            {
+                // v0.9.0: the personal big board lives in the College Network state (it survives from the college season into the draft)
+                if (starred) CollegeScouting.AddToBoard(s, prospectId); else { CollegeScouting.RemoveFromBoard(s, prospectId); CollegeScouting.Star(s, prospectId, false); }
+                return;
+            }
             var list = s.Draft.BigBoard;
             list.Remove(prospectId);
             if (starred) list.Add(prospectId);
@@ -110,6 +121,7 @@ namespace PixFootball.League
 
         public static void MoveOnBoard(CareerSave s, int prospectId, int newIndex)
         {
+            if (s.College != null) { CollegeScouting.MoveOnBoard(s, prospectId, newIndex); return; }
             var list = s.Draft.BigBoard;
             if (!list.Remove(prospectId)) return;
             list.Insert(Math.Max(0, Math.Min(newIndex, list.Count)), prospectId);
@@ -471,6 +483,7 @@ namespace PixFootball.League
             s.Pro.DraftClass = new List<Prospect>();
             s.Pro.ScoutingReports = new List<ScoutingReport>();
             s.DraftBoards = null;
+            if (s.College != null) CollegeNet.OnNewCollegeYear(s);   // v0.9.0: new scouting season, scouts age, the board is cleared of everybody who left
         }
     }
 }

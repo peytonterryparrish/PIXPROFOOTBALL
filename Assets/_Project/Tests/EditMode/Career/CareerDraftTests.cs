@@ -15,7 +15,7 @@ namespace PixFootball.Tests
         public void ScoutingPointsSharpenTheBoardAndAreLimited()
         {
             CareerSave s = CareerTestUtil.AtPhase(121, CareerPhase.Scouting);
-            Assert.Greater(s.Pro.DraftClass.Count, 300);
+            Assert.Greater(s.Pro.DraftClass.Count, 240);
             Assert.AreEqual(32, s.Pro.ScoutingReports.Count);
             int points = CareerDraft.PointsRemaining(s);
             Assert.Greater(points, 100);
@@ -236,7 +236,7 @@ namespace PixFootball.Tests
         {
             CareerSave s = CareerTestUtil.Fresh(129, 5, true);
             CareerFlow.AdvanceUntil(s, CareerPhase.Scouting);
-            Assert.Greater(s.Pro.DraftClass.Count, 300);
+            Assert.Greater(s.Pro.DraftClass.Count, 240);
             Assert.IsTrue(s.Pro.DraftClass.Count(pr => pr.SchoolId >= 0) > 250, "prospects come from the college rosters");
             int collegeYear = s.College.Year;
             Assert.IsTrue(s.College.Season.IsComplete);

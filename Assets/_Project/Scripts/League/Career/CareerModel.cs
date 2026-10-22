@@ -41,7 +41,9 @@ namespace PixFootball.League
 
     public enum NewsKind
     {
-        Signing, ReSigning, Trade, Injury, Record, Upset, Award, Retirement, Draft, Release, Coach, Milestone, HallOfFame, Title, Rumor, Season, Owner
+        Signing, ReSigning, Trade, Injury, Record, Upset, Award, Retirement, Draft, Release, Coach, Milestone, HallOfFame, Title, Rumor, Season, Owner,
+        /// <summary>v0.9.0: college football headlines (rankings, Golden Helm, bowls) and scouting reports.</summary>
+        College
     }
 
     /// <summary>Result of a management action: <see cref="Ok"/> plus a message the UI can show verbatim.</summary>
@@ -515,6 +517,9 @@ namespace PixFootball.League
         public List<TeamRecordEntry> TeamRecords = new List<TeamRecordEntry>();
         public List<OwnerGoal> Goals = new List<OwnerGoal>();
         public int OwnerSatisfaction = 60;
+
+        /// <summary>The College Network state (v0.9.0): scouts, the user's scouting knowledge and big board, college box scores, honors and history. See <see cref="CollegeNet"/>.</summary>
+        public CollegeNetState Net = new CollegeNetState();
 
         [NonSerialized] public List<List<Prospect>> DraftBoards;
         /// <summary>Results of games played or simulated one by one this week, before the week was advanced (reported in the week report, not saved).</summary>

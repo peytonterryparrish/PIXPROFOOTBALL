@@ -18,6 +18,10 @@ namespace PixFootball.League
         public bool Drafted;
         public int DraftedByTeamId = -1;
         public int OverallPick;
+        /// <summary>College honors of his last season (v0.9.0), e.g. "2026 Golden Helm Trophy".</summary>
+        public List<string> Honors = new List<string>();
+        /// <summary>Combine / pro day numbers (v0.9.0); <see cref="CombineResult.Done"/> is false until they were measured.</summary>
+        public CombineResult Combine = new CombineResult();
 
         public int Id { get { return Player.Id; } }
 

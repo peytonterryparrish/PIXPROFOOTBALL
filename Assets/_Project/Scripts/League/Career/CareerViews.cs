@@ -127,6 +127,8 @@ namespace PixFootball.League
         public float TradeValue;
         public List<StatSeasonView> Seasons = new List<StatSeasonView>();
         public List<string> Honors = new List<string>();
+        /// <summary>v0.9.0: the college seasons of a player who came through the College Network (team = the school).</summary>
+        public List<StatSeasonView> CollegeSeasons = new List<StatSeasonView>();
     }
 
     public sealed class NeedRow
@@ -371,6 +373,13 @@ namespace PixFootball.League
             }
             for (int i = 0; i < s.Accolades.Count; i++)
                 if (s.Accolades[i].PlayerId == p.Id) c.Honors.Add(s.Accolades[i].Year + " " + s.Accolades[i].Kind);
+            for (int i = 0; i < p.CollegeCareer.Count; i++)
+            {
+                SeasonStats st = p.CollegeCareer[i];
+                if (st.Postseason) continue;
+                School sc = s.College != null ? s.College.GetSchool(st.TeamId) : null;
+                c.CollegeSeasons.Add(new StatSeasonView { Year = st.Season, TeamId = st.TeamId, Team = sc != null ? sc.ShortName : (p.Bio.College ?? ""), Games = st.Games, Line = CollegeViews.SeasonLine(p.Position, st) });
+            }
             return c;
         }
     }

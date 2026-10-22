@@ -11,9 +11,13 @@ namespace PixFootball.League
         public int UserTeamId;
         /// <summary>Teams from teams.csv (null = the generated fallback league).</summary>
         public IReadOnlyList<ProTeamDef> Teams;
-        /// <summary>Schools and conference/bowl data for the college world (null = no college world, a synthetic draft class is used).</summary>
+        /// <summary>Schools and conference/bowl data for the college world, already parsed (null: see <see cref="SchoolsCsv"/> and <see cref="GenerateCollegeIfMissing"/>).</summary>
         public IReadOnlyList<SchoolDef> Schools;
         public IReadOnlyList<ConfBowlDef> Bowls;
+        /// <summary>v0.9.0: the text of schools.csv and conferences_bowls.csv (what the Unity layer reads from its TextAssets); used when <see cref="Schools"/> is not set.</summary>
+        public string SchoolsCsv, BowlsCsv;
+        /// <summary>v0.9.0: when no school data is supplied at all, generate a fictional 138-school world so the career still has its College Network. Off = old behaviour (no college world, synthetic draft class).</summary>
+        public bool GenerateCollegeIfMissing = true;
         public CareerSettings Settings = new CareerSettings();
     }
 
@@ -63,8 +67,16 @@ namespace PixFootball.League
         // ================================================================ creation
         public static CareerSave NewCareer(CareerOptions o)
         {
-            ProLeague pro = o.Teams != null && o.Teams.Count > 0 ? LeagueFactory.CreatePro(o.Seed, o.Teams, o.Schools) : LeagueFactory.CreatePro(o.Seed);
-            CollegeWorld college = o.Schools != null && o.Schools.Count > 0 && o.Settings.SimCollege ? CollegeFactory.CreateWorld(o.Seed ^ 0x5A5A5A, o.Schools, o.Bowls) : null;
+            IReadOnlyList<SchoolDef> schools = o.Schools; IReadOnlyList<ConfBowlDef> bowls = o.Bowls;
+            if ((schools == null || schools.Count == 0) && !string.IsNullOrEmpty(o.SchoolsCsv))
+            {
+                schools = CollegeData.ParseSchools(o.SchoolsCsv);
+                if (bowls == null || bowls.Count == 0) bowls = CollegeData.ParseConfBowls(o.BowlsCsv);
+            }
+            bool useCollege = o.Settings == null || o.Settings.SimCollege;
+            ProLeague pro = o.Teams != null && o.Teams.Count > 0 ? LeagueFactory.CreatePro(o.Seed, o.Teams, schools) : LeagueFactory.CreatePro(o.Seed);
+            if (useCollege && (schools == null || schools.Count == 0) && o.GenerateCollegeIfMissing) { schools = CollegeFallback.Schools(o.Seed); bowls = CollegeFallback.Bowls(); }
+            CollegeWorld college = schools != null && schools.Count > 0 && useCollege ? CollegeFactory.CreateWorld(o.Seed ^ 0x5A5A5A, schools, bowls, pro.Year) : null;
             var s = new CareerSave
             {
                 Name = o.Name, Seed = o.Seed, StartYear = pro.Year, UserTeamId = Math.Max(0, Math.Min(pro.Teams.Count - 1, o.UserTeamId)),
@@ -99,6 +111,7 @@ namespace PixFootball.League
             for (int t = 0; t < pro.Teams.Count; t++) MoraleEngine.StateOf(s, t).Value = 65;
             OwnerEngine.SetGoals(s);
             HistoryEngine.SnapshotRecords(s);
+            CollegeNet.Ensure(s);   // v0.9.0 College Network: scouts, the user's scouting report
             Team user = s.UserTeam;
             NewsWriter.Post(s, NewsKind.Season, "Welcome to the " + user.FullName, "You are the new general manager of the " + user.FullName + ". The " + s.Year + " season starts soon.", 3, user.Id);
             return s;
@@ -300,7 +313,7 @@ namespace PixFootball.League
             var pending = new List<GameResult>(s.PendingResults);
             s.PendingResults.Clear();
             season.SimWeek();
-            if (s.College != null && s.Settings.SimCollege && s.College.Season != null && !s.College.Season.IsComplete) s.College.Season.SimWeek();
+            CollegeNet.AdvanceWeek(s);   // v0.9.0: the college week (box scores, scouting) runs next to the pro week
 
             // ---- after the games
             var results = new List<GameResult>();
@@ -392,7 +405,7 @@ namespace PixFootball.League
         private static void FinishSeason(CareerSave s, Rng rng, StepResult r)
         {
             // the college world finishes its own season alongside
-            if (s.College != null && s.College.Season != null) s.College.Season.SimToEnd();
+            if (s.College != null && s.College.Season != null) CollegeNet.FinishSeason(s);
             HistoryEngine.FinalizeSeason(s, rng.Fork());
             s.Phase = CareerPhase.Awards;
             r.Messages.Add("The " + s.Year + " season is over.");

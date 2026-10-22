@@ -233,6 +233,8 @@ namespace PixFootball.League
         public int DraftPick;
         public bool Retired;
         public List<SeasonStats> Career = new List<SeasonStats>();
+        /// <summary>College seasons of a player who turned pro (v0.9.0 College Network): moved out of <see cref="Career"/> when the draft class is made so pro totals, records and the Hall of Fame count only pro seasons. <see cref="SeasonStats.TeamId"/> is the school id.</summary>
+        public List<SeasonStats> CollegeCareer = new List<SeasonStats>();
         /// <summary>Special abilities (v0.8.0 career layer, see <see cref="AbilityCatalog"/>); empty for players that never got any.</summary>
         public List<PlayerAbility> Abilities = new List<PlayerAbility>();
 

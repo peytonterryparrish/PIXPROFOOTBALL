@@ -74,6 +74,7 @@ namespace PixFootball.League
                 if (!pickKeys.Add(k.Year + "/" + k.Round + "/" + k.OriginalTeamId)) problems.Add("duplicate draft pick " + k.Year + " r" + k.Round);
                 if (s.Pro.GetTeam(k.OwnerTeamId) == null) problems.Add("pick owned by an unknown team");
             }
+            problems.AddRange(CollegeValidator.Check(s));   // v0.9.0: the college world and the College Network state
             return problems;
         }
 

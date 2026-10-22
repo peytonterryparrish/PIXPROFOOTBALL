@@ -90,7 +90,7 @@ namespace PixFootball.League
             return Finish(pool, rng, classSize);
         }
 
-        private static List<Prospect> Finish(List<Prospect> pool, Rng rng, int classSize)
+        internal static List<Prospect> Finish(List<Prospect> pool, Rng rng, int classSize)
         {
             // best N by true grade; position-balance guard so every position group is represented
             var scored = new List<KeyValuePair<float, Prospect>>(pool.Count);
