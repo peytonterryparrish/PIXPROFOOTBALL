@@ -100,7 +100,7 @@ namespace PixFootball.EditorTools
                     PixSettings.Scorebug = ScorebugStyle.Bottom;
                     hud.SetScore(Snap());
                     InputDeviceTracker.Force(true);
-                    hud.SetHint("[A][B][X][Y][LB][RB] THROW (TAP = BULLET, HOLD = LOB)   [RS] LEAD   [LS] SCRAMBLE");
+                    hud.SetHint("[A][B][X][Y][LB][RB] THROW (HOLD = BULLET, TAP = LOB)   [RS] LEAD   [LS] SCRAMBLE");
                     Shot("hud_bottom_" + tag, sz[0], sz[1], cam, go.transform);
                     BannerNow(hud, "TOUCHDOWN", new Color(0.95f, 0.78f, 0.1f), "BUFFALO IRONHORNS  -  #12 J. DOE  -  34 YD PASS");
                     hud.ShowToast("TIMEOUT CALLED", 99f);

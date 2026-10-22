@@ -56,6 +56,8 @@ namespace PixFootball.Gameplay
         public Btn Button;
         public string Label, Tag;
         public bool Selected, Dim;
+        /// <summary>v0.7: the play behind the row (the audible list shows its play art, personnel and concept like the call sheet).</summary>
+        public Play Play;
     }
 
     public struct WheelOption
@@ -80,6 +82,8 @@ namespace PixFootball.Gameplay
         public List<ReceiverIcon> Icons = new List<ReceiverIcon>();
         public bool OffenseSide = true;
         public int Seconds = -1;
+        /// <summary>v0.7: the playbook the menu rows' plays are drawn from.</summary>
+        public Playbook Book;
     }
 
     /// <summary>The penalty accept / decline panel.</summary>
@@ -121,6 +125,12 @@ namespace PixFootball.Gameplay
         void HidePenalty();
         void ShowFinal(FinalData data, Action onContinue);
         void SetReceiverIcons(List<ReceiverIcon> icons, Camera cam);
+        /// <summary>v0.7: read numbers / RUN tags at the ends of the routes drawn on the turf while LT is held (null hides them).</summary>
+        void SetRouteBadges(IList<RouteOverlay.Badge> badges, Camera cam);
+        /// <summary>v0.7: the marker above the player the user controls (always visible, on offense and defense); <paramref name="label"/> is "#54 LB" style text.</summary>
+        void SetUserMarker(bool visible, Vector3 world, Camera cam, string label);
+        /// <summary>v0.7: the small whistle banner after a play: the reason it ended ("DOWN BY CONTACT  -  #54", "OUT OF BOUNDS", "INCOMPLETE").</summary>
+        void ShowWhistle(string text, float seconds);
         void SetHint(string hint);
         void SetFade(float alpha);
         void SetPaused(bool paused);

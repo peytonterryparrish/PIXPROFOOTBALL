@@ -134,3 +134,16 @@ blender -b --python Tools/Blender/phr2_silhouette.py
 ```
 
 Full EditMode suite after this work (`Logs/ph2_tests.xml`): 810 tests, 810 passed, 0 failed (7 new: `PhotoRosterV2Tests`; the whole existing suite incl. `PhotoPlayerTests` and `PlayerAppearanceTests` stays green with the additive `PlayerAppearance` changes).
+
+## 8. v0.7 Track D update (2026-10-22): cleanup, Promote, wiring
+
+| ID | Status | Note |
+|---|---|---|
+| PH2-009 | fixed | `Athletic` gets V-taper / sprinter-leg proportions on top of the purchased field (`phr2_build.py`) |
+| PH2-010 | open | `PhotoPlayerBuilder.BuildAll` still does not know `Pads`; use `PhotoRosterV2.BuildLive()` |
+| PH2-013 / 015 | done | `PhotoRosterV2.PromoteBatch` ran (`Logs/d1_promote.log`): 15 FBX + prefabs live, staging meshes / prefabs deleted, 12 prefab keys + 10 biped clip keys in both ArtLibrary assets. Backup: `D:\PIXFootball\Backups\PhotorealPlayer_pre_v2promote_20261021` |
+| PH2-014 | fixed | root cause was the UV-seam split of the jersey (not the sleeve stripes): see `graphics_v070.md` D-001 |
+| PH2-016 | fixed (match) / open (replay) | `BodySelect` + `PlayStage`; replay actors are still Std bodies (D-004) |
+| PH2-017 | open | Track A wires the biped keys into AnimKit |
+
+Changed in v0.7: pads are LOD0 4.0 k / LOD1 ~2 k tris only (hidden beyond LOD1, no shadows); Large / Medium torso depth reduced; no sleeve extension; jersey drape welded across UV seams. Rebuild: `Tools/Blender/phr2_build_all.sh` (about 20 min), `Tools/unity_retry.ps1 -Method PixFootball.EditorTools.PhotoRosterV2.PromoteBatch -Log x.log` (re-imports the staging FBX, rebuilds the staging prefabs, promotes).

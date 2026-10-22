@@ -176,7 +176,252 @@ def extend_sleeves(jersey, arm, ext=0.05, s_start=0.03):
     me.update()
 
 
-def conform_to_pads(jersey, pads, arm, clear=CLEAR, back=0.04, reach=0.12, iters=14, dil=2, blend_weights=True):
+def weld_groups(co, tol=1e-4):
+    """Group id per vertex of coincident positions (UV / normal seam splits), and the number of groups."""
+    key = np.round(co / tol).astype(np.int64)
+    d = {}
+    gid = np.empty(len(co), np.int32)
+    for i, k in enumerate(map(tuple, key)):
+        gid[i] = d.setdefault(k, len(d))
+    return gid, len(d)
+
+
+def _boundary_loops(me):
+    """Vertex-index lists of the open boundary loops of a mesh."""
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.verts.ensure_lookup_table()
+    seen, loops = set(), []
+    for v in bm.verts:
+        if v.index in seen or not any(e.is_boundary for e in v.link_edges):
+            continue
+        st, comp = [v], []
+        while st:
+            x = st.pop()
+            if x.index in seen:
+                continue
+            seen.add(x.index)
+            comp.append(x.index)
+            for e in x.link_edges:
+                if e.is_boundary:
+                    st.append(e.other_vert(x))
+        loops.append(comp)
+    bm.free()
+    return loops
+
+
+def _graph_dist(me, sources, limit):
+    """Dijkstra over mesh edges (edge length) from the source vertices, stops at `limit`."""
+    import heapq
+    co = _co(me)
+    nb = mesh_neighbours(me)
+    dist = np.full(len(co), 1e9)
+    h = []
+    for s in sources:
+        dist[s] = 0.0
+        heapq.heappush(h, (0.0, int(s)))
+    while h:
+        d, i = heapq.heappop(h)
+        if d > dist[i] or d > limit:
+            continue
+        for k in nb[i]:
+            nd = d + float(np.linalg.norm(co[i] - co[k]))
+            if nd < dist[k]:
+                dist[k] = nd
+                heapq.heappush(h, (nd, int(k)))
+    return dist
+
+
+def make_hull(pads, voxel=0.010, smooth_iters=10, name="PadHull"):
+    """Closed, smooth envelope of the pad shell (plastic + metal + epaulet trim): the pad triangles are voxel-remeshed into one closed surface and Laplacian-smoothed,
+    so rivets, plate edges and the gap between the chest and the epaulet vanish.  Returns the hull object (identity transform, not parented)."""
+    import bmesh
+    pco, ptv = mesh_world(pads)
+    pme = pads.data
+    pme.calc_loop_triangles()
+    tmi = np.empty(len(pme.loop_triangles), np.int32)
+    pme.loop_triangles.foreach_get('material_index', tmi)
+    jxa = 0.222
+    cx = np.abs(pco[ptv][:, :, 0]).mean(axis=1)
+    sel = ptv[(tmi == 0) | (tmi == 2) | ((tmi == 1) & (cx > jxa - 0.03))]
+    used = np.unique(sel.ravel())
+    remap = {int(v): i for i, v in enumerate(used)}
+    # orient every envelope triangle away from the torso centre (the store plates are single sided shells; the nearest-point test needs "outward")
+    ctr = np.array([0.0, 0.03, 1.25])
+    sel = sel.copy()
+    a, b, c = pco[sel[:, 0]], pco[sel[:, 1]], pco[sel[:, 2]]
+    nrm = np.cross(b - a, c - a)
+    flip = (nrm * ((a + b + c) / 3 - ctr)).sum(axis=1) < 0
+    sel[flip] = sel[flip][:, ::-1]
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(pco[v]) for v in used], [], [tuple(remap[int(i)] for i in t) for t in sel])
+    me.update()
+    ob = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(ob)
+    return ob
+
+
+def conform_hull(jersey, pads, arm, clear=0.006, iters=30, push_gain=0.8, relax=0.35, r_in=0.20, r_out=0.38, hull=None, blend_weights=True):
+    """Collision-style conform of the jersey to the smooth pad hull: every iteration moves the vertices that lie inside the hull (or closer than `clear` to it) out along the
+    hull normal, then relaxes the shoulder region with a Laplacian step, so the cloth follows the pad silhouette without the ray-cast spikes / armpit tears of conform_to_pads.
+    The relax mask is 1 within r_in of the shoulder joints (|x| > 0.10), 0 beyond r_out.  Returns the per-vertex displacement length."""
+    from mathutils.bvhtree import BVHTree
+    from mathutils.kdtree import KDTree
+    own = hull is None
+    if own:
+        hull = make_hull(pads)
+    hco, htv = mesh_world(hull)
+    bvh = BVHTree.FromPolygons([Vector(c) for c in hco], [tuple(int(i) for i in t) for t in htv])
+    me = jersey.data
+    co0 = _co(me)
+    co = co0.copy()
+    nb = mesh_neighbours(me)
+    w = np.zeros(len(co))
+    for s, g in (("Left", 1), ("Right", -1)):
+        j0 = np.array(arm.data.bones["rig:%sArm" % s].head_local)
+        w = np.maximum(w, 1.0 - _sm(r_in, r_out, np.linalg.norm(co0 - j0, axis=1)))
+    w *= _sm(0.06, 0.12, np.abs(co0[:, 0]))
+    zmin = co0[:, 2].min()
+    w *= _sm(zmin + 0.10, zmin + 0.40, co0[:, 2])
+    idx = [i for i in range(len(co)) if w[i] > 0.01 and len(nb[i])]
+    for it in range(iters):
+        for i in range(len(co)):
+            loc, nor, fi, dd = bvh.find_nearest(Vector(co[i]))
+            if loc is None:
+                continue
+            sd = (Vector(co[i]) - loc).dot(nor)
+            if dd < 0.12 and sd < clear:
+                co[i] += np.array(nor) * (clear - sd) * push_gain
+        new = co.copy()
+        for i in idx:
+            new[i] = co[i] + relax * w[i] * (co[nb[i]].mean(axis=0) - co[i])
+        co = new
+    # final hard clearance pass (no relax) so nothing of the shell remains outside the cloth
+    for i in range(len(co)):
+        loc, nor, fi, dd = bvh.find_nearest(Vector(co[i]))
+        if loc is None:
+            continue
+        sd = (Vector(co[i]) - loc).dot(nor)
+        if dd < 0.12 and sd < clear:
+            co[i] += np.array(nor) * (clear - sd)
+    disp = np.linalg.norm(co - co0, axis=1)
+    me.vertices.foreach_set('co', co.astype(np.float32).ravel())
+    me.update()
+    if own:
+        pass
+    if blend_weights:
+        pco, _ = mesh_world(pads)
+        kd = KDTree(len(pco))
+        for i, c in enumerate(pco):
+            kd.insert(Vector(c), i)
+        kd.balance()
+        pg = {g.index: g.name for g in pads.vertex_groups}
+        for v in me.vertices:
+            c = min(1.0, disp[v.index] / 0.025)
+            if c <= 0.0:
+                continue
+            cur = {jersey.vertex_groups[g.group].name: g.weight for g in v.groups}
+            _, pi, _ = kd.find(Vector(co[v.index]))
+            pw = {pg[g.group]: g.weight for g in pads.data.vertices[pi].groups}
+            tot = {}
+            for k, ww in cur.items():
+                tot[k] = tot.get(k, 0) + (1 - c) * ww
+            for k, ww in pw.items():
+                tot[k] = tot.get(k, 0) + c * ww
+            top = sorted(tot.items(), key=lambda kv: -kv[1])[:4]
+            s = sum(ww for _, ww in top)
+            for k in cur:
+                jersey.vertex_groups[k].remove([v.index])
+            for k, ww in top:
+                vg = jersey.vertex_groups.get(k) or jersey.vertex_groups.new(name=k)
+                vg.add([v.index], ww / s, 'REPLACE')
+    return disp, hull
+
+
+def smooth_sleeve_rings(jersey, iters=12, lam=0.5):
+    """Smooths the open boundary rings of the sleeves along the ring (the R1 sleeve cut is a zigzag) on welded positions (both copies of a seam vertex move together)."""
+    import bmesh
+    me = jersey.data
+    co = _co(me)
+    gid, ng = weld_groups(co)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.edges.ensure_lookup_table()
+    nbs = [set() for _ in range(ng)]
+    for e in bm.edges:
+        if e.is_boundary:
+            x, y = gid[e.verts[0].index], gid[e.verts[1].index]
+            if x != y:
+                nbs[x].add(y)
+                nbs[y].add(x)
+    bm.free()
+    cu = np.zeros((ng, 3))
+    cu[gid] = co
+    ring = [i for i in range(ng) if len(nbs[i]) >= 2 and abs(cu[i, 0]) > 0.13]      # the sleeve rings (the hem / neck loop has |x| up to 0.22 too, but its z range is lower / higher)
+    ring = [i for i in ring if 1.30 < cu[i, 2] < 1.75]
+    for _ in range(iters):
+        new = cu.copy()
+        for i in ring:
+            m = [k for k in nbs[i] if k in set(ring)]
+            if m:
+                new[i] = cu[i] + lam * (cu[m].mean(axis=0) - cu[i])
+        cu = new
+    co = cu[gid]
+    me.vertices.foreach_set('co', co.astype(np.float32).ravel())
+    me.update()
+
+
+def polish_shoulders(jersey, arm, iters=24, lam=0.5, mu=-0.53, r_in=0.13, r_out=0.26):
+    """Taubin (shrink-free) smoothing of the jersey around both shoulder joints after the drape: removes the small creases / steps between the sleeve cap and the back / front.
+    Weight 1 within r_in of the joint and 0 outside r_out (smoothstep); the neck / collar (|x| < 0.10) is excluded."""
+    me = jersey.data
+    co = _co(me)
+    nb = mesh_neighbours(me)
+    w = np.zeros(len(co))
+    for s, g in (("Left", 1), ("Right", -1)):
+        j0 = np.array(arm.data.bones["rig:%sArm" % s].head_local)
+        d = np.linalg.norm(co - j0, axis=1)
+        w = np.maximum(w, 1.0 - _sm(r_in, r_out, d))
+    w *= _sm(0.07, 0.13, np.abs(co[:, 0]))
+    idx = [i for i in range(len(co)) if w[i] > 0.01 and len(nb[i])]
+    for it in range(iters):
+        for f in (lam, mu):
+            new = co.copy()
+            for i in idx:
+                new[i] = co[i] + f * w[i] * (co[nb[i]].mean(axis=0) - co[i])
+            co = new
+    me.vertices.foreach_set('co', co.astype(np.float32).ravel())
+    me.update()
+
+
+def extend_sleeves2(jersey, arm, ext=0.07, falloff=0.13):
+    """Sleeve extension that moves the whole sleeve-opening ring (and a smooth falloff of the mesh around it, measured as distance over the cloth) along the upper arm.
+    The v1 version used an axis projection with an x cut: the armpit side of the oblique sleeve cut stayed behind and the stretched triangles tore (PH2-014)."""
+    me = jersey.data
+    co = _co(me)
+    loops = _boundary_loops(me)
+    for s, g in (("Left", 1), ("Right", -1)):
+        ring = None
+        for lp in loops:
+            c = co[lp].mean(axis=0)
+            if c[0] * g > 0.12 and (ring is None or len(lp) < len(ring)):
+                ring = lp
+        if ring is None:
+            continue
+        a0 = np.array(arm.data.bones["rig:%sArm" % s].head_local)
+        a1 = np.array(arm.data.bones["rig:%sForeArm" % s].head_local)
+        d = a1 - a0
+        d /= np.linalg.norm(d)
+        dist = _graph_dist(me, ring, falloff)
+        w = 1.0 - _sm(0.0, falloff, dist)
+        w[dist > falloff] = 0.0
+        co += (ext * w)[:, None] * d[None, :]
+    me.vertices.foreach_set('co', co.astype(np.float32).ravel())
+    me.update()
+
+
+def conform_to_pads(jersey, pads, arm, clear=CLEAR, back=0.04, reach=0.12, iters=14, dil=2, blend_weights=True, smooth_only=False):
     """Pushes every jersey vertex outward along its normal until it clears the pad surface by `clear` (rays from `back` inside the jersey through all pad layers),
     smooths the push over the mesh (skirt), and blends the jersey skin weights towards the pad weights where the push is large so the jersey follows the pads."""
     from mathutils.bvhtree import BVHTree
@@ -195,11 +440,18 @@ def conform_to_pads(jersey, pads, arm, clear=CLEAR, back=0.04, reach=0.12, iters
     co = np.empty(len(me.vertices) * 3, np.float32)
     me.vertices.foreach_get('co', co)
     co = co.reshape(-1, 3).astype(np.float64)
-    nr = vertex_normals(jersey)
-    push = np.zeros(len(co))
-    for i in range(len(co)):
-        n = Vector(nr[i])
-        o = Vector(co[i]) - n * back
+    nr0 = vertex_normals(jersey)
+    # the glTF-imported jersey is split at its UV seams (the sleeve / back armhole is one): every computation runs on WELDED positions so both sides of a seam move together
+    gid, ng = weld_groups(co)
+    nr_u = np.zeros((ng, 3))
+    np.add.at(nr_u, gid, nr0)
+    nr_u /= np.maximum(np.linalg.norm(nr_u, axis=1), 1e-9)[:, None]
+    co_u = np.zeros((ng, 3))
+    co_u[gid] = co
+    push = np.zeros(ng)
+    for i in range(ng):
+        n = Vector(nr_u[i])
+        o = Vector(co_u[i]) - n * back
         start = o.copy()
         far = None
         for _ in range(6):
@@ -213,7 +465,13 @@ def conform_to_pads(jersey, pads, arm, clear=CLEAR, back=0.04, reach=0.12, iters
             start = hit[0] + n * 1e-4
         if far is not None and far + clear > back:
             push[i] = far + clear - back
-    nb = mesh_neighbours(me)
+    nbs = [set() for _ in range(ng)]
+    for e in me.edges:
+        x, y = gid[e.vertices[0]], gid[e.vertices[1]]
+        if x != y:
+            nbs[x].add(y)
+            nbs[y].add(x)
+    nb = [np.array(sorted(q), np.int32) for q in nbs]
     # local pad detail (rivets, plate edges) must not ripple the cloth: dilate (max over `dil` rings) so every covered vertex stays covered, then blur
     dl = push.copy()
     for _ in range(dil):
@@ -229,10 +487,12 @@ def conform_to_pads(jersey, pads, arm, clear=CLEAR, back=0.04, reach=0.12, iters
             if len(nb[i]):
                 nsm[i] = 0.5 * sm[i] + 0.5 * sm[nb[i]].mean()
         sm = nsm
-    final = np.maximum(sm, push)
-    zmin = co[:, 2].min()
-    final *= _sm(zmin + 0.03, zmin + 0.24, co[:, 2])          # the pads end at the lower ribs: no push at the hem, the jersey tapers to the waist
-    final *= _sm(-0.97, -0.55, nr[:, 2])                      # under-arm / downward facing cloth is not pushed (spikes in the armpit)
+    final_u = np.maximum(sm, push) if not smooth_only else sm
+    zmin = co_u[:, 2].min()
+    final_u = final_u * _sm(zmin + 0.03, zmin + 0.24, co_u[:, 2])          # the pads end at the lower ribs: no push at the hem, the jersey tapers to the waist
+    final_u = final_u * _sm(-0.97, -0.55, nr_u[:, 2])                      # under-arm / downward facing cloth is not pushed (spikes in the armpit)
+    final = final_u[gid]
+    nr = nr_u[gid]
     final[final < 0.0006] = 0.0
     co += nr * final[:, None]
     me.vertices.foreach_set('co', co.astype(np.float32).ravel())
@@ -278,8 +538,10 @@ def drape_jersey(lods, arm, pads, ext):
     from mathutils.kdtree import KDTree
     j0 = lods[0]
     p0 = _co(j0.data)
-    extend_sleeves(j0, arm, ext)
-    conform_to_pads(j0, pads, arm)
+    if ext > 0:
+        extend_sleeves(j0, arm, ext)      # v1 behaviour; the stretched armpit tears (PH2-014): the v2 build passes 0
+    conform_to_pads(j0, pads, arm, iters=24, dil=3)
+    smooth_sleeve_rings(j0)
     p1 = _co(j0.data)
     D = p1 - p0
     kd = KDTree(len(p0))

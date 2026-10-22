@@ -22,10 +22,33 @@ namespace PixFootball.Gameplay
         /// <summary>True when the CPU offense is in a hurry-up (no huddle, sideline routes, spike).</summary>
         public bool CpuHurryUp { get { return State.Phase == GamePhase.Scrimmage && PlayCaller.IsHurryUp(State) && !IsUser(State.Possession); } }
 
+        /// <summary>v0.7: the glass UI opens the call sheet (tabs, group list, search); the Classic theme keeps the three-stage Formation / Set / Play flow. Set by the HUD when it is built.</summary>
+        public static bool UseCallSheet = true;
+        const string FavPrefix = "pix.fav.";
+
+        /// <summary>How often the user called a play (stored in PlayerPrefs, per side): the sheet's FAVORITES tab lists the plays called at least twice, most called first.</summary>
+        static string FavKey(bool offense, Play p) { return FavPrefix + (offense ? "o." : "d.") + p.FormationName + "|" + p.Name; }
+
+        List<Play> FavoritesFor(bool offense)
+        {
+            var scored = new List<KeyValuePair<int, Play>>();
+            foreach (Play p in Book.AllPlays)
+            {
+                if ((p.Side == PlaySide.Offense) != offense || p.Side == PlaySide.Special || p.Category == PlayCategory.Kneel || p.Category == PlayCategory.Spike) continue;
+                int n = UnityEngine.PlayerPrefs.GetInt(FavKey(offense, p), 0);
+                if (n >= 2) scored.Add(new KeyValuePair<int, Play>(n, p));
+            }
+            scored.Sort((a, b) => b.Key.CompareTo(a.Key));
+            var l = new List<Play>();
+            for (int i = 0; i < scored.Count && i < 12; i++) l.Add(scored[i].Value);
+            return l;
+        }
+
         // ------------------------------------------------------------------------------------------------ remembering what the user called
         public void RememberUserCall(bool offense, Play p)
         {
             if (p == null) return;
+            if (p.Side != PlaySide.Special) { string fk = FavKey(offense, p); UnityEngine.PlayerPrefs.SetInt(fk, UnityEngine.PlayerPrefs.GetInt(fk, 0) + 1); }
             var list = offense ? RecentOffense : RecentDefense;
             list.RemoveAll(x => x.Name == p.Name && x.FormationName == p.FormationName);
             list.Add(p);
@@ -104,7 +127,7 @@ namespace PixFootball.Gameplay
                                                            || cpuOffenseCall.Category == PlayCategory.PointAfter || cpuOffenseCall.Category == PlayCategory.Kneel || cpuOffenseCall.Category == PlayCategory.Spike);
                 playbookTab = (ph == GamePhase.Scrimmage || ph == GamePhase.PointAfter) && !cpuKicks;
             }            if (!playbookTab && special.Count == 0) return null;
-            var m = new PlayCallModel(Book, side, playbookTab, special.Count > 0);
+            var m = new PlayCallModel(Book, side, playbookTab, special.Count > 0, UseCallSheet);
             var s = m.Situation;
             s.Title = userOffense ? (ph == GamePhase.Kickoff ? "KICKOFF" : (ph == GamePhase.PointAfter ? "AFTER THE TOUCHDOWN" : "OFFENSE")) : (ph == GamePhase.Kickoff ? "KICK RETURN" : "DEFENSE");
             s.TeamName = TeamOf(UserTeam).Nickname.ToUpperInvariant();
@@ -123,6 +146,7 @@ namespace PixFootball.Gameplay
                 var rec = userOffense ? RecentOffense : RecentDefense;
                 m.RecentPlays = new List<Play>(rec); m.RecentPlays.Reverse();
                 m.LastFormation = userOffense ? _lastOffFormation : _lastDefFormation;
+                m.FavoritePlays = FavoritesFor(userOffense);
             }
             if (playbookTab && userOffense && ph == GamePhase.Scrimmage && State.Down == 4 && special.Count > 0)
             {
@@ -132,7 +156,9 @@ namespace PixFootball.Gameplay
                 foreach (Play sp in special) if ((fourth == PlayCaller.FourthCall.Punt && sp.Category == PlayCategory.Punt) || (fourth == PlayCaller.FourthCall.FieldGoal && sp.Category == PlayCategory.FieldGoal)) { kick = sp; break; }
                 if (kick != null) m.CoachPicks.Insert(0, new CoachPick { Play = kick, Reason = fourth == PlayCaller.FourthCall.Punt ? "4TH DOWN: PUNT IT AWAY" : "4TH DOWN: KICK THE FIELD GOAL", Score = 2f });
             }
-            m.Open(ph == GamePhase.PointAfter && special.Count > 0 ? CallTab.Special : (playbookTab ? CallTab.Playbook : CallTab.Special));
+            // sheet: the call screen opens on the coach's suggestions (A = call the first one: a single press from opening to the pre-snap)
+            CallTab openTab = playbookTab ? (m.SheetMode ? (m.CoachPicks.Count > 0 ? CallTab.AskCoach : CallTab.Formation) : CallTab.Playbook) : CallTab.Special;
+            m.Open(ph == GamePhase.PointAfter && special.Count > 0 ? CallTab.Special : openTab);
             return m;
         }
 

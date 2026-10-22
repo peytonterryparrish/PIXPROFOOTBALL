@@ -60,6 +60,13 @@ namespace PixFootball.Sim
             if (carrier == null || carrier.State == AgentState.Down) return;
             UpdateDrag(carrier);
             if (S.Phase != PlayPhase.Live) return;
+            if (_pendingDives.Count > 0)
+            {
+                UpdatePendingDives();
+                if (S.Phase != PlayPhase.Live) return;
+                carrier = S.Carrier;
+                if (carrier == null || carrier.State == AgentState.Down) return;
+            }
 
             for (int i = 0; i < 22; i++)
             {
@@ -81,6 +88,30 @@ namespace PixFootball.Sim
                 if (S.Phase != PlayPhase.Live) return;
                 carrier = S.Carrier;
                 if (carrier == null || carrier.State == AgentState.Down) return;
+            }
+        }
+
+        /// <summary>
+        /// Draggers hold on to the carrier. v0.7 fix: this runs BEFORE the bodies step. It used to be set inside <see cref="UpdateDrag"/>, which runs after the step,
+        /// so the intent was wiped at the start of the next tick and the first tackler stood still while the carrier dragged away (the tackle was then credited from 3-5 yd away).
+        /// </summary>
+        public void ApplyDragHold()
+        {
+            if (_draggers.Count == 0) return;
+            SimAgent c = S.Carrier;
+            if (c == null || c.DragMass <= 0f) return;
+            for (int i = 0; i < _draggers.Count; i++)
+            {
+                SimAgent g = _draggers[i];
+                if (g.State != AgentState.Tackling || g.Body.FallenTime > 0f) continue;
+                Vec2 holdDir = c.Speed > 0.3f ? c.Vel.Norm() : c.Facing;
+                Vec2 hold = c.Pos - holdDir * (c.Body.Radius + g.Body.Radius - 0.05f);
+                g.Want = (hold - g.Pos) * 8f + c.Vel;
+                g.HasFace = true; g.FaceDir = (c.Pos - g.Pos).Norm();
+                // he has his arms around him: a carrier who outruns the tackler's own legs pulls him along instead of leaving him standing (up to 3.6 yd/s of drag)
+                Vec2 to = c.Pos - g.Pos;
+                float gap = to.Length - g.Body.Radius - c.Body.Radius;
+                if (gap > 0.45f) g.Body.Pos = g.Body.Pos + to.Norm() * Math.Min(gap - 0.45f, 0.06f);
             }
         }
 
@@ -132,6 +163,56 @@ namespace PixFootball.Sim
             if (S.Options.ForceTackleAfter > 0f && !sackCandidate && c.Pos.Y < S.LosY + S.Options.ForceTackleAfter) return;   // test hook: open-field contact only
             if (S.Options.ForceTackle.HasValue) { ForceOutcome(d, c, S.Options.ForceTackle.Value, diving, closing, category, sackCandidate); return; }
 
+            if (diving)
+            {
+                // v0.7 commit window: the lunge has been decided, but nobody goes down until the diver's hands are really on the carrier
+                // (the old rule downed the runner when the lunge STARTED, up to 1.8 yd away: a phantom tackle)
+                d.TackleCooldown = 1.0f;
+                _pendingDives.Add(new PendingDive { D = d, C = c, Margin = margin, Closing = closing, Category = category, Sack = sackCandidate, Ratio = ratio, T0 = S.Time });
+                return;
+            }
+            Resolve(d, c, diving, margin, closing, category, sackCandidate, ratio);
+        }
+
+        // ---------------------------------------------------------------- dive commit window
+
+        private struct PendingDive { public SimAgent D, C; public float Margin, Closing, Ratio, T0; public int Category; public bool Sack; }
+        private readonly List<PendingDive> _pendingDives = new List<PendingDive>();
+
+        /// <summary>Longest a dive tackle may stay in the air before it counts as a whiff (seconds).</summary>
+        public const float DiveCommitSeconds = GamePace.DiveCommitSeconds;
+        /// <summary>Seconds between first contact of a tackle and the whistle: the carrier is wrapped up and goes down on screen before the play is called dead.</summary>
+        public const float WrapSeconds = GamePace.TackleWrapSeconds;
+
+        private void UpdatePendingDives()
+        {
+            for (int i = _pendingDives.Count - 1; i >= 0; i--)
+            {
+                PendingDive p = _pendingDives[i];
+                SimAgent d = p.D, c = p.C;
+                bool gone = S.Carrier != c || c.State == AgentState.Down || d.State == AgentState.Engaged || d.State == AgentState.Down;
+                if (gone) { _pendingDives.RemoveAt(i); continue; }
+                float gap = (c.Pos - d.Pos).Length - d.Body.Radius - c.Body.Radius;
+                float armReach = 0.42f + 0.18f * SimMath.Rating01(d.R.Tackling);
+                if (S.BodyBetween(d, c)) { _pendingDives.RemoveAt(i); continue; }
+                if (gap <= armReach)
+                {
+                    _pendingDives.RemoveAt(i);
+                    Resolve(d, c, true, p.Margin, p.Closing, p.Category, p.Sack, p.Ratio);
+                    if (S.Phase != PlayPhase.Live) return;
+                    continue;
+                }
+                if (S.Time - p.T0 > DiveCommitSeconds || (d.Move != CarrierMove.Dive && S.Time - p.T0 > 0.12f))
+                {
+                    // the lunge ended short: he lands on the grass with nothing in his hands
+                    _pendingDives.RemoveAt(i);
+                    BrokenTackle(d, c, true);
+                }
+            }
+        }
+
+        private void Resolve(SimAgent d, SimAgent c, bool diving, float margin, float closing, int category, bool sackCandidate, float ratio)
+        {
             if (margin > 0f)
             {
                 // clean stop
@@ -267,17 +348,17 @@ namespace PixFootball.Sim
                 S.QbSack = true;
                 S.SackerId = d.Id;
                 S.LogEvent(SimEventType.Sack, d.Id, c.Id, new Vec3(c.Pos, 0f), type, S.LosY - c.Pos.Y);
-                S.EndPlay(c.Pos.Y <= 0.2f ? EndReason.Safety : EndReason.Sack);
+                S.EndPlayAfter(c.Pos.Y <= 0.2f ? EndReason.Safety : EndReason.Sack, WrapSeconds);
                 if (c.Pos.Y <= 0.2f) { S.SafetyScored = true; }
                 return;
             }
             if (c.Side == SimSide.Offense && c.Pos.Y + 0.2f <= 0f && S.BallSide == SimSide.Offense)
             {
                 S.SafetyScored = true;
-                S.EndPlay(EndReason.Safety);
+                S.EndPlayAfter(EndReason.Safety, WrapSeconds);
                 return;
             }
-            S.EndPlay(EndReason.Tackle);
+            S.EndPlayAfter(EndReason.Tackle, WrapSeconds);
         }
 
         /// <summary>Late hits, face masks and roughing: the defender's discipline decides whether a hard tackle draws a flag.</summary>
@@ -377,6 +458,22 @@ namespace PixFootball.Sim
             if (stopped || c.DragTime > limit)
             {
                 SimAgent lead = _draggers.Count > 0 ? _draggers[0] : S.Agents[c.DragTackler];
+                // the tackler credited (and shown) is the one actually hanging on to him, not whoever grabbed him first and fell behind
+                for (int di = 1; di < _draggers.Count; di++)
+                    if ((_draggers[di].Pos - c.Pos).LenSq() < (lead.Pos - c.Pos).LenSq()) lead = _draggers[di];
+                if ((lead.Pos - c.Pos).Length - lead.Body.Radius - c.Body.Radius > 0.7f)
+                {
+                    // nobody credited is actually touching him any more: the nearest defender on his feet makes the stop
+                    SimAgent near = null; float nd = 99f;
+                    for (int ni = 0; ni < 22; ni++)
+                    {
+                        SimAgent o = S.Agents[ni];
+                        if (o.Side == c.Side || o.State == AgentState.Down || o.Body.FallenTime > 0.3f) continue;
+                        float od = (o.Pos - c.Pos).Length - o.Body.Radius - c.Body.Radius;
+                        if (od < nd) { nd = od; near = o; }
+                    }
+                    if (near != null && nd < 0.7f) lead = near;
+                }
                 TackleType type = _draggers.Count >= 2 ? TackleType.GangTackle : TackleType.Drag;
                 c.Body.SpeedMultiplier = 1f;
                 c.DragMass = 0f;

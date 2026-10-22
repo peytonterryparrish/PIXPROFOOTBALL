@@ -31,6 +31,7 @@ namespace PixFootball.UI
         GameObject _gridPane, _optionsPane;
         TextMeshProUGUI _hoverName, _gridTitle;
         Button _kickBtn, _backBtn;
+        MatchupCard _matchup; GameObject _glassHost; string _lastHome;
         readonly List<OptionSelector> _options = new List<OptionSelector>();
 
         void MakeGlass(RectTransform root)
@@ -40,6 +41,7 @@ namespace PixFootball.UI
             // host + design block: shrinks on 4:3 / 21:9 like the Classic panels
             var host = UiKit.Rect(root, "GlassHost");
             host.anchorMin = Vector2.zero; host.anchorMax = Vector2.one; host.offsetMin = new Vector2(t.safeMarginX, 112f); host.offsetMax = new Vector2(-t.safeMarginX, -150f);
+            _glassHost = host.gameObject;
             var block = UiKit.Rect(host, "Block");
             block.anchorMin = block.anchorMax = new Vector2(0f, 1f); block.pivot = new Vector2(0f, 1f); block.anchoredPosition = Vector2.zero; block.sizeDelta = new Vector2(1728f, 820f);
             var fit = host.gameObject.AddComponent<FitScale>(); fit.Block = block; fit.DesignSize = new Vector2(1728f, 820f);
@@ -47,9 +49,9 @@ namespace PixFootball.UI
             // ---- left: the two slot cards, summary, KICK OFF, BACK
             _gHome = MakeSlotCard(block, 0, 0f);
             _gAway = MakeSlotCard(block, 1, 212f);
-            var sumCard = GlassKit.Panel(block, "SummaryCard", 1.2f, false, t.cornerRadius); UiKit.Anchor(sumCard.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -420f), new Vector2(620f, 84f));
+            var sumCard = GlassKit.Panel(block, "SummaryCard", 1.2f, false, t.cornerRadius); UiKit.Anchor(sumCard.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -420f), new Vector2(620f, 92f));
             _summary = GlassKit.Eyebrow(sumCard.rectTransform, "", TextAlignmentOptions.MidlineLeft, "Summary");
-            GlassKit.Style(_summary, 17f, t.textSecondary, true, 1.5f); _summary.textWrappingMode = TextWrappingModes.Normal;
+            GlassKit.Style(_summary, 20f, t.textSecondary, true, 1f); _summary.textWrappingMode = TextWrappingModes.Normal;
             UiKit.Stretch(_summary.rectTransform, 20f, 6f, 20f, 6f);
             _kickBtn = GlassKit.Button(block, "KICK OFF", KickOff, GlassButtonStyle.Primary, 620f, 80f, "ui_arrow_right", "KickOff");
             UiKit.Anchor((RectTransform)_kickBtn.transform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -520f), new Vector2(620f, 80f));
@@ -79,6 +81,38 @@ namespace PixFootball.UI
             ShowPane(0);
             ApplyGlassNavigation();
             First = _tiles.Count > 0 ? (Selectable)_tiles[Mathf.Clamp(TeamCatalog.IndexOf(_cfg.HomeId), 0, _tiles.Count - 1)].Button : _kickBtn;
+
+            // the pre-game matchup card sits between KICK OFF and the game (one more A starts it)
+            _matchup = MatchupCard.Build(root, StartGame, HideMatchup);
+            _matchup.Root.gameObject.SetActive(false);
+        }
+
+        // ------------------------------------------------------------------ matchup card
+        void ShowMatchup()
+        {
+            _matchup.Fill(_cfg);
+            _glassHost.SetActive(false); _matchup.Root.gameObject.SetActive(true);
+            if (OnScreen != null) OnScreen("MATCHUP");
+            StartCoroutine(SelectLater(_matchup.Kick.gameObject));
+        }
+
+        void HideMatchup()
+        {
+            if (_matchup == null || !_matchup.Visible) return;
+            _matchup.Root.gameObject.SetActive(false); _glassHost.SetActive(true);
+            if (OnScreen != null) OnScreen("TEAM SELECT");
+            StartCoroutine(SelectLater(_kickBtn.gameObject));
+        }
+
+        System.Collections.IEnumerator SelectLater(GameObject g)
+        {
+            yield return null;
+            if (g != null && EventSystem.current != null && g.activeInHierarchy) { UiAudio.Mute(0.2f); EventSystem.current.SetSelectedGameObject(g); }
+        }
+
+        void OnDisable()
+        {
+            if (_glass && _matchup != null && _matchup.Visible) { _matchup.Root.gameObject.SetActive(false); if (_glassHost != null) _glassHost.SetActive(true); }
         }
 
         // ------------------------------------------------------------------ slot cards
@@ -95,10 +129,10 @@ namespace PixFootball.UI
             var f = r.gameObject.AddComponent<GlassFocusable>(); f.Surface = g; f.FocusScale = 1.01f; f.PlaySound = true;
 
             c.Wash = GlassKit.Solid(r, "Wash", new Color(1f, 1f, 1f, 0.5f), 3f); UiKit.Anchor(c.Wash.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(14f, 0f), new Vector2(5f, 150f));
-            c.RoleChip = GlassKit.Surface(r, "RoleChip", GlassKind.Glass, 14f, false, 1.3f); UiKit.Anchor(c.RoleChip.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(34f, -18f), new Vector2(90f, 28f));
-            c.Role = GlassKit.Eyebrow(c.RoleChip.rectTransform, slot == 0 ? "HOME" : "AWAY", TextAlignmentOptions.Center, "Role"); GlassKit.Style(c.Role, 16f, t.textPrimary, true, 2.5f); UiKit.Stretch(c.Role.rectTransform);
-            c.YouChip = GlassKit.Surface(r, "YouChip", GlassKind.Glass, 14f, false, 1.3f); UiKit.Anchor(c.YouChip.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(134f, -18f), new Vector2(70f, 28f));
-            c.You = GlassKit.Eyebrow(c.YouChip.rectTransform, "YOU", TextAlignmentOptions.Center, "You"); GlassKit.Style(c.You, 16f, t.accent, true, 2.5f); UiKit.Stretch(c.You.rectTransform);
+            c.RoleChip = GlassKit.Surface(r, "RoleChip", GlassKind.Glass, 14f, false, 1.3f); UiKit.Anchor(c.RoleChip.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(30f, -16f), new Vector2(104f, 34f));
+            c.Role = GlassKit.Eyebrow(c.RoleChip.rectTransform, slot == 0 ? "HOME" : "AWAY", TextAlignmentOptions.Center, "Role"); GlassKit.Style(c.Role, 20f, t.textPrimary, true, 2.5f); UiKit.Stretch(c.Role.rectTransform);
+            c.YouChip = GlassKit.Surface(r, "YouChip", GlassKind.Glass, 14f, false, 1.3f); UiKit.Anchor(c.YouChip.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(144f, -16f), new Vector2(84f, 34f));
+            c.You = GlassKit.Eyebrow(c.YouChip.rectTransform, "YOU", TextAlignmentOptions.Center, "You"); GlassKit.Style(c.You, 20f, t.accent, true, 2.5f); UiKit.Stretch(c.You.rectTransform);
 
             c.Crest = UiKit.Panel(r, "Crest", Color.white); c.Crest.preserveAspect = true;
             UiKit.Anchor(c.Crest.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(40f, -14f), new Vector2(132f, 132f));
@@ -113,8 +147,8 @@ namespace PixFootball.UI
             }
             c.Ovr = GlassKit.Text(r, "80", GlassText.Title, TextAlignmentOptions.MidlineRight, "Ovr"); GlassKit.Style(c.Ovr, 66f, t.accent, true);
             UiKit.Anchor(c.Ovr.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-30f, 10f), new Vector2(150f, 80f));
-            c.OvrLabel = GlassKit.Eyebrow(r, "OVERALL", TextAlignmentOptions.MidlineRight, "OvrLabel"); GlassKit.Style(c.OvrLabel, 16f, t.textSecondary, true, 3f);
-            UiKit.Anchor(c.OvrLabel.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-30f, -44f), new Vector2(150f, 26f));
+            c.OvrLabel = GlassKit.Eyebrow(r, "OVERALL", TextAlignmentOptions.MidlineRight, "OvrLabel"); GlassKit.Style(c.OvrLabel, 20f, t.textSecondary, true, 2.5f);
+            UiKit.Anchor(c.OvrLabel.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-30f, -46f), new Vector2(160f, 30f));
             return c;
         }
 
@@ -143,7 +177,7 @@ namespace PixFootball.UI
             for (int i = 0; i < _teams.Count; i++)
             {
                 int idx = i; var tm = _teams[i];
-                var tile = GlassWidgets.MakeCrestTile(grid, i, UiKit.Sprite("crest_" + tm.Id), tm.Abbr, tm.Nickname, tm.PrimaryUi, () => AssignTile(idx), 124f, 120f);
+                var tile = GlassWidgets.MakeCrestTile(grid, i, UiKit.Sprite("crest_" + tm.Id), tm.Abbr, string.IsNullOrEmpty(tm.Abbr) ? tm.Nickname.Substring(0, System.Math.Min(3, tm.Nickname.Length)).ToUpperInvariant() : tm.Abbr, tm.PrimaryUi, () => AssignTile(idx), 124f, 120f);
                 var le = tile.GetComponent<LayoutElement>(); if (le != null) UnityEngine.Object.Destroy(le);
                 var sel = tile.gameObject.AddComponent<TileFocus>(); sel.Owner = this; sel.Index = i;
                 _tiles.Add(tile);
@@ -209,6 +243,7 @@ namespace PixFootball.UI
             if (_gHome == null || _cfg == null) return;
             bool userHome = _cfg.UserTeam == PixFootball.Core.Team.Home;
             FillSlot(_gHome, _cfg.HomeId, userHome, _slot == 0); FillSlot(_gAway, _cfg.AwayId, !userHome, _slot == 1);
+            if (_lastHome != _cfg.HomeId) { _lastHome = _cfg.HomeId; if (OnHomeChanged != null) OnHomeChanged(_cfg.HomeId); }
             _gHome.Surface.SetFocus(_slot == 0 ? 0.55f : 0f); _gAway.Surface.SetFocus(_slot == 1 ? 0.55f : 0f);
             _summary.text = SummaryText(_cfg, _cfg.HomeId == _cfg.AwayId);
             for (int i = 0; i < _tiles.Count; i++)
@@ -224,7 +259,7 @@ namespace PixFootball.UI
         // ------------------------------------------------------------------ input and navigation
         void Update()
         {
-            if (!_glass || UiDialog.AnyOpen) return;
+            if (!_glass || UiDialog.AnyOpen || (_matchup != null && _matchup.Visible)) return;
             bool swap = false;
             var pad = UnityEngine.InputSystem.Gamepad.current; if (pad != null && pad.buttonWest.wasPressedThisFrame) swap = true;
             var kb = UnityEngine.InputSystem.Keyboard.current; if (kb != null && kb.cKey.wasPressedThisFrame) swap = true;
@@ -253,8 +288,19 @@ namespace PixFootball.UI
             SetNav(_gAway.Button, up: _gHome.Button, down: _kickBtn, left: null, right: _tiles[GridCols].Button);
             SetNav(_kickBtn, up: _gAway.Button, down: _backBtn, left: null, right: _tiles[_tiles.Count - GridCols].Button);
             SetNav(_backBtn, up: _kickBtn, down: null, left: null, right: _tiles[_tiles.Count - 1].Button);
+            // MATCH OPTIONS page: the left column reaches the option rows, the rows reach KICK OFF below, the first tab goes back to the slot cards
+            if (_optionsPane != null && _optionsPane.activeSelf && _options.Count > 0)
+            {
+                Selectable o0 = _options[0], oLast = _options[_options.Count - 1];
+                SetNav(_gHome.Button, up: null, down: _gAway.Button, left: null, right: o0);
+                SetNav(_gAway.Button, up: _gHome.Button, down: _kickBtn, left: null, right: o0);
+                SetNav(_kickBtn, up: _gAway.Button, down: _backBtn, left: null, right: oLast);
+                SetNav(_backBtn, up: _kickBtn, down: null, left: null, right: oLast);
+                var ln = oLast.navigation; ln.mode = Navigation.Mode.Explicit; ln.selectOnDown = _kickBtn;
+                ln.selectOnUp = _options.Count > 1 ? (Selectable)_options[_options.Count - 2] : (tabs.Length > 1 ? tabs[1] : null); oLast.navigation = ln;
+            }
             for (int k = 0; k < tabs.Length; k++)
-                SetNav(tabs[k], up: null, down: k == 0 && _tiles.Count > 0 ? _tiles[0].Button : (k == 1 && _options.Count > 0 ? (Selectable)_options[0] : null), left: k > 0 ? tabs[k - 1] : null, right: k + 1 < tabs.Length ? tabs[k + 1] : null);
+                SetNav(tabs[k], up: null, down: k == 0 && _tiles.Count > 0 ? _tiles[0].Button : (k == 1 && _options.Count > 0 ? (Selectable)_options[0] : null), left: k > 0 ? tabs[k - 1] : (Selectable)_gHome.Button, right: k + 1 < tabs.Length ? tabs[k + 1] : null);
         }
 
         static void SetNav(Selectable s, Selectable up, Selectable down, Selectable left, Selectable right)

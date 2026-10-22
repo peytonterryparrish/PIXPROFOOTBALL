@@ -212,7 +212,7 @@ namespace PixFootball.Core
                     break;
                 case WeatherKind.Snow:
                     p.CloudCover = 0.95f; p.SunLux *= 0.3f; p.ExposureEV -= night ? 0f : 0.7f; p.Saturation -= 10f; p.Temperature -= 14f; p.Contrast += 2f; p.Tint = -4f; p.GreenBoost = 0.1f;
-                    p.AmbientMultiplier *= 1.3f; p.SunColor = Rgb.Lerp(p.SunColor, new Rgb(0.8f, 0.88f, 1f), 0.6f); p.ExposureEV += night ? 0f : 1.2f;
+                    p.AmbientMultiplier *= 1.3f; p.SunColor = Rgb.Lerp(p.SunColor, new Rgb(0.8f, 0.88f, 1f), 0.6f); p.ExposureEV += night ? 0f : 0.3f;   // v0.7: was +1.2 (tuned while the runtime switch kept the previous preset exposure, GFX-082): with the volume fix the day snow game read as dusk
                     p.SnowfallIntensity = 1f; p.SnowStart = 0.35f; p.SnowTarget = 1f; p.SnowPerMinute = 0.07f; p.WindStrength = 0.25f; p.BreathVapor = true; p.BallSlickness = 0.3f; p.Wetness = 0.15f;
                     p.VolumetricFog = true; p.FogMeanFreePath = night ? 300f : 520f; p.FogAnisotropy = 0.55f; p.FogAlbedo = new Rgb(0.78f, 0.82f, 0.9f);
                     p.FloodlightsOn = true; p.FloodlightScale = night ? 1.1f : (dusk ? 0.95f : 0.6f);

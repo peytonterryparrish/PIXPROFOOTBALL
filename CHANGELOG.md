@@ -4,7 +4,62 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-Nothing yet. Next: the graphics release (shoulder pads, 15 body shapes, glass UI, Draft House stage / studio / jumbotrons / tunnel, PIX Bowl trophy, stadium upgrade), then v0.7.0 "League".
+Nothing yet. Next: **v0.8.0 "Franchise"** - the league and Career Mode (32-team pro league, 138-school college world, drafts, contracts, injuries, season flow, played games feeding the simulation).
+
+## [0.7.0] - 2026-10-22 - "Motion"
+
+The playtest-fix release for the 31 notes of the v0.6.0 playtest (`Docs/QA/v070/PLAYTEST_v060.md`, per-note status in `Docs/QA/v070/SUMMARY.md`). Four parallel tracks: animation and the quarterback (A), engine pace and kicks (B), controls, call sheet, menus and replay (C), graphics (D). Track logs: `anim_qb.md`, `engine_pace.md`, `ui_controls.md`, `ui_menus_part.md`, `graphics_v070.md` in `Docs/QA/v070/`.
+
+### Added
+- **Real quarterback** (`SimAgentView.Flow`, `AnimQbBuilder`): under-center stance and snap received into the belly, 3 / 5 / 7 step drops scrubbed to the simulated drop point, shotgun ready loop, pocket stance with the ball at the chest, seeded pump fake, wind-up and throw clips cut around the detected release frame (`pixqb_throw_set / _run / _away`; the ball leaves the hand on the frame the simulation launches it), scramble and roll-out carry with the ball by the ear, hand-off and play-action takes timed to the simulated exchange.
+- **Hold LT: route view** (`RouteOverlay`): every receiver's route drawn on the turf with arrowheads, read numbers 1-5, the primary read hot, hot routes orange, the run path, and the pass button over each receiver. Follows audibles, flips, hot routes and motion; works as the quarterback during the play.
+- **Throw style swap:** hold a receiver button = bullet pass, tap = touch / lob (it was the other way round). **Timeout** on offense moved from LT to D-pad down.
+- **Play-call strip** (`PlayCallStrip`, `PlayCallModel` sheet mode): glass overlay along the bottom of the live field with eight tabs (Suggested, Formation, Concept, Play Type, Personnel, Recent, Favorites, Special Teams), a group list, three play cards with an enlarged mini-field diagram, and the coach's three picks always visible; a suggested play is one press of A. The same sheet on defense. Search with `/`, quick find by letter on the right stick, favourites and recent calls.
+- **Menu hub** (`MenuHubModel`, `HubNav`, `GlassTicker`): tile hub with HOME / PLAY / PRACTICE / OPTIONS tabs, a hero PLAY NOW tile, a league news ticker built from the league data, full d-pad navigation (locked tiles skipped), staggered reveal. **Matchup card** before kickoff (crests, records, OVR / OFF / DEF, venue, conditions). The menu player wears the home kit and the face of the starting quarterback.
+- **Why the play ended:** a banner for every whistle ("TACKLED BY #52", sack, out of bounds, incomplete, broken up, forward progress ...) from `PlayEndReason`; 6,000 plays checked, no empty reason.
+- **Controlled-player marker on defense:** a 2.5 m ring with a dark outline plus a HUD pill (number and position) over the player you control, visible through bodies, follows B switches.
+- **Roster v2:** 15 photoreal bodies (five body bases times three sizes: Std, Stocky, Athletic, Tall, Runner) chosen by position, height and weight (`BodySelect`); replays use the same bodies.
+- **Presentation sets (prefabs):** three jumbotrons (one hangs over midfield in the stadium scenes), tunnel and news-studio prefabs, stadium kit modules (`PresentationSetBuilder`, `StadiumKitInstaller`); not yet wired into the shows.
+- **Kick meter drives the kick:** the timing cursor, the aim and your press of A decide power and accuracy of your field goals, extra points, punts and kickoffs (`KickMeter`, `SpecialTeamsAI.Meter`).
+- `GamePace` (one pace constant, 0.88), `PlayEndReason`, commit windows, `AnimKit.V7`, `AnimFeel`, `AnimSplayFix`, `GameViewResolution`, `ControlsProbe` and the other tooling listed in the track logs.
+
+### Changed
+- **Pace (note 8):** skill players about 12 % slower (WR top speed 21.2 -> 18.7 mph, 40 yd 4.68 -> 5.27 s), OL x0.93, LB x0.89, DB x0.90, DL unchanged, with slower cuts, turns and a 6 % longer wind-up; the sim was re-fitted with 600-game runs (25.6 points a team, 61.9 plays, 4.41 yd per carry, 7.17 yd per attempt, 2.0 sacks).
+- **Field goals and kickoffs (note 28):** snap to kick 0.70 s -> 1.32 s with a 2-3 step approach; whistle to kickoff 1.18 s -> 2.0 s with a real run-up timed to the kick clip, coverage line level with the ball at contact, hang 3.65-4.3 s.
+- **Locomotion weight (notes 5, 26):** the planted foot stands still (stride cadence trims, a ground fit of all stances so linemen no longer hover and receivers no longer sink, an idle that no longer drags the run cycles).
+- **Commit windows (notes 7, 9, 24, 25):** an action plays its clip out (catch >= 0.4 s, wrap 0.24 s, blocks >= 0.45 s) and the simulation waits for it; no instant state flips.
+- **Menus and display:** the glass UI is the default theme; the canvas scales with `Expand`, so nothing laid out for 1080 high is cut off at any aspect ratio; the first launch is borderless full screen at the monitor's native size and stored sizes are fitted to the monitor.
+- Turf blade-level detail, dirt stains confined to knees / seat / chest instead of broad blotches, shoulder pads rebuilt (no pad shadows, 4 k triangles), player LOD distances 9 / 22 / 55 m.
+- Snow day exposure +1.2 -> +0.3 EV (see Fixed, weather).
+
+### Fixed
+- **Note 1 (defense ring), note 2 (resolution):** see Added and Changed. **Note 21 (two logos):** the weather clones and the stadium markings material both carried the painted shield; every renderer using a markings material now moves to the cleaned material.
+- **Note 3 (play ended for no reason):** phantom dive tackles (the tackle was applied when the lunge started, up to 1.8 yd away; now when the hands reach the carrier) and tackles credited from 3-6 yd away (the drag tackler's hold was wiped every tick); every tackle type now has a maximum gap of 0.59 yd over 8,000 plays.
+- **Note 13 (right foot splays):** 24 locomotion cycles re-twisted (`AnimSplayFix`, originals in `Animations/Clean/_backup_splay`) plus a runtime toe clamp: the carry run right foot 46 -> 20 deg out, the plain run -18..-26 -> within -7..+12 deg.
+- **Notes 12, 17, 18 (stances):** derived WR stance (staggered, knees bent), grounded OL / DL / TE / QB / holder stances, press and off corner stances, linebacker blitz idle, kneeling field-goal holder.
+- **Note 22 (tackle bugs):** a dragged carrier stayed frozen in the wrap pose after the whistle; carriers and tacklers now play on (fall, lie, get up).
+- **Note 27 (replay shows no players):** the recorded line-stance setback was written to the actor's local position, so all 22 actors sat at the origin; it is applied in world space now.
+- **Notes 29, 30 (ball in hand, desync):** the ball blends between hand and simulation over 0.12 s at the release and at the catch; in a touchdown celebration it stays in one hand; the throw clip's release frame matches the simulated release; the catch starts 0.34 s before the ball arrives.
+- Button presses lost on displays faster than 60 Hz (a press on a frame shorter than one 1/60 s step was dropped).
+- Goal-line dive: a quarterback sneak from the 1 scored 3 % after the pace change, about 50 % now.
+- Weather: a runtime preset switch never changed exposure, sky or fog (the volume used a stale profile copy); the pause-menu day / night toggle was affected too.
+- Jersey sleeve openings, armpits and shoulder seams tore open on the padded bodies (welded vertex groups fix the cloth drape).
+- Replay actors use the full body of the live player (`size + 3 * base`).
+- A defensive lineman's lunge could take him past his own top speed.
+
+### Removed
+- Nothing user-facing. The old three-stage full-screen call page stays in the Classic theme only.
+
+### Known Issues
+- Back-pedal below 3 m/s and above 4 m/s still slides 1-4 m/s; the shuffle cornerbacks' right foot is 35-41 deg out (`BGS_CB_Shuffle*`).
+- No start / stop / plant-and-cut transition clips, no left-handed quarterback, no receiver head turn to the ball, no OL stance tells.
+- Defensive line technique alignment (0-9 techniques) is implemented but off (`DefenseAlignment.UseTechniques`): it needs a blocking-scheme recalibration.
+- The jumbotron hangs over midfield, but the tunnel, news studio, roof, light towers and ribbon boards are not placed or wired into the shows yet.
+- Day games under the roof read dark in the stands; skin / eye shading and player contact shadows are unchanged.
+- The sleeve stripe artwork reads as a "wing" on some kits and the shoulder numeral is cut by the cap rim.
+- At 4:3 and 21:9 the call strip keeps its design size; the menu ticker is clipped hard at its right end.
+- Performance (built player, 2560x1440 High, RTX 5090 laptop, `-pixAutotest`): live play 107 FPS average, 70.3 1%-low (target 70, met by a hair), 37 minimum; broadcast layer on 100 / 72 / 59; replays and shows 108 / 72 / 44. Heavy frames are still close-ups of LOD0 photoreal players under night / weather lighting.
+- The autotest's old V3 call-screen checks (three-stage Playbook flow) report FAIL because the default call sheet is now the strip; the new flow is covered by `V070ControlsTests` and the real-match controls probe (`-pixControlsProbe`).
 
 ## [0.6.0] - 2026-10-21 - "Photoreal"
 
@@ -218,7 +273,8 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Some head models and logo source files still carry real-person / real-school names internally; to be replaced before any public release.
 
 
-[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.3.0...v0.4.0

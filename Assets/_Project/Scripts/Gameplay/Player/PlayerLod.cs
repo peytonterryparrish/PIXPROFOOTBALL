@@ -19,7 +19,7 @@ namespace PixFootball.Gameplay
         int _level = -1;
         public static Camera ViewCamera;
         /// <summary>Distances (metres) at which the level steps down: below [0] full detail (LOD0), below [1] LOD1, below [2] LOD2, beyond LOD3 (v0.5.x: four Blender-decimated body levels, silhouette preserved).</summary>
-        public static float Near = 11f, Mid = 26f, Far = 60f;
+        public static float Near = 9f, Mid = 22f, Far = 55f;   // v0.7: LOD0 is a 70 k triangle body: the 1 % lows were close-ups of several LOD0 players under the night lights (v0.6: 11 / 26 / 60)
         /// <summary>1 = default; the quality tiers push the thresholds closer (0.5) or further (2).</summary>
         public static float Bias = 1f;
 

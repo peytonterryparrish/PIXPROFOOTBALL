@@ -84,6 +84,19 @@ namespace PixFootball.Gameplay
         public bool Pitch;
         public PlayKind Kind;                        // scrimmage / kickoff / punt / field goal (kick animation choice)
         public bool Carrying;                        // this player has the ball: the carrier locomotion tree (ball tucked) plays
+        // ---- v0.7.0 (Track A): quarterback flow, event timing, ball sync ----
+        public bool IsQb;                            // the offensive quarterback of a scrimmage play
+        public QbPhase Qb;                           // his simulation state (drop-back, set, scramble, mesh ...)
+        public bool PrevScramble;                    // the throw (wind-up) came off a scramble: throw on the run
+        public int DropSteps;                        // 0 / 3 / 5 / 7 from the play
+        public float DropRemaining;                  // metres left to the drop-back point (distance-matched drop animation)
+        public bool Rolling;                         // roll-out / boot: the drop is a run to the side
+        public float WindupSeconds;                  // simulation seconds from the start of the throw to the release
+        public bool BallReleased;                    // the ball already left the hand when the Throw action began (throw away, pitch)
+        public float EventEta;                       // seconds until the ball arrives (catch) / the exchange completes (hand-off); < 0 = unknown
+        public float Speed;                          // simulated ground speed, m/s
+        public bool Pressure;                        // a rusher is close to the quarterback
+        public bool Whistled;                        // the play is over (the player is walking / standing after the whistle)
     }
 
     public struct ClipPlan
@@ -201,6 +214,7 @@ namespace PixFootball.Gameplay
 
         public static ClipPlan Throw(AnimHints h)
         {
+            if (h.IsQb && !h.Pitch) { var qp = QbThrow(h); if (qp.Valid) return qp; }     // v0.7.0: the derived takes with a measured release
             string key; AnimationClip c;
             float d = h.ThrowDistance;
             string ang = h.ThrowAngle > 50f ? "90degR" : (h.ThrowAngle < -50f ? "90degL" : "0deg");
@@ -224,7 +238,7 @@ namespace PixFootball.Gameplay
             if (!TryPair("handoff", h.Seed, 6f, out a, out b)) { a = V("handoff", h.Seed); b = null; if (a == null) return default(ClipPlan); }
             var c = h.Partner && b != null ? b : a;
             float t = ClipTimingTable.Moment(c, 0.4f);
-            return Up(P(c, Mathf.Max(0f, t - 0.3f), Mathf.Min(c.length, t + 0.7f), 1f, 0.14f, 0.3f));
+            return Up(P(c, Mathf.Max(0f, t - Lead(h.EventEta, 0.15f)), Mathf.Min(c.length, t + 0.7f), 1f, 0.14f, 0.3f));
         }
 
         public static ClipPlan Catch(AnimHints h)
@@ -254,7 +268,7 @@ namespace PixFootball.Gameplay
             }
             if (c == null) return default(ClipPlan);
             float t = ClipTimingTable.Moment(c, 0.35f);
-            return Up(P(c, Mathf.Max(0f, t - 0.2f), Mathf.Min(c.length, t + 0.85f), 1f, 0.12f, 0.3f));
+            return Up(P(c, Mathf.Max(0f, t - Lead(h.EventEta, 0.1f)), Mathf.Min(c.length, t + 0.85f), 1f, 0.12f, 0.3f));
         }
 
         static readonly System.Collections.Generic.List<MoveTakeTable.Take> _spinTakes = new System.Collections.Generic.List<MoveTakeTable.Take>();

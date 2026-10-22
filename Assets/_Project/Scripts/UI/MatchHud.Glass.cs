@@ -258,6 +258,9 @@ namespace PixFootball.UI
             {
                 _hintWasOn = _hintBar != null && _hintBar.activeSelf; _sbWasOn = _scorebugRoot != null && _scorebugRoot.gameObject.activeSelf;
                 if (_hintBar != null) _hintBar.SetActive(false);
+                if (_preSnap != null) _preSnap.Hide();
+                if (_marker != null) _marker.gameObject.SetActive(false);
+                SetRouteBadges(null, null); SetReceiverIcons(null, null);
                 if (_scorebugRoot != null) _scorebugRoot.gameObject.SetActive(false);
                 _bbWasOn = _bottomRoot != null && _bottomRoot.gameObject.activeSelf; if (_bottomRoot != null) _bottomRoot.gameObject.SetActive(false);
             }

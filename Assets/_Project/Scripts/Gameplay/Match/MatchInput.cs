@@ -19,6 +19,8 @@ namespace PixFootball.Gameplay
         public bool DPadLeftHeld, DPadRightHeld;
         public bool LookFlickLeft, LookFlickRight, LookFlickUp, LookHeldDown;
         public bool UsingGamepad = true;
+        /// <summary>v0.7: timeout (R3 on the pad, Backspace on the keyboard; it used to be LT, which now holds the route view and switches call tabs) and the keyboard quick-search key (slash).</summary>
+        public bool Timeout, SearchKey;
         /// <summary>Navigation (menus / overlays): stick or D-pad, one step per press.</summary>
         public int NavX, NavY;
 
@@ -27,7 +29,7 @@ namespace PixFootball.Gameplay
         {
             Move = Look = Vector2.zero; Sprint = LT = false; LTDown = SprintDown = false;
             for (int i = 0; i < 6; i++) { Down[i] = Up[i] = Held[i] = false; HeldTime[i] = 0f; }
-            DPadUp = DPadDown = DPadLeft = DPadRight = View = Menu = Back = Confirm = Cancel = false; DPadLeftHeld = DPadRightHeld = false;
+            DPadUp = DPadDown = DPadLeft = DPadRight = View = Menu = Back = Confirm = Cancel = false; DPadLeftHeld = DPadRightHeld = false; Timeout = SearchKey = false;
             LookFlickLeft = LookFlickRight = LookFlickUp = LookHeldDown = false; NavX = NavY = 0;
         }
     }
@@ -48,6 +50,17 @@ namespace PixFootball.Gameplay
         public static void ClearQueue() { _queue.Clear(); }
 
         public readonly MatchInputFrame Frame = new MatchInputFrame();
+
+        /// <summary>Keyboard quick search: while <see cref="CaptureText"/> is on, typed characters collect here (the play-call sheet drains it each frame).</summary>
+        public static readonly System.Text.StringBuilder TypedText = new System.Text.StringBuilder();
+        public static bool CaptureText;
+        static Keyboard _hookedKeyboard;
+        static void HookText(Keyboard kb)
+        {
+            if (kb == null || ReferenceEquals(kb, _hookedKeyboard)) return;
+            _hookedKeyboard = kb;
+            kb.onTextInput += c => { if (CaptureText && TypedText.Length < 40 && !char.IsControl(c)) TypedText.Append(c); };
+        }
         readonly float[] _heldFor = new float[6];
         float _prevRsMag, _flickCooldown;
         float _navRepeat; int _lastNavX, _lastNavY;
@@ -70,6 +83,7 @@ namespace PixFootball.Gameplay
             if (_swallow > 0) { _swallow--; f.Clear(); f.UsingGamepad = InputDeviceTracker.GamepadActive; return f; }
             f.Clear();
             var pad = Gamepad.current; var kb = Keyboard.current;
+            HookText(kb);
             InputDeviceTracker.Update();
             f.UsingGamepad = InputDeviceTracker.GamepadActive;
 
@@ -87,6 +101,7 @@ namespace PixFootball.Gameplay
                 f.DPadLeftHeld |= pad.dpad.left.isPressed; f.DPadRightHeld |= pad.dpad.right.isPressed;
                 f.View |= pad.selectButton.wasPressedThisFrame; f.Menu |= pad.startButton.wasPressedThisFrame;
                 f.Confirm |= pad.buttonSouth.wasPressedThisFrame; f.Cancel |= pad.buttonEast.wasPressedThisFrame;
+                f.Timeout |= pad.rightStickButton.wasPressedThisFrame;
             }
             if (kb != null)
             {
@@ -103,6 +118,7 @@ namespace PixFootball.Gameplay
                 f.DPadDown |= kb.tKey.wasPressedThisFrame; f.DPadUp |= kb.gKey.wasPressedThisFrame; f.DPadLeft |= kb.qKey.wasPressedThisFrame; f.DPadRight |= kb.eKey.wasPressedThisFrame;
                 f.DPadLeftHeld |= kb.qKey.isPressed; f.DPadRightHeld |= kb.eKey.isPressed;
                 f.View |= kb.tabKey.wasPressedThisFrame; f.Menu |= kb.escapeKey.wasPressedThisFrame;
+                f.Timeout |= kb.backspaceKey.wasPressedThisFrame; f.SearchKey |= kb.slashKey.wasPressedThisFrame;
                 // QA-832 / QA-993: Confirm / Cancel are menu-only keys (Enter, Backspace); Space (A) and F (B) are read through Down[] so a game button never double-fires a menu action
                 f.Confirm |= kb.enterKey.wasPressedThisFrame; f.Cancel |= kb.backspaceKey.wasPressedThisFrame;
             }

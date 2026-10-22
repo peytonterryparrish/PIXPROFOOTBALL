@@ -17,10 +17,10 @@ import phr2_pads as PD
 import phr2_warp as W
 
 STAGING = os.path.join(OUT_ASSET, "Staging_v07", "Meshes")
-B.LOD0_TRIS["Pads"] = 8500
-B.LOD_MIN["Pads"] = [3500, 1500, 600]
+B.LOD0_TRIS["Pads"] = 4000          # hidden under the jersey (only the neck roll can show): the 47k-tri store pads need no more
+B.LOD_MIN["Pads"] = [2000, 900, 400]
 B.NO_SEAM_PARTS.add("Pads")
-PAD_SLEEVE_EXT = 0.07
+PAD_SLEEVE_EXT = 0.0
 
 
 def build2(body, base, out_dir, export=True, pads=True):
@@ -35,7 +35,20 @@ def build2(body, base, out_dir, export=True, pads=True):
         o.data.name = B.PARTS[k]
         objs[B.PARTS[k]] = o
         keep_first_uv(o)
-    P = phr_body.BODY[body]
+    body_key = body
+    if base == "Athletic":
+        # PH2-009: the purchased Athletic body is almost R1 (<= 1.4 cm), so the base gets its own proportions on top of the field: V-taper (broad lats, narrow waist),
+        # sprinter legs (lean thigh, full calf) and a little more arm.
+        import copy
+        A = copy.deepcopy(phr_body.BODY[body])
+        mod = {0.95: (0.93, 0.92), 1.10: (0.90, 0.90), 1.25: (1.00, 0.97), 1.40: (1.06, 1.00), 1.60: (1.00, 1.00)}
+        A["torso"] = [(z, sx * mod[z][0], sy * mod[z][1]) for z, sx, sy in A["torso"]]
+        lmod = {1.05: 0.92, 0.85: 0.93, 0.60: 0.97, 0.40: 1.08, 0.12: 1.0}
+        A["leg"] = [(z, f * lmod[z]) for z, f in A["leg"]]
+        A["arm"] = [(t, f * (1.05 if 0.1 < t < 0.7 else 1.0)) for t, f in A["arm"]]
+        body_key = body + "_Ath"
+        phr_body.BODY[body_key] = A
+    P = phr_body.BODY[body_key]
     saved_pad = (P["pad"], P["pad_up"])
     if pads:
         P["pad"] = 0.0
@@ -43,7 +56,7 @@ def build2(body, base, out_dir, export=True, pads=True):
         padobj = PD.make_pads(arm)
         objs["Pads"] = padobj
     skinned = {n: o for n, o in objs.items() if n not in B.RIGID}
-    phr_body.reshape(arm, skinned, body)
+    phr_body.reshape(arm, skinned, body_key)
     P["pad"], P["pad_up"] = saved_pad
     head, eyes = fit_head(arm, body)
     neck_thicken(head, body)

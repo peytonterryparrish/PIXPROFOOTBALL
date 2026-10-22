@@ -25,7 +25,8 @@ namespace PixFootball.Gameplay
         Gunner,             // punt coverage gunner on the edge: two-point split
         KickoffRunner,      // kickoff coverage runner: upright athletic
         Returner,           // kick / punt returner: two-point, hands out
-        Kicker              // K / P: standing at the spot
+        Kicker,             // K / P: standing at the spot
+        Holder              // v0.7.0: field goal / PAT holder: kneeling, hands out for the snap (the first frames of the Yan holder take, held)
     }
 
     /// <summary>Everything the view needs to pose a player before the snap.</summary>
@@ -101,7 +102,7 @@ namespace PixFootball.Gameplay
             switch (pos)
             {
                 case Position.QB:
-                    if (kind == PlayKind.FieldGoal) s.Kind = StanceKind.Upright;      // the holder
+                    if (kind == PlayKind.FieldGoal) s.Kind = StanceKind.Holder;      // the holder kneels (v0.7.0)
                     else s.Kind = qbShotgun ? StanceKind.QbShotgun : StanceKind.QbUnderCenter;
                     break;
                 case Position.RB:
@@ -143,17 +144,18 @@ namespace PixFootball.Gameplay
                 case StanceKind.TwoPointLine:
                     if (role == PlayerRole.DL) return new[] { ArtKeys.StanceWide9, ArtKeys.StanceLb, ArtKeys.Stance2pt };
                     return new[] { ArtKeys.StanceTe, ArtKeys.StanceLb, ArtKeys.Stance2pt, ArtKeys.IdleAlt };
-                case StanceKind.BackTwoPoint: return new[] { ArtKeys.StanceRb, ArtKeys.StanceHalfback };
-                case StanceKind.QbUnderCenter: return new[] { ArtKeys.QbStanceUnder };
+                case StanceKind.BackTwoPoint: return new[] { ArtKeys.PixStanceRb, ArtKeys.StanceRb, ArtKeys.StanceHalfback };
+                case StanceKind.QbUnderCenter: return new[] { ArtKeys.PixStanceQbUnder, ArtKeys.QbStanceUnder };
                 case StanceKind.QbShotgun: return new[] { ArtKeys.QbStanceShotgun };
-                case StanceKind.ReceiverSplit: case StanceKind.ReceiverSlot: case StanceKind.Gunner: return new[] { ArtKeys.StanceWr, ArtKeys.Stance2pt };
+                case StanceKind.ReceiverSplit: case StanceKind.ReceiverSlot: case StanceKind.Gunner: return new[] { ArtKeys.PixStanceWr, ArtKeys.StanceWr, ArtKeys.Stance2pt };
                 case StanceKind.LinebackerTwoPoint: return new[] { ArtKeys.StanceLb, ArtKeys.IdleAlt };
-                case StanceKind.CornerPress: return new[] { ArtKeys.StanceCbPress, ArtKeys.StanceSafety };
-                case StanceKind.CornerOff: return new[] { ArtKeys.StanceCbOff, ArtKeys.StanceSafety };
+                case StanceKind.CornerPress: return new[] { ArtKeys.PixStanceCbPress, ArtKeys.StanceCbPress, ArtKeys.StanceSafety };
+                case StanceKind.CornerOff: return new[] { ArtKeys.PixStanceCbOff, ArtKeys.StanceCbOff, ArtKeys.StanceSafety };
                 case StanceKind.SafetyDeep: return new[] { ArtKeys.StanceS, ArtKeys.StanceSafety };
                 case StanceKind.KickoffRunner: return new[] { ArtKeys.StanceLb, ArtKeys.Stance2pt };
                 case StanceKind.Returner: return new[] { ArtKeys.StanceS, ArtKeys.Stance2pt };
                 case StanceKind.Kicker: return new[] { ArtKeys.StanceKicker };
+                case StanceKind.Holder: return new[] { ArtKeys.KickHolder };
                 default: return new string[0];
             }
         }

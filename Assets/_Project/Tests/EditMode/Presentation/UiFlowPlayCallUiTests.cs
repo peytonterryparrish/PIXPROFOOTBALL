@@ -21,15 +21,21 @@ namespace PixFootball.Tests
 
         // ------------------------------------------------------------------------------------------- canvas size maths
         [Test]
-        public void CanvasSizeFollowsTheMatchHalfScaler()
+        public void CanvasSizeFollowsTheExpandScaler()
         {
+            // v0.7: CanvasScaler "Expand": the 1920 x 1080 reference rectangle is always fully visible, the canvas grows on the other axis
             Vector2 s43 = PlayCallLayout.CanvasSizeFor(1600f, 1200f);
-            Assert.AreEqual(1663f, s43.x, 3f); Assert.AreEqual(1247f, s43.y, 3f);
+            Assert.AreEqual(1920f, s43.x, 0.5f); Assert.AreEqual(1440f, s43.y, 0.5f);
             Vector2 s169 = PlayCallLayout.CanvasSizeFor(1920f, 1080f);
             Assert.AreEqual(1920f, s169.x, 0.5f); Assert.AreEqual(1080f, s169.y, 0.5f);
             Vector2 s219 = PlayCallLayout.CanvasSizeFor(2560f, 1080f);
-            Assert.AreEqual(935f, s219.y, 6f);
+            Assert.AreEqual(1080f, s219.y, 0.5f); Assert.AreEqual(2560f, s219.x, 0.5f);
             Assert.AreEqual(1920f, PlayCallLayout.CanvasSizeFor(3840f, 2160f).x, 0.5f, "resolution does not matter, aspect does");
+            foreach (float[] sc in new[] { new[] { 1920f, 1080f }, new[] { 2560f, 1440f }, new[] { 3840f, 2160f }, new[] { 1920f, 1200f }, new[] { 3440f, 1440f }, new[] { 1280f, 720f }, new[] { 1024f, 768f } })
+            {
+                Vector2 c = PlayCallLayout.CanvasSizeFor(sc[0], sc[1]);
+                Assert.GreaterOrEqual(c.x, 1919.5f, sc[0] + "x" + sc[1]); Assert.GreaterOrEqual(c.y, 1079.5f, sc[0] + "x" + sc[1]);
+            }
         }
 
         [Test]

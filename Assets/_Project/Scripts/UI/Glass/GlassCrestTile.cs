@@ -17,7 +17,7 @@ public sealed class GlassCrestTile : MonoBehaviour
     public void SetRole(string role, bool accent)
     {
         if (TagChip == null) return;
-        TagChip.gameObject.SetActive(!string.IsNullOrEmpty(role));
+        TagChip.gameObject.SetActive(!string.IsNullOrEmpty(role)); if (Name != null) Name.enabled = string.IsNullOrEmpty(role);   // the tag takes the place of the abbreviation
         if (Tag != null) { Tag.text = role ?? ""; Tag.color = accent ? GlassTheme.T.accent : GlassTheme.T.textPrimary; }
         TagChip.GlowScale = 0.25f; TagChip.SetFocus(accent ? 0.9f : 0f);
     }

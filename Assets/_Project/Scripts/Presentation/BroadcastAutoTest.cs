@@ -51,6 +51,7 @@ namespace PixFootball.Presentation
         public IEnumerator Run()
         {
             Log("---- v0.5 broadcast autotest: " + UpscalerControl.Report());
+            if (Arg("-pixControlsProbe", 0f) > 0f) { yield return new ControlsProbe(_t).Run(); yield break; }   // v0.7 track C: the real-match controls / call sheet / route view probe
             var cfg = new MatchConfig { HomeId = "buffalo_ironhorns", AwayId = "miami_reefrunners", QuarterMinutes = 2, RunoffScale = 0.4f, UserTeam = CoreTeam.Home, Seed = 20261030, CpuVsCpu = false, Difficulty = Difficulty.Pro };
             MatchDirector.ForceAutopilot = true; MatchDirector.AutopilotSnapDelay = 4.4f;
             var previous = MatchDirector.Instance;
@@ -118,10 +119,18 @@ namespace PixFootball.Presentation
                 }
                 // ---- scripted probes (each once, at a quiet moment)
                 var sim = _dir.Sim;
+                if (Arg("-pixFieldProbe", 0f) > 0f && !_probeBusy && !busy && !_bd.ShotActive && _dir.Phase == MatchPhase.PreSnap && sim != null && sim.Kind == PlayKind.Scrimmage && plays >= 1)
+                {
+                    bool offSide = UserSide() == SimSide.Offense;
+                    if (offSide && !_fieldOff) { _fieldOff = true; _t.StartCoroutine(FieldProbe("c_offense", true)); }
+                    else if (!offSide && !_fieldDef) { _fieldDef = true; _t.StartCoroutine(FieldProbe("c_defense", false)); }
+                }
+                if (_fieldOff && _fieldDef && !_probeBusy && Arg("-pixFieldProbe", 0f) > 0f) break;
                 if (maxPlays == 0 && !_probeBusy && !fpOffRun && _dir.Phase == MatchPhase.PreSnap && sim != null && sim.Kind == PlayKind.Scrimmage && !busy && !_bd.ShotActive && UserSide() == SimSide.Offense && plays >= 2 && _fpDone == 0) { fpOffRun = true; _t.StartCoroutine(FirstPerson("bc_fp_offense")); }
                 if (maxPlays == 0 && !_probeBusy && !fpDefRun && _dir.Phase == MatchPhase.PreSnap && sim != null && sim.Kind == PlayKind.Scrimmage && !busy && !_bd.ShotActive && UserSide() == SimSide.Defense && plays >= 2 && _fpDone == 1) { fpDefRun = true; _t.StartCoroutine(FirstPerson("bc_fp_defense")); }
                 if (maxPlays == 0 && !_probeBusy && !galleryRun && _dir.Phase == MatchPhase.PreSnap && sim != null && sim.Kind == PlayKind.Scrimmage && sim.Time < 0.8f && !busy && _bd.Library.Count >= 2 && plays >= 5)
                 { galleryRun = true; yield return OverlayGallery(); }
+                if (Arg("-pixReplayProbe", 0f) > 0f && !manualRun && _dir.Phase == MatchPhase.PreSnap && !busy && _bd.Library.Count >= 1 && plays >= 2) { manualRun = true; yield return ManualReplay(); break; }
                 if (maxPlays == 0 && !_probeBusy && !manualRun && galleryRun && _dir.Phase == MatchPhase.PreSnap && sim != null && sim.Kind == PlayKind.Scrimmage && !busy && _bd.Library.Count >= 3)
                 { manualRun = true; yield return ManualReplay(); }
                 if (maxPlays > 0 && _dir.Phase == MatchPhase.Live && plays >= 2 && sim != null && sim.Time > 1.2f) ShotAfter(0f, "bc_upscaler_" + UpscalerControl.Mode);
@@ -136,6 +145,23 @@ namespace PixFootball.Presentation
             float w3 = 0f; while (w3 < 1.5f) { w3 += Time.unscaledDeltaTime; yield return null; }
             Time.timeScale = 1f;
             Report(plays, tds);
+        }
+
+        bool _fieldOff, _fieldDef;
+
+        /// <summary>v0.7 QA: the route view and the user marker (offense) / the marker (defense) at the line, mid play, and the whistle banner.</summary>
+        IEnumerator FieldProbe(string name, bool routes)
+        {
+            _probeBusy = true;
+            MatchDirector.DebugRouteView = routes;
+            yield return Hold(0.9f); yield return Cap(name + "_presnap");
+            float w = 0f; while (w < 12f && !(_dir.Phase == MatchPhase.Live && _dir.Sim != null && _dir.Sim.Time > 1.1f)) { w += Time.unscaledDeltaTime; yield return null; }
+            Log("  field probe " + name + ": routes shown=" + _dir.RouteViewShown + " user agent " + _dir.UserAgent + " markers ring=" + (_dir.Markers != null));
+            yield return Cap(name + "_live");
+            w = 0f; while (w < 25f && _dir.Phase != MatchPhase.PostPlay) { w += Time.unscaledDeltaTime; yield return null; }
+            yield return Hold(0.5f); yield return Cap(name + "_whistle");
+            MatchDirector.DebugRouteView = false;
+            _probeBusy = false;
         }
 
         SimSide UserSide() { return _dir.Flow.State.Possession == _dir.Config.UserTeam ? SimSide.Offense : SimSide.Defense; }
@@ -252,6 +278,7 @@ namespace PixFootball.Presentation
             var rc = _bd.Replay; var clip = rc.CurrentClip;
             Log("  replaying '" + clip.Title + "' (" + clip.Frames.Count + " frames, " + clip.Duration.ToString("0.0") + " s, key agent " + clip.KeyAgent + " at " + clip.KeyTime.ToString("0.0") + " s)");
             rc.ScriptedInput = new MatchInputFrame();   // neutral scripted pad: we steer the camera through Script()
+            if (Arg("-pixReplayProbe", 0f) > 0f) { for (int pa = 0; pa < 22; pa += 3) Log("  [probe] " + _bd.ReplayActors.DebugDump(pa)); Log("  [probe] camera " + Camera.main.transform.position.ToString("0.0") + " clip key=" + clip.KeyAgent); }
             yield return Hold(0.7f); yield return Cap("bc_manual_free_default");
             int key = clip.KeyAgent; int other = clip.SecondAgent >= 0 ? clip.SecondAgent : (key + 11) % 22;
             rc.Script(ReplayAngle.Free, key, clip.TowardsPlusZ ? 150f : 330f, 22f, 9f, true, false); yield return Hold(0.5f); yield return Cap("bc_manual_free_orbit_dof");

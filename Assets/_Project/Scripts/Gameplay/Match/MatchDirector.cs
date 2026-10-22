@@ -42,6 +42,8 @@ namespace PixFootball.Gameplay
         public PlayStage Stage { get; private set; }
         public MatchCameraRig Cams { get; private set; }
         public FieldMarkers Markers { get; private set; }
+        /// <summary>v0.7: the routes drawn on the turf while the user holds LT (see <see cref="RouteOverlay"/>).</summary>
+        public RouteOverlay Routes { get; private set; }
         public MatchAudio Audio { get; private set; }
         public CollisionFeel Feel { get; private set; }
         public MatchOfficials Officials { get; private set; }
@@ -133,6 +135,7 @@ namespace PixFootball.Gameplay
             Feel = CollisionFeel.Create(MainCamera);
             if (Stage.Contacts != null) Stage.Contacts.Impact += OnContactImpact;
             Markers = FieldMarkers.Create(transform);
+            Routes = RouteOverlay.Create(transform);
             Audio = gameObject.AddComponent<MatchAudio>(); Audio.Init();
             try { Officials = MatchOfficials.Create(transform, HomeInfo, AwayInfo); } catch (Exception e) { Debug.LogWarning("[PIX] officials unavailable: " + e.Message); }
             if (Ui != null)
@@ -367,6 +370,7 @@ namespace PixFootball.Gameplay
                 yield return null;
             }
             Ui.HidePlayCall(); CallModel = null;
+            if (_callSearchTyping) EndCallSearch();
             if (_quit) yield break;
             _playClockCarry = Mathf.Max(_playClock, 7f);
             Play choice = model.Chosen;
@@ -384,9 +388,14 @@ namespace PixFootball.Gameplay
             m.Expire();
         }
 
-        /// <summary>Feeds one frame of controller input to the play-call model: D-pad / stick move, A select, B back, LB / RB page, X filter, Y flip, RT tabs, LT timeout.</summary>
+        /// <summary>
+        /// Feeds one frame of input to the play-call model. Call sheet (glass): D-pad left / right move along the play cards, up / down change the group (formation, concept...), A calls the play,
+        /// B goes back to the suggestions (or clears a search), X cycles the type filter, Y flips the play, LB / RB page the cards, LT / RT switch tab, RS left / right quick-find by initial letter,
+        /// R3 (keyboard Backspace) calls a timeout, "/" types a search on the keyboard. Classic: the old three-stage flow with RT for tabs and LT for the timeout.
+        /// </summary>
         void DriveCallScreen(PlayCallModel m, MatchInputFrame inp)
         {
+            if (m.SheetMode && _callSearchTyping) { DriveCallSearch(m, inp); return; }
             if (inp.View) { Cams.Cycle(); if (!Config.CpuVsCpu) PixSettings.DefaultCamera = Cams.Mode; }
             if (inp.Menu) { SetPaused(true); return; }
             bool rt = inp.Sprint, rtEdge = rt && !_prevRT; _prevRT = rt;
@@ -399,8 +408,29 @@ namespace PixFootball.Gameplay
             else if (inp.Down[(int)Btn.X]) m.CycleFilter(1);
             else if (inp.Down[(int)Btn.Y]) m.ToggleFlip();
             if (rtEdge) m.CycleTab(1);
-            if (ltEdge) m.RequestTimeout();
+            if (m.SheetMode)
+            {
+                if (ltEdge) m.CycleTab(-1);
+                if (inp.LookFlickLeft) m.CycleLetter(-1); else if (inp.LookFlickRight) m.CycleLetter(1);
+                if (inp.Timeout) m.RequestTimeout();
+                if (inp.SearchKey && !MatchInput.CaptureText) { _callSearchTyping = true; MatchInput.CaptureText = true; MatchInput.TypedText.Clear(); }
+            }
+            else if (ltEdge) m.RequestTimeout();
         }
+
+        bool _callSearchTyping;
+
+        /// <summary>Keyboard search mode of the call sheet: typed text filters the plays by name, Enter / Esc / "/" leave it (Backspace deletes, an empty Backspace clears and leaves).</summary>
+        void DriveCallSearch(PlayCallModel m, MatchInputFrame inp)
+        {
+            var typed = MatchInput.TypedText;
+            for (int i = 0; i < typed.Length; i++) { char c = typed[i]; if (c == '/' && i == 0 && m.SearchText.Length == 0) continue; m.AppendSearch(c); }
+            typed.Clear();
+            if (inp.Cancel) { if (m.SearchText.Length == 0) EndCallSearch(); else m.BackspaceSearch(); }
+            if (inp.Confirm || inp.Menu || inp.SearchKey) EndCallSearch();
+        }
+
+        void EndCallSearch() { _callSearchTyping = false; MatchInput.CaptureText = false; MatchInput.TypedText.Clear(); MatchInput.SwallowInput(2); }
 
         float _playClock, _playClockCarry;
         string SituationText()
@@ -483,6 +513,7 @@ namespace PixFootball.Gameplay
         IEnumerator PreSnap()
         {
             Phase = MatchPhase.PreSnap;
+            ResetKickMeter();
             var state = Flow.State;
             _fadeTarget = 0f;
             float t = 0f;
@@ -517,13 +548,13 @@ namespace PixFootball.Gameplay
                     {
                         if (inp.Down[(int)Btn.A]) snap = true;
                         if (inp.DPadDown || inp.LTDown) TryUserTimeout();   // LT is the timeout button everywhere (D-pad down still works here)
-                        SetHint("[A] KICK   [LT] TIMEOUT   [VIEW] CAMERA");
+                        SetHint("[A] SNAP, THEN [A] AGAIN TO KICK ON THE MARKER   [LS] AIM   [LT] TIMEOUT");
                     }
                 }
                 else if (_userIsOffense && kickoff)
                 {
-                    if (t > 1.6f || inp.Down[(int)Btn.A]) snap = true;
-                    SetHint("[A] KICK OFF   (the kick goes by itself in a moment)");
+                    if (inp.Down[(int)Btn.A]) { snap = true; KickPrePress(); } else if (t > 8f) snap = true;   // v0.7: the press starts the run-up with the meter reading; no press for 8 s and the kick goes on a default reading
+                    SetHint("[A] RUN UP AND KICK ON THE MARKER   [LS] AIM");
                 }
                 else
                 {
@@ -554,7 +585,8 @@ namespace PixFootball.Gameplay
                     if (!Config.CpuVsCpu && Flow.TryCpuTimeout(out cto)) { Banner(TeamName(cto).ToUpperInvariant() + " TIMEOUT", UiColorsLite.Blue, 1.8f, ""); _runoff0 = 0f; }
                 }
                 UserAgent = SelectUser(inp, true);
-                Sim.Tick(dt, default(ControlInput), -1);
+                KickInputSample(inp);
+                Sim.Tick(dt, default(ControlInput), KickUserPreSnap());
                 Stage.Present(dt);
                 PresentFrame(dt, 0f, t);
                 if (Broadcast != null) Broadcast.OnPreSnapFrame(dt, t, playClock, snap);
@@ -576,7 +608,7 @@ namespace PixFootball.Gameplay
             Phase = MatchPhase.Live;
             if (Sim.Kind == PlayKind.Kickoff) Audio.Whistle();
             if (ForceFoul.HasValue && Sim.Kind == PlayKind.Scrimmage && state.Possession == Config.UserTeam) { if (Sim.CallPreSnapFoul(ForceFoul.Value, ForceFoulBy, ForceFoulBy == state.Possession ? 3 : 11)) delayFoul = true; ForceFoul = null; }
-            if (!delayFoul) Sim.Tick(0.0167f, new ControlInput { Snap = true }, -1);
+            if (!delayFoul) Sim.Tick(0.0167f, new ControlInput { Snap = true }, KickUserPreSnap());
             Note("snap " + Sim.OffPlay.Name + " vs " + Sim.DefPlay.Name + (delayFoul ? " (delay of game)" : ""));
             if (PlayStarted != null) PlayStarted(Sim);
             if (Broadcast != null) Broadcast.OnSnap(Sim);
@@ -612,7 +644,8 @@ namespace PixFootball.Gameplay
                 MatchInputFrame inp = ReadInput();
                 if (inp.Menu) { SetPaused(true); yield return null; continue; }
                 if (inp.View) { Cams.Cycle(); if (!Config.CpuVsCpu) PixSettings.DefaultCamera = Cams.Mode; }
-                int user; ControlInput ci = BuildControl(inp, dt, out user);
+                int user; ControlInput ci = new ControlInput();
+                if (!KickControl(inp, ref ci, out user)) ci = BuildControl(inp, dt, out user);   // v0.7: the user's kick meter drives the kick
                 sim.Tick(dt, ci, user);
                 Stage.Present(dt);
                 HandleEvents();
@@ -638,8 +671,9 @@ namespace PixFootball.Gameplay
             }
             var outcome = Flow.Finish(sim, decision);
             Note("result " + outcome.Text + " " + Flow.Summary());
-            Markers.SetRing(null); Ui?.SetReceiverIcons(null, MainCamera);
+            Markers.SetRing(null); Ui?.SetReceiverIcons(null, MainCamera); UpdateUserMarker(false); if (Routes != null) Routes.SetShown(false); Ui?.SetRouteBadges(null, MainCamera);
             React(outcome);
+            ShowWhistle(sim, outcome);   // v0.7: why the play ended, in a small banner (skipped when the result banner already says it)
             if (PlayFinished != null) PlayFinished(outcome);
             if (Broadcast != null) Broadcast.BeginPostPlay(outcome, sim);
             float wind = outcome.Headline == Headline.Touchdown ? 4.2f : (sim.Kind == PlayKind.Scrimmage && sim.Result != null && sim.Result.Type == PlayType.Penalty ? 1.6f : 2.9f);
@@ -912,10 +946,12 @@ namespace PixFootball.Gameplay
             Vector2 st = inp.Move;
             Vector2 world = new Vector2(st.x * c + st.y * s, -st.x * s + st.y * c);
             Vec2 move = _frame.DirToSim(world);
-            ci.Move = move; ci.Sprint = inp.Sprint; ci.Protect = inp.LT || inp.LookHeldDown;
+            bool qbHasBall = scrim && side == SimSide.Offense && UserAgent == 0 && a.HasBall && !sim.PassIsThrown;
+            // LT: protect the ball for a carrier; for the quarterback it holds the route view instead (no slower tuck)
+            ci.Move = move; ci.Sprint = inp.Sprint; ci.Protect = (inp.LT && !qbHasBall) || inp.LookHeldDown;
+            if (qbHasBall && inp.LT) _routeHeld = true;
             bool stick = st.magnitude > 0.12f;
 
-            bool qbHasBall = scrim && side == SimSide.Offense && UserAgent == 0 && a.HasBall && !sim.PassIsThrown;
             bool carrier = a.HasBall && !qbHasBall;
             bool anyButton = false;
             for (int i = 0; i < 6; i++) anyButton |= inp.Down[i];
@@ -959,19 +995,37 @@ namespace PixFootball.Gameplay
             return ci;
         }
 
+        /// <summary>How long a receiver button has to be held before the pass goes as a bullet (seconds, unscaled): a tap is shorter.</summary>
+        public const float BulletHoldSeconds = 0.17f;
+        /// <summary>Distance (yards) from the quarterback beyond which a tapped pass is a lob instead of a touch pass.</summary>
+        public const float TapLobDistance = 19f;
+
+        /// <summary>The pass style of a receiver button: held past the threshold = bullet; a tap = touch (soft, accurate) to a close receiver, lob (high arc over the defense) to a deep one.</summary>
+        public static ThrowStyle ThrowStyleFor(float heldSeconds, float distanceYards)
+        {
+            return heldSeconds >= BulletHoldSeconds ? ThrowStyle.Bullet : (distanceYards >= TapLobDistance ? ThrowStyle.Lob : ThrowStyle.Touch);
+        }
+
+        float ReceiverDistance(int receiverAgent)
+        {
+            if (Sim == null || receiverAgent < 0 || receiverAgent >= 22) return 0f;
+            return (Sim.Agents[receiverAgent].Pos - Sim.Agents[0].Pos).Length;
+        }
+
         void BuildThrow(MatchInputFrame inp, ref ControlInput ci)
         {
             for (int i = 0; i < 6; i++)
             {
                 int slot = _iconSlot[i];
                 if (slot <= 0) continue;
-                if (inp.Up[i] || (inp.Held[i] && inp.HeldTime[i] > 0.55f))
+                // v0.7 (note 16): HOLD the receiver's button = bullet (it leaves the moment the hold passes a tiny threshold), TAP = lob / touch (a short toss to a close man, a high ball to a deep one)
+                if (inp.Up[i] || (inp.Held[i] && inp.HeldTime[i] >= BulletHoldSeconds))
                 {
                     if (_fired[i]) continue;
                     _fired[i] = true;
                     float held = inp.HeldTime[i];
                     ci.ThrowToSlot = slot;
-                    ci.ThrowStyle = held < 0.18f ? ThrowStyle.Bullet : (held < 0.5f ? ThrowStyle.Touch : ThrowStyle.Lob);
+                    ci.ThrowStyle = ThrowStyleFor(held, ReceiverDistance(slot));
                     Stage.LobThrow = ci.ThrowStyle == ThrowStyle.Lob;
                     Vector2 look = inp.Look;
                     if (look.magnitude > 0.3f)
@@ -1009,6 +1063,7 @@ namespace PixFootball.Gameplay
         void React(PlayOutcome o)
         {
             Audio.Whistle();
+            if (PlayEndReasonShown != null && o.EndReason != null) PlayEndReasonShown(o.EndReason, o);
             Color col = UiColorsLite.Blue; float secs = 2.4f;
             CoreTeam user = Config.UserTeam;
             bool bigGood = false, bad = false;
@@ -1029,7 +1084,14 @@ namespace PixFootball.Gameplay
                 string sub = "";
                 if (o.Headline == Headline.FirstDown) sub = Ordinal(Flow.State.Down) + " & " + (Flow.State.IsGoalToGo ? "GOAL" : Flow.State.Distance.ToString());
                 else if (o.ScoringTeam.HasValue) sub = Flow.Abbr(CoreTeam.Away) + " " + Flow.State.AwayScore + "  -  " + Flow.Abbr(CoreTeam.Home) + " " + Flow.State.HomeScore;   // away first, like the scorebug
+                if (sub.Length == 0) sub = EndReasonLine(o, o.Text);   // v0.7: the reason is always on screen (sack: who, incomplete: why, turnover: who recovered)
                 Banner(o.Text, col, secs, sub);
+            }
+            else if (o.Text.Length == 0 && !(o.PenaltyCall != null && o.PenaltyAccepted))
+            {
+                // an ordinary run or catch has no headline: say how it ended (note 3, "play ended with no tackle / no obvious reason")
+                string why = EndReasonLine(o, "");
+                if (why.Length > 0) Banner(why, UiColorsLite.Blue, 1.7f, o.LogText);
             }
             if (Officials != null)
             {
@@ -1073,6 +1135,8 @@ namespace PixFootball.Gameplay
             // ring marker under the controlled player
             bool showRing = !Config.CpuVsCpu && UserAgent >= 0 && Stage.Views[UserAgent] != null;
             Markers.SetRing(showRing ? Stage.Views[UserAgent].transform : null);
+            UpdateUserMarker(showRing && Cams.Mode != CameraMode.FirstPerson);   // v0.7 note 1: a marker over the controlled player that never hides behind bodies (offense and defense)
+            UpdateRouteView();
             // v0.6: gold stars under the eligible receivers while the user's offense lines up (All-Pro 2K8); they disappear at the snap
             bool wantStars = !Config.CpuVsCpu && _userIsOffense && Sim.Kind == PlayKind.Scrimmage && Sim.Phase == PlayPhase.PreSnap && PixSettings.PreSnapStars;
             if (wantStars != _starsOn || (wantStars && _starPlay != PlayNumber))
@@ -1119,7 +1183,7 @@ namespace PixFootball.Gameplay
             if (UserAgent < 0) { SetHint(""); return; }
             var a = Sim.Agents[UserAgent];
             SimSide side = UserSide();
-            if (UserAgent == 0 && a.HasBall && !Sim.PassIsThrown && Sim.Kind == PlayKind.Scrimmage) SetHint("[A][B][X][Y][LB][RB] THROW (TAP = BULLET, HOLD = LOB)   [RS] LEAD   [LS] SCRAMBLE");
+            if (UserAgent == 0 && a.HasBall && !Sim.PassIsThrown && Sim.Kind == PlayKind.Scrimmage) SetHint("[A][B][X][Y][LB][RB] THROW (HOLD = BULLET, TAP = LOB)   [RS] LEAD   [LT] ROUTES   [LS] SCRAMBLE");
             else if (a.HasBall) SetHint("[RT] SPRINT   [A] HURDLE   [B] SPIN   [X] DIVE   [Y] TRUCK   [LB][RB] STIFF-ARM   [RS] JUKE   [LT] PROTECT");
             else if (side == SimSide.Defense) SetHint("[A] TACKLE   [Y] JUMP / SWAT   [X] DIVE   [B] SWITCH PLAYER   [RT] SPRINT");
             else if (Sim.Kind == PlayKind.Kickoff && side == SimSide.Offense) SetHint("[LS] MOVE   [RT] SPRINT   [A] JUMP");

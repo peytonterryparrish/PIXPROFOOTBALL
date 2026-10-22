@@ -64,11 +64,13 @@ namespace PixFootball.Gameplay
             else { foreach (var c in _uiHidden) if (c != null) c.enabled = true; _uiHidden.Clear(); }
         }
 
-        IEnumerator LookSettle(int frames = 6) { for (int i = 0; i < frames; i++) yield return null; yield return new WaitForSecondsRealtime(0.25f); }
+        static float LookSettleSeconds() { float v = 0.25f; var a = System.Environment.GetCommandLineArgs(); for (int i = 0; i < a.Length - 1; i++) if (a[i] == "-pixLookSettle") float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v); return v; }
+        IEnumerator LookSettle(int frames = 6) { for (int i = 0; i < frames; i++) yield return null; yield return new WaitForSecondsRealtime(LookSettleSeconds()); }
 
         IEnumerator LookShoot(string preset, string framing, bool compare)
         {
             yield return LookSettle();
+            { var w0 = WeatherSystem.Instance; if (w0 != null) Log("look state " + preset + " " + framing + ": " + w0.DebugState()); }
             yield return Shot("look_" + preset + "_" + framing);
             if (!compare) yield break;
             var ws = WeatherSystem.Instance;
@@ -147,6 +149,7 @@ namespace PixFootball.Gameplay
                 Aim(cam, headPos + (fwd * 0.9f + side * 0.45f) + Vector3.up * 0.08f, headPos, 21f); yield return LookShoot(c.Name, "4_helmet_closeup", c.Compare);
                 Aim(cam, pc + side * 3.4f - fwd * 0.5f + Vector3.up * 0.38f, pc + Vector3.up * 0.04f, 42f); yield return LookShoot(c.Name, "5_field_macro", c.Compare);
                 Aim(cam, new Vector3(-30f, 3.2f, pc.z), new Vector3(60f, 12f, pc.z + 6f), 52f); yield return LookShoot(c.Name, "6_crowd_wide", c.Compare);
+                Aim(cam, new Vector3(-48f, 9f, -12f), new Vector3(0f, 58f, 0f), 46f); yield return LookShoot(c.Name, "7_jumbotron", false);   // v0.7: the centre-hung jumbotron of the stadium kit
             }
             dir.Cams.SetOverride(false);
             Time.timeScale = 1f;

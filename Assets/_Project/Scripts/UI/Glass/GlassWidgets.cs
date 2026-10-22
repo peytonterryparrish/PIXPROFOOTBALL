@@ -241,15 +241,15 @@ namespace PixFootball.UI.Glass
             // team colour wash along the bottom of the tile
             var wash = GlassKit.Solid(r, "Wash", new Color(teamColor.r, teamColor.g, teamColor.b, 0.55f), 3f);
             UiKit.Anchor(wash.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(width - 40f, 4f)); ct.Wash = wash;
-            float cs = Mathf.Min(width, height) * 0.58f;
+            float cs = Mathf.Min(width, height) * 0.52f;
             var img = UiKit.Panel(r, "Crest", Color.white, crest); img.preserveAspect = true; img.enabled = crest != null;
-            UiKit.Anchor(img.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -height * 0.1f), new Vector2(cs, cs)); ct.Crest = img;
-            var nm = GlassKit.Eyebrow(r, label, TextAlignmentOptions.Center, "Name"); GlassKit.Style(nm, 15f, t.textSecondary, true, 1f);
-            UiKit.Anchor(nm.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 20f), new Vector2(width - 12f, 28f)); UiKit.Fit(nm, 9.5f); ct.Name = nm;
+            UiKit.Anchor(img.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -height * 0.07f), new Vector2(cs, cs)); ct.Crest = img;
+            var nm = GlassKit.Eyebrow(r, label, TextAlignmentOptions.Center, "Name"); GlassKit.Style(nm, 22f, t.textSecondary, true, 1.5f);
+            UiKit.Anchor(nm.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 20f), new Vector2(width - 12f, 30f)); UiKit.Fit(nm, 20f); ct.Name = nm;
             // role tag (HOME / AWAY) top left
-            var chip = GlassKit.Surface(r, "RoleChip", GlassKind.Glass, 11f, false, 1.4f); chip.rectTransform.sizeDelta = new Vector2(66f, 22f);
-            UiKit.Anchor(chip.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(8f, -8f), new Vector2(66f, 22f)); ct.TagChip = chip;
-            var tag = GlassKit.Eyebrow(chip.rectTransform, "", TextAlignmentOptions.Center, "Tag"); GlassKit.Style(tag, 13f, t.textPrimary, true, 1.5f); UiKit.Stretch(tag.rectTransform); ct.Tag = tag;
+            var chip = GlassKit.Surface(r, "RoleChip", GlassKind.Glass, 15f, false, 1.4f);
+            UiKit.Anchor(chip.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 18f), new Vector2(92f, 32f)); ct.TagChip = chip;
+            var tag = GlassKit.Eyebrow(chip.rectTransform, "", TextAlignmentOptions.Center, "Tag"); GlassKit.Style(tag, 20f, t.textPrimary, true, 1.5f); UiKit.Stretch(tag.rectTransform); ct.Tag = tag;
             chip.gameObject.SetActive(false);
             var f = r.gameObject.AddComponent<GlassFocusable>();
             f.Surface = g; f.Label = nm; f.FocusScale = 1.06f; f.LabelNormal = t.textSecondary; f.LabelFocus = Color.white;

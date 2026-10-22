@@ -38,6 +38,9 @@ namespace PixFootball.Gameplay
         PhotoPlayer _photo;
         PlayerSize _size;
         PlayerAppearance _lastAppearance; bool _hasAppearance;
+        /// <summary>v0.7 roster v2: body base shape (Std = the v0.6 bodies). Callers that want another base set <see cref="PendingBase"/> right before spawning (PlayStage does); read it back from the avatar.</summary>
+        public BodyBase Base { get; private set; }
+        public static BodyBase PendingBase = BodyBase.Std;
 
         public static PlayerAvatar Spawn(Transform parent, PlayerSize size, TeamColors colors, string name = "Player")
         {
@@ -54,10 +57,16 @@ namespace PixFootball.Gameplay
             _size = size;
             string key = size == PlayerSize.Small ? "player_small" : size == PlayerSize.Large ? "player_large" : "player_medium";
             var prefab = lib != null ? lib.Prefab(key) : null;
+            Base = PendingBase; PendingBase = BodyBase.Std;
             if (lib != null && PixSettings.PhotoPlayers)
             {
-                string pk = size == PlayerSize.Small ? "photo_player_small" : size == PlayerSize.Large ? "photo_player_large" : "photo_player_medium";
+                var pb = size == PlayerSize.Small ? PhotoBody.Small : size == PlayerSize.Large ? PhotoBody.Large : PhotoBody.Medium;
+                string pk = PlayerAppearance.PrefabKey(pb, Base);
                 var pp = lib.Prefab(pk);
+                if ((pp == null || pp.GetComponent<PhotoPlayer>() == null) && Base != BodyBase.Std)
+                {
+                    Base = BodyBase.Std; pk = PlayerAppearance.PrefabKey(pb, BodyBase.Std); pp = lib.Prefab(pk);   // the 15-body roster is not in the library: the v0.6 body of that size
+                }
                 if (pp != null && pp.GetComponent<PhotoPlayer>() != null) { prefab = pp; key = pk; }
                 else Debug.LogWarning("[PlayerAvatar] photoreal prefab '" + pk + "' not available: falling back to the legacy body");
             }
@@ -221,7 +230,7 @@ namespace PixFootball.Gameplay
         public void SetAppearance(int playerId, int roleHint)
         {
             if (_photo == null) return;
-            var a = PlayerAppearance.FromSeed(playerId, BodyType, roleHint);
+            var a = PlayerAppearance.FromSeed(playerId, BodyType, roleHint, Base);
             if (_hasAppearance && _lastAppearance.Key() == a.Key()) return;
             _lastAppearance = a; _hasAppearance = true;
             _photo.ApplyAppearance(a);

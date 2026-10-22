@@ -10,7 +10,7 @@ namespace PixFootball.Gameplay
     /// </summary>
     public sealed class FieldMarkers : MonoBehaviour
     {
-        const float LineY = 0.022f, WidthM = 48.76f;
+        const float LineY = 0.022f, WidthM = 48.76f, RingSize = 2.5f;
         Transform _los, _fd, _ring;
         Renderer _losR, _fdR, _ringR;
         Transform _follow;
@@ -24,7 +24,7 @@ namespace PixFootball.Gameplay
             var rt = PixRuntimeAssets.Load();
             m._los = Strip(go.transform, "LineOfScrimmage", rt != null ? rt.lineLos : null, WidthM, 0.28f, out m._losR);
             m._fd = Strip(go.transform, "FirstDownLine", rt != null ? rt.lineFirstDown : null, WidthM, 0.30f, out m._fdR);
-            m._ring = Strip(go.transform, "UserRing", rt != null ? rt.ringMarker : null, 1.9f, 1.9f, out m._ringR);
+            m._ring = Strip(go.transform, "UserRing", rt != null ? rt.ringMarker : null, RingSize, RingSize, out m._ringR);
             m._ring.localPosition = new Vector3(0f, LineY + 0.01f, 0f);
             m.BuildMarkerLook(rt != null ? rt.ringMarker : null);
             m.HideAll();
@@ -96,11 +96,14 @@ namespace PixFootball.Gameplay
                     Color c = Color.clear; float a = 0f;
                     if (!star)
                     {
-                        // thick bright band with a thin white inner line and a soft outer edge
-                        float band = Mathf.SmoothStep(0.80f, 0.85f, r) * (1f - Mathf.SmoothStep(0.95f, 0.99f, r));
-                        float line = Mathf.SmoothStep(0.64f, 0.66f, r) * (1f - Mathf.SmoothStep(0.69f, 0.71f, r));
-                        a = Mathf.Max(band, line * 0.9f);
-                        c = Color.Lerp(fill, rim, line > band ? 1f : 0f);
+                        // C-001 (v0.7 note 1): a thick bright band with a near-black outline on both edges, so the user's ring reads on grass, paint and shadow from every camera
+                        float core = Mathf.SmoothStep(0.70f, 0.74f, r) * (1f - Mathf.SmoothStep(0.92f, 0.95f, r));
+                        float outline = Mathf.SmoothStep(0.64f, 0.68f, r) * (1f - Mathf.SmoothStep(0.97f, 0.995f, r));
+                        float inner = Mathf.SmoothStep(0.48f, 0.50f, r) * (1f - Mathf.SmoothStep(0.52f, 0.54f, r));
+                        a = Mathf.Max(outline, inner * 0.9f);
+                        Color body = Color.Lerp(fill, rim, Mathf.SmoothStep(0.72f, 0.93f, r));
+                        c = Color.Lerp(new Color(0.02f, 0.03f, 0.05f), body, core);
+                        if (inner > core) c = rim;
                     }
                     else
                     {
@@ -131,7 +134,7 @@ namespace PixFootball.Gameplay
         void BuildMarkerLook(Material template)
         {
             if (template == null) return;
-            _ringMat = MarkerMaterial(template, MakeMarkerTexture(false, new Color(0.10f, 1f, 0.88f), Color.white));
+            _ringMat = MarkerMaterial(template, MakeMarkerTexture(false, new Color(0.15f, 0.95f, 1f), new Color(1f, 1f, 1f)));
             _starMat = MarkerMaterial(template, MakeMarkerTexture(true, new Color(1f, 0.80f, 0.12f), Color.white));
             if (_ringMat != null && _ringR != null) _ringR.sharedMaterial = _ringMat;
         }
@@ -187,7 +190,7 @@ namespace PixFootball.Gameplay
             _pulse += Time.deltaTime;
             Vector3 p = _follow.position; p.y = LineY + 0.012f;
             _ring.position = p;
-            float s = 1.9f + 0.08f * Mathf.Sin(_pulse * 4f);
+            float s = RingSize + 0.1f * Mathf.Sin(_pulse * 4f);
             _ring.localScale = new Vector3(s, s, 1f);
             _ring.rotation = Quaternion.Euler(90f, _pulse * 40f, 0f);
         }

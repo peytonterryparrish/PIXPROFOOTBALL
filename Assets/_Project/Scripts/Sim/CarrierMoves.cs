@@ -33,6 +33,8 @@ namespace PixFootball.Sim
             range = fwd = width = 0f; return false;
         }
 
+        public const float DiveCarrierSpeed = 4.6f, DiveTacklerSpeed = 5.2f;
+
         public void Update()
         {
             for (int i = 0; i < 22; i++)
@@ -40,6 +42,10 @@ namespace PixFootball.Sim
                 SimAgent a = S.Agents[i];
                 if (a.Move == CarrierMove.None) continue;
                 a.MoveTime -= PlaySimulation.Dt;
+                // v0.7: a dive is a committed lunge. The knock used to be braked away by the body in a few ticks (the lunge travelled under a yard, a sneak from the 1 scored 3 to 30 percent);
+                // now the intent holds the lunge speed for the whole move, so the diver really covers ground
+                if (a.Move == CarrierMove.Dive && a.MoveTime > 0f && a.State == AgentState.Normal && a.Body.FallenTime <= 0f)
+                    a.Want = a.MoveDir * (a.HasBall ? DiveCarrierSpeed : DiveTacklerSpeed);
                 // the contest is decided when a defender actually reaches the move (60% of the old range), not the instant the button is pressed
                 float r, f, w;
                 if (!a.MoveResolved && a.MoveTime > 0f && ContestParams(a.Move, out r, out f, out w)) Contest(a, r * 0.62f, f, w, a.Move);
@@ -62,6 +68,7 @@ namespace PixFootball.Sim
                 {
                     // the dive ends with the carrier down where he lands
                     a.State = AgentState.Down;
+                    S.TacklerId = -1; S.LastTackleType = TackleType.None;   // down on his own dive: "runner down", nobody gets the tackle
                     S.LogEvent(SimEventType.Tackle, -1, a.Id, new Vec3(a.Pos, 0f), TackleType.None, 0f, "dive");
                     S.EndPlay(EndReason.Tackle);
                 }
@@ -136,9 +143,18 @@ namespace PixFootball.Sim
                 }
                 case CarrierMove.Dive:
                 {
-                    c.MoveTotal = c.MoveTime = 0.40f;
+                    c.MoveTotal = c.MoveTime = c.HasBall ? 0.40f : 0.46f;
                     c.MoveCooldown = 2f;
-                    c.Body.Knock(heading * (c.HasBall ? 4.2f : 3.6f));
+                    Vec2 dd = heading;
+                    SimAgent target = S.Carrier;
+                    if (!c.HasBall && target != null && target.Side != c.Side)
+                    {
+                        // a tackler lunges AT the carrier (v0.7: the old lunge went along his own heading and the tackle was credited from 1-2 yd away)
+                        Vec2 to = target.Pos + target.Vel * 0.12f - c.Pos;
+                        if (to.LenSq() > 0.01f) { dd = to.Norm(); c.MoveDir = dd; }
+                    }
+                    c.Body.Knock(dd * (c.HasBall ? 4.2f : (c.IsDefensiveLineman ? 3.4f : 4.4f)));
+                    if (c.IsDefensiveLineman) { float lc = c.Body.EffectiveVMax, ls = c.Body.Vel.Length; if (ls > lc) c.Body.Vel = c.Body.Vel * (lc / ls); }   // a lineman's lunge never takes him past his own top speed
                     break;
                 }
             }

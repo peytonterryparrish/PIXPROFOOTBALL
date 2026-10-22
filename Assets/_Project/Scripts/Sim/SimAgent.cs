@@ -53,6 +53,8 @@ namespace PixFootball.Sim
         public AgentAction Intent = AgentAction.Idle;
 
         // ---- generic timers ----
+        /// <summary>v0.7 commit window: until this simulation time the agent's movement is capped at <see cref="CommitSpeedFrac"/> of his top speed (a catch is secured before he turns upfield). Animation can rely on the action lasting at least this long.</summary>
+        public float CommitUntil, CommitSpeedFrac = 1f;
         public float TackleCooldown;
         public float MoveCooldown;
         public float ReactionClock;

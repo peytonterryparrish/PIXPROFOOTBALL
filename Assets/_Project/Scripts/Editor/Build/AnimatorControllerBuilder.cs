@@ -76,6 +76,9 @@ namespace PixFootball.EditorTools
                 else if (a > 70f && a < 110f) { side += spd; nSide++; }
                 log.Append(n).Append("=").Append(spd.ToString("0.00")).Append("@").Append(ang.ToString("0")).Append(" ");
             }
+            // v0.7.0 (A-008, "feet slide at low speed"): a blend tree normalises the clips' time by their length, weighted. The long idle (3-5 s) drags every cycle that is blended with it (walk, back-pedal shuffle at 0.4 s) to a fraction of its cadence, so the feet barely step while the body moves.
+            // The idle is played at the cadence of the walk cycle instead (its motion is a breath, nobody sees it at 3x speed), so a half-weighted shuffle plays at about half its natural cadence = half of its natural foot speed.
+            if (idle != null && tree.children.Length > 0) { var kids = tree.children; kids[0].timeScale = Mathf.Max(1f, idle.length / 1.1f); tree.children = kids; log.Append("idleTimeScale=").Append(kids[0].timeScale.ToString("0.0")).Append(" "); }
             if (jog <= 0f) jog = 3.0f; if (run <= jog) run = jog + 1.6f; if (sprint <= run) sprint = run + 1.8f;
             speedsOut[0] = jog; speedsOut[1] = run; speedsOut[2] = sprint; speedsOut[3] = back > 0f ? back : 2.0f; speedsOut[4] = nSide > 0 ? side / nSide : 2.4f;
             log.Append("| ladder jog=").Append(jog.ToString("0.0")).Append(" run=").Append(run.ToString("0.0")).Append(" sprint=").Append(sprint.ToString("0.0")).Append(" back=").Append(speedsOut[3].ToString("0.0")).Append(" side=").Append(speedsOut[4].ToString("0.0")).Append("; ");

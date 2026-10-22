@@ -212,3 +212,22 @@ Replay:   ReplayAgent.PlayerId               the replay dresses actors with the 
 - `PhotoPlayer.ShowFacialHair = false`: facial hair shells are off until hair cards exist (PHR-018).
 - Shader: jersey and helmet textures of `PIX/Lit` share the inline `sampler_TrilinearClamp` (D3D11 allows 16 samplers; the alpha-tested + emissive variants overflowed).
 - Release: `PIX Football` scripts `ReleasePreflight.Run` (see `Docs/RELEASING.md`), `Tools/MakeChecklist.ps1` writes `Docs/QA/CHECKLIST.md` from the track logs.
+
+## v0.7.0 animation feel (Track A): weight, the real quarterback, commit windows, ball sync
+```
+Gameplay/Player:  SimAgentView.Flow    commit windows (Priority / CommitFilter / NoteCommit), GamePace pacing of non-event clips, the quarterback flow (QbFlow: stance -> distance-matched drop -> pocket -> pump -> scramble -> throw)
+                  SimAgentView.Ground  FitGround: stationary clips (stance / idle / pass-pro) lowered / raised so the lowest sole point rests on the turf (bind-pose ankle / toe heights)
+                  AnimKit.V7           QbPocket / QbDrop / QbThrow / QbPump plans from the derived pixqb_* clips (+ Lead(): event-timed catch and hand-off)
+                  BodyMotion           + ClampToes (toe-out clamp), Carriage (QB chest / ear, press-corner hands up) over LimbIK, LocoTrim (experimental stride loop, off)
+                  ActionAnimator       + Scrub / SetScrub (clip time set by the caller), SetSpeed, RemainingSeconds
+                  LocomotionAnimator   + StrideTrim table, faster slow-down follow, Trim hook
+Gameplay/Match:  PlayStage.Flow       FlowAction (receiver reaches before the ball arrives, QB + back start the hand-off take before they meet, kick clip eta), AddFlowHints, celebration hand
+                  BallFollower         release / attach offset blending (no pop at the release or the catch), Hand mode (the ball stays in one hand through a touchdown celebration), QB carriage poses
+Sim (read-only hooks, additive): PlaySimulation.QbDropPoint / QbDropSteps / QbRolling / QbHandoffTargetId / QbPlanIsHandoff, PlaySimOptions.QbWindupSeconds (0 = calibrated default; the match sets 0.42)
+Editor/Tools:    AnimQbBuilder  derived clips + timing + keys (additive)     AnimSplayFix  foot-twist data fix of the locomotion cycles     AnimLocoRebuild  controller only
+                  AnimQbShots    real-PlayStage film strips, treadmill / stance / kick / catch numbers (D:/PIXFootball/anim_qb)     AnimFeel  foot splay, key dump, clip profile
+```
+- **Commit windows.** Each simulated action has a priority (`SimAgentView.Priority`: tackle / fall 9, celebration 8, kick 7, throw / catch / hand-off 6, jump and carrier moves 5, engaged / shed 3, block 2, locomotion 1). A plan that starts for a committable action (throw, catch, hand-off, jump, kick, celebration, the explosion out of a stance) is not replaced by a lower-priority action until about 85 percent of it has played; the simulation's own commit windows (`GamePace`) and these compose (the sim holds the state, the view holds the clip).
+- **Event-timed clips.** The view reads ahead where a clip has to land on a simulated event: the intended receiver's catch starts `eta` before the ball arrives (hands together on the catch frame), the quarterback and the back start the hand-off take about to meet (`ClipTimingTable` exchange moment), the kick clip is slowed or started part-way so its contact is `PlaySimulation.KickContactTime`, the throw take is stretched to the simulated wind-up (`PlaySimOptions.QbWindupSeconds`) so the release frame is the ball launch.
+- **Derived clips.** `AnimQbBuilder` finds the release of every BoNES throw take (peak forward hand speed while the hand is cocked above the chest), cuts `pixqb_throw_set / _run / _away`, writes the release into `PixClipTiming` (`t` = release, `t2` = wind-up start, `d` = metres of travel for drop-backs) and builds held stances (`pixstance_wr / qb_under / cb_off / cb_press / rb`). `ClipTimingBuilder` clears the table: run `AnimQbBuilder.BuildAll` after it, then `ClipFacingAudit`.
+- **Foot data fix.** `AnimSplayFix` measures the toe-out of each foot at ground contact on the photoreal body for every locomotion cycle and adds a constant offset to the three twist muscles of that leg (originals in `Animations/Clean/_backup_splay`). Re-run it after `CleanBatch`.

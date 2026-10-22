@@ -35,7 +35,8 @@ namespace PixFootball.EditorTools
         static void Begin() { _t0 = EditorApplication.timeSinceStartup; }
 
         public static string ModelPath(string size, string b) { return MeshDir + "/PHR_" + size + "_" + b + ".fbx"; }
-        public static string PrefabPath(string size, string b) { return PrefabDir + "/PIX_PhotoPlayer_" + size + (b == "Std" ? "" : "_" + b) + ".prefab"; }
+        /// <summary>Staging prefab while it exists, the live one after Promote (the QA renders keep working).</summary>
+        public static string PrefabPath(string size, string b) { string p = PrefabDir + "/PIX_PhotoPlayer_" + size + (b == "Std" ? "" : "_" + b) + ".prefab"; return File.Exists(p) || !File.Exists(LivePrefabPath(size, b)) ? p : LivePrefabPath(size, b); }
         public static string LivePrefabPath(string size, string b) { return PhotoPlayerBuilder.PrefabDir + "/PIX_PhotoPlayer_" + size + (b == "Std" ? "" : "_" + b) + ".prefab"; }
         public static string LiveModelPath(string size, string b) { return b == "Std" ? PhotoPlayerBuilder.ModelPath(size) : PhotoPlayerBuilder.MeshDir + "/PHR_" + size + "_" + b + ".fbx"; }
 
@@ -189,7 +190,7 @@ namespace PixFootball.EditorTools
             "Jersey", "Pants", "Socks", "Undersock", "Arms", "Cleats", "SleeveR", "SleeveL", "Wristband", "PlayCard", "Pouch", "Towel", "Head", "Eyes",
             "Head_Brows", "Head_Beard", "Head_Scalp", "Helmet_Shell", "FaceMask", "Chinstrap", "HelmetPad", "Visor", "Pads",
         };
-        static readonly HashSet<string> HideBeyond = new HashSet<string> { "Eyes", "Head_Brows", "Head_Beard", "Head_Scalp", "Visor" };
+        static readonly HashSet<string> HideBeyond = new HashSet<string> { "Eyes", "Head_Brows", "Head_Beard", "Head_Scalp", "Visor", "Pads" };   // v0.7: the pads are an under-layer of the jersey: only LOD0 / LOD1 exist in the prefab (the collar roll is the only visible bit)
 
         /// <summary>One prefab from one body FBX (layout identical to PhotoPlayerBuilder.BuildPrefabs + the Pads part and PhotoPadTint). Overwrites the prefab at prefabPath in place (GUID kept).</summary>
         public static GameObject BuildPrefab(string modelPath, string prefabPath, string label, PhotoPlayerLibrary lib, PadMats pads)
@@ -215,8 +216,10 @@ namespace PixFootball.EditorTools
                 var lods = new List<Renderer>();
                 for (int li = 0; li < 4; li++)
                 {
-                    var r = all.FirstOrDefault(x => x.name == key + "_LOD" + li);
-                    if (r != null) lods.Add(r);
+                    var r = all.FirstOrDefault(x => x != null && x.name == key + "_LOD" + li);
+                    if (r == null) continue;
+                    if (key == "Pads" && li >= 2) { UnityEngine.Object.DestroyImmediate(r.gameObject); continue; }
+                    lods.Add(r);
                 }
                 if (lods.Count == 0) continue;
                 string partKey = key == "Head_Brows" ? "HeadBrows" : key == "Head_Beard" ? "HeadBeard" : key == "Head_Scalp" ? "HeadScalp" : key;
@@ -324,6 +327,15 @@ namespace PixFootball.EditorTools
             if (AssetDatabase.IsValidFolder(PrefabDir)) AssetDatabase.DeleteAsset(PrefabDir);
             AssetDatabase.Refresh();
             Debug.Log("[PhotoRoster] PROMOTED: 15 bodies + pads + Biped clips are live (staging meshes / prefabs deleted)");
+        }
+
+        /// <summary>One launch: re-import the 15 staging FBX, rebuild the staging prefabs, then promote them (batch entry for the lead).</summary>
+        public static void PromoteBatch()
+        {
+            Begin();
+            BuildStaging();
+            Promote();
+            AssetDatabase.SaveAssets();
         }
 
         /// <summary>Rebuilds the 15 live prefabs from the live FBX (the Pads-aware replacement for PhotoPlayerBuilder.BuildPrefabs).</summary>

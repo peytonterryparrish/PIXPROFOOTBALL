@@ -370,7 +370,10 @@ namespace PixFootball.Gameplay
                 var s = _sessions[i];
                 var vc = View(s.Carrier); var vt = View(s.Tackler);
                 if (vc == null || vt == null) { _sessions.RemoveAt(i); continue; }
-                if (s.HoldAt > 0f && !s.Held && s.Time >= s.HoldAt) { s.Hold(true); vc.Rig.SetFrozen(true); vt.Rig.SetFrozen(true); }
+                // A-009 (tackle bug): a dragged carrier's take is frozen until the next tackle event releases it; after the whistle no event ever comes, so the carrier and his tackler stood frozen in the wrap pose for the rest of the broadcast. At the whistle every held take plays on (fall, lie, get up).
+                bool whistled = _stage.Sim != null && _stage.Sim.Phase == PlayPhase.Dead;
+                if (whistled && s.Held) { s.Hold(false); s.HoldAt = 0f; vc.Rig.SetFrozen(false); vt.Rig.SetFrozen(false); }
+                if (s.HoldAt > 0f && !s.Held && !whistled && s.Time >= s.HoldAt) { s.Hold(true); vc.Rig.SetFrozen(true); vt.Rig.SetFrozen(true); }
                 s.Advance(dt);
                 // the simulation's positions this frame (ApplyMatch just set them)
                 Vector3 pc = vc.transform.position, pt = vt.transform.position;

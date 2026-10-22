@@ -111,13 +111,14 @@ namespace PixFootball.Tests
                 var pp = p.GetComponent<PhotoPlayer>();
                 var pads = pp.parts.FirstOrDefault(x => x.key == "Pads");
                 Assert.IsNotNull(pads, p.name + " has no Pads part");
-                Assert.AreEqual(4, pads.lods.Length, p.name + " pads LOD0..3");
+                Assert.AreEqual(2, pads.lods.Length, p.name + " pads LOD0..1 (v0.7: an under-layer of the jersey, hidden beyond LOD1)");
+                Assert.IsTrue(pads.hideBeyond, p.name + " pads hidden beyond LOD1");
                 Assert.IsNotNull(p.GetComponent<PhotoPadTint>(), p.name);
                 var tot = new int[4];
                 foreach (var part in pp.parts)
                 {
                     if (Optional.Contains(part.key)) continue;
-                    for (int l = 0; l < 4; l++) tot[l] += Tris(part.lods[Mathf.Min(l, part.lods.Length - 1)]);
+                    for (int l = 0; l < 4; l++) { if (part.hideBeyond && l >= part.lods.Length) continue; tot[l] += Tris(part.lods[Mathf.Min(l, part.lods.Length - 1)]); }
                 }
                 for (int l = 0; l < 4; l++) Assert.LessOrEqual(tot[l], budget[l], p.name + " LOD" + l + " triangles " + tot[l]);
                 Assert.Greater(tot[0], tot[1]); Assert.Greater(tot[1], tot[2]); Assert.Greater(tot[2], tot[3]);
@@ -143,7 +144,7 @@ namespace PixFootball.Tests
                 {
                     var part = pp.parts.First(x => x.key == key);
                     var b0 = ((SkinnedMeshRenderer)part.lods[0]).sharedMesh.bounds;
-                    for (int l = 1; l < 4; l++)
+                    for (int l = 1; l < Mathf.Min(4, part.lods.Length); l++)
                     {
                         var bl = ((SkinnedMeshRenderer)part.lods[l]).sharedMesh.bounds;
                         float tol = key == "Jersey" ? (l == 1 ? 0.03f : l == 2 ? 0.06f : 0.08f) : 0.08f;   // measured worst: jersey bounds width -5.3 % at LOD2 (Large), -4.1 % LOD3 (Small Stocky): decimated epaulet corners (PH2-012)

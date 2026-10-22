@@ -49,7 +49,7 @@ namespace PixFootball.Presentation
         public const float SampleStep = 1f / 30f;
         public const float MaxSeconds = 26f, PreSnapKeep = 1.1f;
 
-        readonly ReplayLayout[] _layouts = new ReplayLayout[3];
+        readonly ReplayLayout[] _layouts = new ReplayLayout[ReplayClip.BodyKinds];
         readonly Dictionary<SimAgentView, BoneSet> _sets = new Dictionary<SimAgentView, BoneSet>();
         readonly Stack<ReplayFrame> _pool = new Stack<ReplayFrame>();
         readonly BoneSet[] _agentSets = new BoneSet[22];
@@ -78,7 +78,7 @@ namespace PixFootball.Presentation
             for (int i = 0; i < 22; i++)
             {
                 var a = sim.Agents[i]; var v = stage.Views[i];
-                int size = v != null ? (int)v.Size : 1;
+                int size = v != null ? (int)v.Size + 3 * (v.Avatar != null ? (int)v.Avatar.Base : 0) : 1;   // body kind: size + 3 * base (roster v2)
                 _clip.Agents[i] = new ReplayAgent
                 {
                     Size = (byte)size, Side = (byte)(a.Side == SimSide.Offense ? 0 : 1), Slot = (byte)a.Slot, Position = a.PlayPos.ToString(),
@@ -88,7 +88,7 @@ namespace PixFootball.Presentation
                 _agentSets[i] = v != null ? SetFor(v) : null;
                 if (v != null && _layouts[size] == null) _layouts[size] = new ReplayLayout { BoneCount = _agentSets[i].Bones.Length, PosBones = _agentSets[i].PosIndex };
             }
-            for (int s = 0; s < 3; s++) _clip.Layouts[s] = _layouts[s];
+            for (int s = 0; s < ReplayClip.BodyKinds; s++) _clip.Layouts[s] = _layouts[s];
             _clip.BuildOffsets();
             var ok = stage.OffenseKit; var dk = stage.DefenseKit;
             Kit(_clip.OffenseKit, ok); Kit(_clip.DefenseKit, dk); _clip.OffenseHome = ok.Home; _clip.OffenseWord = ok.Wordmark; _clip.DefenseWord = dk.Wordmark; _clip.OffenseCrest = ok.CrestKey; _clip.DefenseCrest = dk.CrestKey;

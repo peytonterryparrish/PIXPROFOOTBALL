@@ -98,7 +98,7 @@ namespace PixFootball.Art
                 foreach (var r in p.lods) if (r != null) r.sharedMaterial = m;
             }
             // shadow casting: small parts do not need to cast shadows (22 players x several cascades)
-            foreach (var k in new[] { "Eyes", "FaceMask", "Visor", "HeadBrows", "HeadBeard", "HeadScalp", "PlayCard", "Wristband", "Head", "Chinstrap", "HelmetPad", "Cleats", "Pouch", "Towel", "SleeveL", "SleeveR" })   // v0.6.0: 22 players x every part x 4 cascades was the biggest shadow cost; the shell, jersey, pants, socks and arms carry the silhouette
+            foreach (var k in new[] { "Eyes", "FaceMask", "Visor", "HeadBrows", "HeadBeard", "HeadScalp", "PlayCard", "Wristband", "Head", "Chinstrap", "HelmetPad", "Cleats", "Pouch", "Towel", "SleeveL", "SleeveR", "Pads" })   // v0.7: pads are hidden under the jersey, they never need a shadow. v0.6.0: 22 players x every part x 4 cascades was the biggest shadow cost; the shell, jersey, pants, socks and arms carry the silhouette
             {
                 Part p; if (!_map.TryGetValue(k, out p)) continue;
                 foreach (var r in p.lods) if (r != null) r.shadowCastingMode = ShadowCastingMode.Off;

@@ -31,7 +31,7 @@ namespace PixFootball.Sim
         {
             get
             {
-                if (_kicked || !UserControlsKicker || S.Phase != PlayPhase.Live || S.Kind == PlayKind.Scrimmage) return false;
+                if (_kicked || _approachAt >= 0f || !UserControlsKicker || S.Phase != PlayPhase.Live || S.Kind == PlayKind.Scrimmage) return false;
                 if (S.Kind == PlayKind.Kickoff) return S.Time >= 0.2f;
                 return _ballInHands;
             }
@@ -41,18 +41,18 @@ namespace PixFootball.Sim
 
         public void UserKick(ControlInput input)
         {
-            if (_kicked || !input.KickPress) return;
+            if (_kicked || !input.KickPress || _userKickPress || !AwaitingUserKick) return;   // (v0.7: a press only counts while the meter is live, and only the first one)
             _userKickPress = true;
             _userKickInput = input;
+            UserTrigger();
         }
 
-        /// <summary>The kick goes when the CPU is kicking, when the user has pressed the kick button, or when the user takes too long.</summary>
+        /// <summary>The kick goes when the CPU is kicking, or once the user's press (or the timeout) has started the approach and the contact time has come.</summary>
         private bool KickGate(float earliest)
         {
             if (!UserControlsKicker) return true;
-            if (_userReadyAt < 0f) _userReadyAt = S.Time;
-            if (_userKickPress && S.Time >= earliest) return true;
-            return S.Time - _userReadyAt > (S.Kind == PlayKind.Kickoff ? UserKickoffTimeout : UserKickTimeout);
+            UserTrigger();
+            return _approachAt >= 0f;
         }
 
         private KickMods Mods()

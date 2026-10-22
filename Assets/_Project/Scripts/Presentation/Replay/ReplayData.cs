@@ -72,7 +72,7 @@ namespace PixFootball.Presentation
 
     public struct ReplayAgent
     {
-        /// <summary>0 small, 1 medium, 2 large (matches <c>PlayerSize</c>).</summary>
+        /// <summary>Body kind = <c>PlayerSize</c> (0 small, 1 medium, 2 large) + 3 * <c>BodyBase</c> (0..4).</summary>
         public byte Size;
         /// <summary>0 offense, 1 defense.</summary>
         public byte Side;
@@ -128,7 +128,8 @@ namespace PixFootball.Presentation
         public Color[] DefenseKit = new Color[6];
         public bool OffenseHome;
         public string OffenseWord, DefenseWord, OffenseCrest, DefenseCrest;
-        public ReplayLayout[] Layouts = new ReplayLayout[3];
+        public const int BodyKinds = 15;
+        public ReplayLayout[] Layouts = new ReplayLayout[BodyKinds];
         public int[] RotOffset = new int[23];
         public int[] PosOffset = new int[23];
         public readonly List<ReplayFrame> Frames = new List<ReplayFrame>();
@@ -156,7 +157,7 @@ namespace PixFootball.Presentation
             for (int i = 0; i < 22; i++)
             {
                 RotOffset[i] = r; PosOffset[i] = p;
-                var l = Layouts[Mathf.Clamp(Agents[i].Size, 0, 2)];
+                var l = Layouts[Mathf.Clamp(Agents[i].Size, 0, BodyKinds - 1)];
                 if (l != null) { r += l.BoneCount; p += l.PosBones.Length; }
             }
             RotOffset[22] = r; PosOffset[22] = p;

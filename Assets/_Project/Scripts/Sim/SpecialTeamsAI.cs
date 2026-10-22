@@ -16,6 +16,10 @@ namespace PixFootball.Sim
         private SimAgent _returner;
         private bool _kicked;
         private float _kickTime;       // sim time at which the kick happens
+        private float _approachAt = -1f;   // sim time at which the kicker's approach (and the kick clip) starts; -1 = not decided yet (a user kicker waits for the press)
+        private float _lead;               // approach length: seconds from the start of the approach to ball contact
+        private Vec2 _approachFrom;
+        private bool _approachLogged;
         private bool _ballInHands;
         private bool _blockResolved;
         private Vec3 _kickPoint;
@@ -69,6 +73,7 @@ namespace PixFootball.Sim
                     S.Ball.Pos = new Vec3(S.BallX0, S.LosY, BallPhysics.BallRadius);
                     S.Ball.PrevPos = S.Ball.Pos;
                     _returner = ChooseReturner();
+                    SetKickoffMarks();
                     break;
                 case PlayKind.Punt:
                     _snapper = AgentWithRole(KickRole.Snapper, 1);
@@ -86,6 +91,7 @@ namespace PixFootball.Sim
                     S.Blocks.ForcePassMode = true;
                     S.Blocks.HasAnchor = true;
                     S.Blocks.AnchorOverride = _holder.Pos;
+                    { Vec2 ks = _holder.Pos + new Vec2(1.8f, -2.6f); _kicker.Body.Pos = ks; _kicker.StartPos = ks; _kicker.Body.Vel = Vec2.Zero; _kicker.ClearHistory(ks); }   // v0.7: room for a 2-3 step approach
                     _returner = null;
                     for (int i = 11; i < 22; i++) if (S.Agents[i].Assign is ReturnerAssignment) _returner = S.Agents[i];
                     break;
@@ -127,7 +133,8 @@ namespace PixFootball.Sim
             }
             else
             {
-                _kickTime = 1.05f;
+                _lead = KickTiming.KickoffApproach;
+                ScheduleKick(KickTiming.KickoffStand + _lead);
                 _ballInHands = true;
             }
         }
@@ -141,7 +148,8 @@ namespace PixFootball.Sim
             {
                 S.GiveBall(to);
                 _ballInHands = true;
-                _kickTime = S.Time + (S.Kind == PlayKind.Punt ? 0.5f : 0.35f);
+                if (S.Kind == PlayKind.Punt) { _lead = KickTiming.PuntApproach; ScheduleKick(S.Time + 0.5f); }
+                else { _lead = KickTiming.FieldGoalApproach; ScheduleKick(Math.Max(S.Time + _lead, KickTiming.FieldGoalSnapToKick)); }
                 return;
             }
             if (S.Ball.GroundContactThisStep)
@@ -228,6 +236,7 @@ namespace PixFootball.Sim
                 if (a.Side == SimSide.Offense)
                 {
                     if (a == _kicker) KickerRunUp(a);
+                    else if (a.Assign is LaneAssignment && !_kicked) HoldKickoffLine(a);
                     else if (a.Assign is LaneAssignment) { if (_kind == KickKind.Onside && _kicked && S.BallSide == SimSide.Offense && (S.Ball.State == BallState.Kick || S.Ball.State == BallState.Loose)) HandsTeamPursue(a); else CoverageRun(a, _kind == KickKind.Onside ? 0.80f : 0.92f); }
                     else a.Want = Vec2.Zero;
                 }
@@ -238,22 +247,112 @@ namespace PixFootball.Sim
                     else ReturnBlocker(a);
                 }
             }
-            bool kickGo = !_kicked && S.Time >= _kickTime && KickGate(_kickTime);
-            if (kickGo && (_kicker.Pos - S.Ball.Pos.XY).Length < 1.6f) DoKickoff();
+            bool kickGo = !_kicked && _approachAt >= 0f && S.Time >= _kickTime && KickGate(_kickTime);
+            if (kickGo && (_kicker.Pos - S.Ball.Pos.XY).Length < 2.0f) DoKickoff();
             else if (kickGo && S.Time >= _kickTime + 1.4f) DoKickoff();   // the ball is struck from the tee: he gets there first (no teleporting the ball)
+        }
+
+        // ---------------------------------------------------------------- v0.7 kick tempo: approach scheduling and the run-up
+
+        /// <summary>Contact is planned at <paramref name="kickAt"/>; the approach starts <c>_lead</c> seconds earlier. A user kicker waits for the press instead (see <see cref="UserTrigger"/>).</summary>
+        private void ScheduleKick(float kickAt)
+        {
+            _approachLogged = false;
+            if (UserControlsKicker) { _approachAt = -1f; _kickTime = float.MaxValue; return; }
+            _kickTime = kickAt;
+            _approachAt = Math.Max(0f, kickAt - _lead);
+        }
+
+        /// <summary>Absolute simulation time of the planned ball contact (-1 while a user kicker has not pressed yet). The kick clip should start at <see cref="SimEventType.KickApproach"/> and make contact here.</summary>
+        public float ContactTime { get { return _approachAt >= 0f && !_kicked ? _kickTime : -1f; } }
+
+        /// <summary>A user kicker's press starts the approach (the meter reading is taken at the press); no press within the timeout starts it on a default reading.</summary>
+        private void UserTrigger()
+        {
+            if (!UserControlsKicker || _approachAt >= 0f || _kicked || !AwaitingUserKick) return;
+            if (_userReadyAt < 0f) _userReadyAt = S.Time;
+            bool timeout = S.Time - _userReadyAt > (S.Kind == PlayKind.Kickoff ? UserKickoffTimeout : UserKickTimeout);
+            if (_userKickPress || timeout)
+            {
+                _approachAt = S.Time;
+                _kickTime = S.Time + _lead;
+            }
+        }
+
+        /// <summary>Starts the Kick action and logs the approach the first time it is due.</summary>
+        private void BeginApproach(SimAgent k)
+        {
+            if (_approachLogged) return;
+            _approachLogged = true;
+            S.PlayAction(k, AgentAction.Kick, Math.Max(0.1f, _kickTime - S.Time) + 0.6f);
+            S.LogEvent(SimEventType.KickApproach, k.Id, -1, new Vec3(k.Pos, 0f), TackleType.None, Math.Max(0f, _kickTime - S.Time));
+        }
+
+        /// <summary>Kickoff marks: the kicker stands 6.5 yd behind the tee and off to the side (5-7 steps of run-up), the kicking line 4.5 yd behind the ball so it can run level with it.</summary>
+        private void SetKickoffMarks()
+        {
+            Vec2 tee = new Vec2(S.BallX0, S.LosY);
+            Vec2 kp = tee + new Vec2(KickTiming.KickoffStartSide, -KickTiming.KickoffStartBack);
+            kp = new Vec2(SimMath.Clamp(kp.X, 2f, FieldGeometry.Width - 2f), kp.Y);
+            _kicker.Body.Pos = kp; _kicker.StartPos = kp; _kicker.Body.Vel = Vec2.Zero;
+            _kicker.Body.Facing = (tee - kp).Norm();
+            _kicker.ClearHistory(kp);
+            for (int i = 0; i < 11; i++)
+            {
+                SimAgent a = S.Agents[i];
+                if (a == _kicker || !(a.Assign is LaneAssignment)) continue;
+                if (a.Pos.Y < S.LosY - 2.5f) continue;
+                Vec2 p = new Vec2(a.Pos.X, S.LosY - KickTiming.CoverageStartBack);
+                a.Body.Pos = p; a.StartPos = p; a.ClearHistory(p);
+            }
+        }
+
+        /// <summary>Kicking line before the ball is struck: waits on its mark, then runs so that it reaches the ball line exactly at contact, at speed.</summary>
+        private void HoldKickoffLine(SimAgent a)
+        {
+            a.Intent = AgentAction.Stance;
+            if (_approachAt < 0f) { a.Want = Vec2.Zero; return; }
+            float remain = _kickTime - S.Time;
+            float tr = KickTiming.CoverageRunLead;
+            if (remain > tr) { a.Want = Vec2.Zero; return; }
+            // constant acceleration from the mark to the ball line, so the line arrives level with the ball (and at speed) exactly at contact
+            a.Intent = AgentAction.Run;
+            float d0 = Math.Max(0.5f, S.LosY - 0.2f - a.StartPos.Y);
+            float u = SimMath.Clamp01((tr - remain) / tr);
+            float targetY = a.StartPos.Y + d0 * u * u;
+            float vy = (targetY - a.Pos.Y) * 6f + (remain > 0f ? 2f * d0 * u / tr : 0f);
+            a.Want = new Vec2(0f, Math.Max(0f, Math.Min(vy, a.Body.EffectiveVMax * 0.97f)));
         }
 
         private void KickerRunUp(SimAgent a)
         {
+            UserTrigger();
+            if (_kicked) { a.Intent = AgentAction.Run; a.Want = Vec2.Zero; return; }
+            Vec2 tee = new Vec2(S.BallX0, S.LosY);
+            a.HasFace = true;
+            if (_approachAt < 0f || S.Time < _approachAt)
+            {
+                // standing on his mark, eyes on the ball
+                a.Intent = AgentAction.Idle;
+                a.Want = Vec2.Zero;
+                a.FaceDir = (tee - a.Pos).Norm();
+                _approachFrom = a.Pos;
+                return;
+            }
+            BeginApproach(a);
             a.Intent = AgentAction.Run;
-            if (_kicked) { a.Want = Vec2.Zero; return; }
-            // a few steps in a curved run-up to the tee
-            Vec2 ball = new Vec2(S.BallX0, S.LosY);
-            Vec2 dir = (ball - a.Pos).Norm();
-            float speed = Math.Min(a.Body.EffectiveVMax * 0.7f, 5f + S.Time * 4f);
-            speed = Math.Min(speed, 1.2f + (ball - a.Pos).Length * 3.2f);   // he plants at the tee instead of running through it
-            a.Want = dir * speed;
-            a.HasFace = true; a.FaceDir = dir;
+            // 5-7 steps on a curved line that ends at the plant spot beside the ball at the contact frame
+            Vec2 plant = tee + new Vec2(0.55f, -0.8f);
+            float u = SimMath.Clamp01((S.Time - _approachAt) / Math.Max(0.1f, _kickTime - _approachAt));
+            float shape = 1.1f;
+            Vec2 target = _approachFrom + (plant - _approachFrom) * (float)Math.Pow(u, shape);
+            Vec2 ff = (plant - _approachFrom) * (shape * (float)Math.Pow(Math.Max(u, 0.02f), shape - 1f) / Math.Max(0.1f, _kickTime - _approachAt));
+            Vec2 want = (target - a.Pos) * 6f + ff;
+            float cap = a.Body.EffectiveVMax * 0.95f;
+            if (want.Length > cap) want = want.Norm() * cap;
+            a.Want = want;
+            Vec2 face = u > 0.75f ? (tee - a.Pos) : want;
+            if (face.LenSq() > 0.04f) a.FaceDir = face.Norm();
         }
 
         private void DoKickoff()
@@ -269,7 +368,7 @@ namespace PixFootball.Sim
                 case KickKind.Onside: dist = 11.5f + S.Rng.Gaussian(0f, 1.3f); hang = 1.15f; break;
                 case KickKind.Squib: dist = 33f + 8f * kp + S.Rng.Gaussian(0f, 3f); hang = 1.9f; break;
                 case KickKind.Rugby: dist = 42f + 10f * kp + S.Rng.Gaussian(0f, 3f); hang = 3.3f; break;
-                default: dist = 52f + 22f * kp + S.Rng.Gaussian(0f, 2.5f + 3f * (1f - acc)); hang = 3.55f + 1.0f * kp; break;
+                default: dist = 52f + 22f * kp + S.Rng.Gaussian(0f, 2.5f + 3f * (1f - acc)); hang = 3.65f + 0.65f * kp; break;   // v0.7: about 4.0 s of hang on a typical deep kick (3.65 - 4.3)
             }
             if (_kind != KickKind.Onside) dist *= mods.Power;
             float latErr = S.Rng.Gaussian(0f, (0.8f + 4.5f * (1f - acc)) * mods.Spread);
@@ -418,11 +517,13 @@ namespace PixFootball.Sim
 
         private void PunterUpdate(SimAgent a)
         {
+            UserTrigger();
             a.Intent = AgentAction.Idle;
             a.HasFace = true; a.FaceDir = new Vec2(0f, 1f);
             if (_kicked) { a.Want = Vec2.Zero; return; }
-            // take two steps forward into the kick
-            if (_ballInHands) a.Want = new Vec2(0f, 1f) * 3.0f;
+            // take two steps forward into the kick (a user punter stands until he presses)
+            if (_ballInHands && _approachAt >= 0f && S.Time >= _approachAt) { BeginApproach(a); a.Want = new Vec2(0f, 1f) * 3.0f; }
+            else if (_ballInHands) a.Want = Vec2.Zero;
         }
 
         private void DoPunt()
@@ -527,14 +628,33 @@ namespace PixFootball.Sim
 
         private void FgKickerUpdate(SimAgent a)
         {
+            UserTrigger();
+            if (_kicked) { a.Intent = AgentAction.Run; a.Want = Vec2.Zero; return; }
+            a.HasFace = true;
+            Vec2 spot = _holder.Pos + new Vec2(0f, 0.4f);
+            if (!_ballInHands || _approachAt < 0f || S.Time < _approachAt)
+            {
+                // on his mark beside the holder, watching the ball come back
+                a.Intent = AgentAction.Idle;
+                a.Want = Vec2.Zero;
+                a.FaceDir = (spot - a.Pos).LenSq() > 0.04f ? (spot - a.Pos).Norm() : new Vec2(0f, 1f);
+                _approachFrom = a.Pos;
+                return;
+            }
+            BeginApproach(a);
             a.Intent = AgentAction.Run;
-            if (_kicked) { a.Want = Vec2.Zero; return; }
-            // approach the ball placed at the holder
-            if (!_ballInHands) { a.Want = Vec2.Zero; return; }
-            Vec2 spot = _holder.Pos + new Vec2(0f, 0.2f);
-            Vec2 toBall = spot - a.Pos;
-            a.Want = toBall.Norm() * Math.Min(a.Body.EffectiveVMax * 0.55f, toBall.Length * 3.5f);
-            a.HasFace = true; a.FaceDir = new Vec2(0f, 1f);
+            // 2-3 steps in, planting beside the ball at the contact frame
+            Vec2 plant = _holder.Pos + new Vec2(0.6f, -0.6f);
+            float span = Math.Max(0.1f, _kickTime - _approachAt);
+            float u = SimMath.Clamp01((S.Time - _approachAt) / span);
+            const float shape = 1.15f;
+            Vec2 target = _approachFrom + (plant - _approachFrom) * (float)Math.Pow(u, shape);
+            Vec2 ff = (plant - _approachFrom) * (shape * (float)Math.Pow(Math.Max(u, 0.02f), shape - 1f) / span);
+            Vec2 want = (target - a.Pos) * 7f + ff;
+            float cap = a.Body.EffectiveVMax * 0.6f;
+            if (want.Length > cap) want = want.Norm() * cap;
+            a.Want = want;
+            a.FaceDir = u > 0.6f ? (spot - a.Pos).Norm() : (want.LenSq() > 0.04f ? want.Norm() : new Vec2(0f, 1f));
         }
 
         private void FgRush(SimAgent a)

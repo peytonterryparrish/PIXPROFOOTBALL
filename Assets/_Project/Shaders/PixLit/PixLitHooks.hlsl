@@ -216,6 +216,13 @@ void PixSurfaceHook(FragInputs input, LayerTexCoord ltc, float3 V, inout Surface
         sd.baseColor *= lerp(1.0, 0.7 + 0.6 * micro * micro2 * 1.6, _PixMicro.z);
         float3 mn = PixGradFromTex(SAMPLE_TEXTURE2D(_PixMicroNormal, sampler_PixMicroNormal, mUV), _PixMicro.y, float3(1, 0, 0), float3(0, 0, 1));
         normalTS += mn;
+        // v0.7 blade detail: fine blades stretched along the mowing direction with per-blade tone and a tiny normal ripple, fading out with distance (the macro stripes carry the far view)
+        float bladeFade = (1.0 - smoothstep(14.0, 55.0, length(input.positionRWS))) * (1.0 - artificial);
+        float bl = SAMPLE_TEXTURE2D(_PixMicroTex, sampler_PixMicroTex, float2(xz.x * 13.0, xz.y * 3.1)).r;
+        float bl2 = SAMPLE_TEXTURE2D(_PixMicroTex, sampler_PixMicroTex, float2(xz.x * 29.0 + 0.2, xz.y * 6.3)).r;
+        float blade = bl * 0.55 + bl2 * 0.45;
+        sd.baseColor *= lerp(1.0, lerp(float3(0.74, 0.88, 0.58), float3(1.2, 1.12, 0.82), blade), 0.5 * bladeFade);
+        normalTS += float3(bl - 0.5, bl2 - 0.5, 0.0) * 0.14 * bladeFade;
         // the sheen of the lay of the grass: stripes that bend away from the camera are lighter and glossier
         sd.perceptualSmoothness = lerp(0.14 + 0.05 * par, 0.34 + 0.06 * par, artificial);
         if (artificial > 0.5)
@@ -284,20 +291,25 @@ void PixSurfaceHook(FragInputs input, LayerTexCoord ltc, float3 V, inout Surface
         // dirt, grass stains, mud by region
         float4 reg = SAMPLE_TEXTURE2D(_PixRegions, sampler_PixRegions, uv);
         float intensity = saturate(reg.r * _PixDirtA.x + reg.g * _PixDirtA.y + reg.b * _PixDirtA.z + reg.a * _PixDirtA.w);
+        // v0.7: grass streaks and mud smears, not blotches (full coverage of a white kit read as camouflage): the stain is confined to the core of its region, drawn as soft
+        // elongated smears (noise stretched along the limb, slightly skewed) with a few small mud splashes; fine grime stays a faint overall tint.
         float dn = SAMPLE_TEXTURE2D(_PixDirtTex, sampler_PixDirtTex, uv * float2(1.0, 1.0)).r;
         float dn2 = SAMPLE_TEXTURE2D(_PixDirtTex, sampler_PixDirtTex, uv * 3.1 + 0.37).r;
-        float pattern = saturate(dn * 0.85 + dn2 * 0.2 - 0.05);
+        float2 suv = float2(uv.x * 2.2 + uv.y * 0.9, uv.y * 11.0 - uv.x * 1.5);
+        float streak = SAMPLE_TEXTURE2D(_PixDirtTex, sampler_PixDirtTex, suv).r * 0.7 + SAMPLE_TEXTURE2D(_PixDirtTex, sampler_PixDirtTex, suv * float2(0.45, 0.3) + 0.61).r * 0.45;
         float grime = _PixDirtB.z;
-        float tI = pow(intensity, 0.85);
-        float thresh = 1.03 - tI * 0.46;
-        float dirtMask = smoothstep(thresh, thresh + 0.1, pattern) * saturate(intensity * 3.0);
-        dirtMask = saturate(dirtMask + grime * 0.25 * pattern);
+        float core = smoothstep(0.12, 0.8, intensity);                                        // only where this region really took the hits
+        float thr = lerp(0.98, 0.5, pow(intensity, 0.8));
+        float smear = smoothstep(thr, thr + 0.32, streak) * core;
+        float splash = smoothstep(0.86 - intensity * 0.12, 0.93, dn2 * 0.6 + dn * 0.55) * core * saturate(_PixDirtB.y * 0.8 + 0.25);   // small mud splatter
+        float dirtMask = saturate(max(smear, splash));
+        dirtMask = saturate(dirtMask + grime * 0.12 * (0.5 + 0.5 * dn));
         float grassFrac = _PixDirtB.x;
         float3 soilCol = _PixDirtColor.rgb;
-        float3 grassCol = float3(0.075, 0.10, 0.04);
-        float3 stain = lerp(soilCol, grassCol, grassFrac * saturate(0.35 + dn2));
-        stain *= 0.7 + 0.6 * dn2;
-        albedo = lerp(albedo, stain, dirtMask * 0.62);
+        float3 grassCol = float3(0.13, 0.20, 0.05);
+        float3 stain = lerp(soilCol, grassCol, grassFrac * saturate(0.5 + smear));
+        stain *= 0.8 + 0.4 * dn2;
+        albedo = lerp(albedo, stain, dirtMask * 0.55);
         smooth = lerp(smooth, 0.12, dirtMask);
         normalTS *= (1.0 - dirtMask * 0.35);
 

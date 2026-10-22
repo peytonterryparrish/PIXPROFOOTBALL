@@ -24,7 +24,7 @@ namespace PixFootball.Gameplay
     /// Free roam drives a single view directly; the match drives 22 of them (ApplyMatch) through a PlayableGraph so any mocap clip
     /// can be layered over the locomotion blend tree.
     /// </summary>
-    public class SimAgentView : MonoBehaviour
+    public partial class SimAgentView : MonoBehaviour
     {
         public PlayerAvatar Avatar;
         public LocomotionAnimator Anim;
@@ -79,6 +79,7 @@ namespace PixFootball.Gameplay
             if (v.Avatar.Animator != null) v.Avatar.Animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;   // players outside the camera are not posed
             v.Ragdoll = go.AddComponent<RagdollRig>(); v.Ragdoll.Setup(v.Avatar.Animator);
             v.Motion = new BodyMotion(v.Avatar);
+            v.CaptureRest();
             if (v.Avatar.Animator != null)
             {
                 var rt = PixRuntimeAssets.Load();
@@ -163,7 +164,7 @@ namespace PixFootball.Gameplay
         public void ResetForPlay(Vector3 position, float yaw)
         {
             transform.position = position; _yaw = yaw; transform.rotation = Quaternion.Euler(0f, yaw, 0f);
-            _lastAction = (AgentAction)(-1); _ownsClip = false; _kickT = -1f; _lastRush = RushMove.None; ContactDriven = false; _reaction = false; _clipYaw = 0f; _clipYawCur = 0f; _loopYaw = 0f; _tableYaw = 0f; _setback = 0f; if (Avatar != null) { Avatar.SetVisualYaw(0f); Avatar.transform.localPosition = Vector3.zero; }
+            _lastAction = (AgentAction)(-1); _ownsClip = false; ResetFlow(); _groundOff = 0f; if (Avatar != null && Avatar.Root != null) { var rp = Avatar.Root.localPosition; Avatar.Root.localPosition = new Vector3(rp.x, 0f, rp.z); } _kickT = -1f; _lastRush = RushMove.None; ContactDriven = false; _reaction = false; _clipYaw = 0f; _clipYawCur = 0f; _loopYaw = 0f; _tableYaw = 0f; _setback = 0f; if (Avatar != null) { Avatar.SetVisualYaw(0f); Avatar.transform.localPosition = Vector3.zero; }
             if (Ragdoll != null) Ragdoll.Cancel();
             if (Motion != null) Motion.Cancel();
             if (Rig != null) Rig.StopImmediate();
@@ -179,6 +180,7 @@ namespace PixFootball.Gameplay
             _yaw = Mathf.MoveTowardsAngle(_yaw, target, turnRate * dt);
             transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
             Vector3 f = Forward;
+            if (Motion != null) Anim.Trim = Motion.LocoTrim;      // v0.7.0: stride matching
             Anim.Drive(velocity, f, dt);
             Anim.SetProtect(h.Carrying);     // v0.8: ball carriers run with the ball tucked (Carry locomotion tree)
             if (Rig != null && !Rig.Valid) { Rig.EnsureBuilt(); if (!Rig.Valid) return; }   // the pooled player was just re-activated: wait for his graph
@@ -190,14 +192,22 @@ namespace PixFootball.Gameplay
                 Motion.LocomotionWeight = (ContactDriven || (Ragdoll != null && Ragdoll.Active)) ? 0f : 1f - (Rig != null ? Mathf.Clamp01(Rig.Weight) : 0f);
             }
 
-            if (ContactDriven) { _lastAction = action; _lastRush = h.Rush; return; }   // an authored take / ragdoll / get-up is running
+            _clock += dt;
+            if (Motion != null && !h.IsQb)
+            {
+                bool jam = !ContactDriven && action == AgentAction.Stance && Stance.Kind == StanceKind.CornerPress;      // v0.7.0: the press corner's hands are up and ready
+                Motion.SetCarriage(jam ? BodyMotion.Carriage.Jam : BodyMotion.Carriage.None); Motion.CarriageFloor = jam ? 0.85f : 0f;
+            }
+            if (ContactDriven) { _lastAction = action; _lastRush = h.Rush; _commitUntil = 0f; return; }   // an authored take / ragdoll / get-up is running
+            if (QbFlow(action, h, shotgunQb, dt)) { _lastAction = action; _lastRush = h.Rush; return; }      // v0.7.0: the quarterback follows his simulation state (drop-back, pocket, scramble)
+            action = CommitFilter(action);                                                               // v0.7.0: a throw / catch / hand-off plays out unless a higher priority event arrives
             bool changed = action != _lastAction || (action == AgentAction.Engaged && h.Rush != _lastRush);
             if (!changed) return;
             var prevAction = _lastAction;
             _lastAction = action; _lastRush = h.Rush;
 
             ClipPlan plan = default(ClipPlan);
-            bool owns = true;
+            bool owns = true, getOff = false;
             switch (action)
             {
                 case AgentAction.Stance: plan = StanceClips.Plan(Stance, h.Seed, Role); break;
@@ -214,14 +224,15 @@ namespace PixFootball.Gameplay
                 case AgentAction.Tackled: plan = h.Tackle != TackleType.None || h.Sack ? AnimKit.Tackle(h, true) : AnimKit.Fall(h.Seed); break;
                 case AgentAction.Fallen: plan = AnimKit.Fall(h.Seed); break;
                 case AgentAction.Celebrate: plan = AnimKit.Celebrate(h.Seed); break;
-                case AgentAction.Kick: plan = AnimKit.Kick(h.Kind, h.Seed, false); if (!plan.Valid) { _kickT = 0f; owns = false; } break;     // v0.8: kicking mocap, the procedural swing stays as the fallback
+                case AgentAction.Kick: plan = AnimKit.Kick(h.Kind, h.Seed, false, h.EventEta); if (!plan.Valid) { _kickT = 0f; owns = false; } break;     // v0.8: kicking mocap, the procedural swing stays as the fallback
                 default: owns = false; break;
             }
-            if (!plan.Valid && prevAction == AgentAction.Stance && action != AgentAction.Stance && action != AgentAction.Kick) plan = AnimKit.GetOff(Role, h.Seed);     // v0.8: explode out of the stance
+            if (!plan.Valid && prevAction == AgentAction.Stance && action != AgentAction.Stance && action != AgentAction.Kick) { plan = AnimKit.GetOff(Role, h.Seed); getOff = plan.Valid; }     // v0.8: explode out of the stance
+            if (!plan.Valid && Role == PlayerRole.QB && h.Kind == PixFootball.Sim.PlayKind.FieldGoal && prevAction == AgentAction.Stance && action != AgentAction.Stance && action != AgentAction.Kick) plan = AnimKit.Holder(h.Seed);      // v0.7.0: the holder catches the snap and places the ball
             if (!plan.Valid && Role == PlayerRole.QB && (h.Kind == PixFootball.Sim.PlayKind.Kneel || h.Kind == PixFootball.Sim.PlayKind.Spike) && action != AgentAction.Stance) plan = AnimKit.QbSpecial(h.Kind, h.Seed);
             var mv = MoveFor(action, lateralHint);
             if (mv != PlayerMove.None && !(action == AgentAction.Spin && plan.Valid)) { Anim.Trigger(mv); owns = false; }
-            if (plan.Valid && Rig != null) { Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); }
+            if (plan.Valid && Rig != null) { plan = PacedPlan(action, plan); Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); NoteCommit(action, plan, getOff); }
             else if (_ownsClip && Rig != null) { Rig.Stop(0.18f); _ownsClip = false; }
         }
 
@@ -277,6 +288,7 @@ namespace PixFootball.Gameplay
         {
             if (Avatar != null && Avatar.Lod != null && ((++_lodTick + AgentId) & 3) == 0) Avatar.Lod.Update(transform.position);
             UpdateFacingLoop(Time.deltaTime);
+            FitGround(Time.deltaTime);
             if (Motion != null) Motion.Late(Time.deltaTime);
             if (_kickT < 0f || Avatar == null || Avatar.RightUpperLeg == null || Avatar.RightLowerLeg == null) return;
             _kickT += Time.deltaTime;

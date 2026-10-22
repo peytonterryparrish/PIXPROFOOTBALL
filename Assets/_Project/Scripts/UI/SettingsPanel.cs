@@ -106,7 +106,7 @@ namespace PixFootball.UI
             UiControls.SliderRow(camp, "Field of view", (PixSettings.CameraFovTrim + 10f) / 25f, x => { PixSettings.CameraFovTrim = x * 25f - 10f; });
             UiControls.Selector(camp, "First-person facemask", new[] { "On", "Off" }, PixSettings.FirstPersonMask ? 0 : 1, i => { PixSettings.FirstPersonMask = i == 0; });
             UiControls.Selector(camp, "Pre-snap stars", new[] { "On", "Off" }, PixSettings.PreSnapStars ? 0 : 1, i => { PixSettings.PreSnapStars = i == 0; });
-            UiControls.Selector(camp, "Player models (next match)", new[] { "Photoreal", "Classic" }, PixSettings.PhotoPlayers ? 0 : 1, i => { PixSettings.PhotoPlayers = i == 0; });
+            UiControls.Selector(camp, "Models (next match)", new[] { "Photoreal", "Classic" }, PixSettings.PhotoPlayers ? 0 : 1, i => { PixSettings.PhotoPlayers = i == 0; });
 
             var bc = sp.NewPage(holder, "Broadcast");
             UiControls.Selector(bc, "Cinematics", PixSettings.CinematicsNames, PixSettings.Cinematics, i => { PixSettings.Cinematics = i; });
@@ -134,6 +134,9 @@ namespace PixFootball.UI
             _pages.Add(r.gameObject);
             return r;
         }
+
+        /// <summary>The tab button of a page (the control that gets the focus when the screen opens on that page); null when there is none.</summary>
+        public Selectable TabFor(int i) { return i >= 0 && i < _tabs.Count ? _tabs[i] : null; }
 
         public void SetPage(int i)
         {

@@ -59,7 +59,8 @@ namespace PixFootball.UI
             var c = go.AddComponent<Canvas>();
             c.renderMode = RenderMode.ScreenSpaceOverlay; c.sortingOrder = sortOrder;
             var s = go.AddComponent<CanvasScaler>();
-            s.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize; s.referenceResolution = new Vector2(1920, 1080); s.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight; s.matchWidthOrHeight = 0.5f;
+            // v0.7 (note 2): "Expand" keeps the whole 1920 x 1080 reference rectangle on screen at every aspect (nothing cut off at the bottom of a 21:9 / 16:10 / windowed screen); the canvas grows past it on the other axis
+            s.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize; s.referenceResolution = new Vector2(1920, 1080); s.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
             PixFootball.UI.Glass.GlassGraphic.Prepare(c);   // the glass shader reads texcoord 1..3
             go.AddComponent<GraphicRaycaster>();
             return c;

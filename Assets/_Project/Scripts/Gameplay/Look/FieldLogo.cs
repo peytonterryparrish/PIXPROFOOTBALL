@@ -19,6 +19,7 @@ namespace PixFootball.Gameplay
             var tex = PixLook.CrestTexture(crestKey);
             var assets = PixLook.Assets;
             if (tex == null || assets == null || assets.markingsMaterial == null) return null;
+            ClearPaintedShield(assets.markingsMaterial);
             var go = new GameObject("FieldLogo");
             if (parent != null) go.transform.SetParent(parent, false);
             var logo = go.AddComponent<FieldLogo>();
@@ -41,6 +42,29 @@ namespace PixFootball.Gameplay
             mr.receiveShadows = true;
             go.transform.SetPositionAndRotation(new Vector3(0f, Height, 0f), Quaternion.Euler(0f, 90f, 0f));
             return logo;
+        }
+
+        /// <summary>
+        /// C-007 (v0.7 note 21): exactly one logo at midfield. The weather clones (WX_*) and the original stadium material of the field markings use the texture that still has the painted
+        /// league shield; every renderer that uses one of them is moved onto the cleaned markings material (the home crest is drawn by this class).
+        /// </summary>
+        static void ClearPaintedShield(Material cleaned)
+        {
+            var renderers = Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include);
+            for (int k = 0; k < renderers.Length; k++)
+            {
+                var r = renderers[k];
+                if (r == null || r.GetComponent<FieldLogo>() != null) continue;
+                var mats = r.sharedMaterials; bool dirty = false;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    var m = mats[i];
+                    if (m == null || m == cleaned || m.name.IndexOf("FieldLogo", System.StringComparison.Ordinal) >= 0) continue;
+                    if (m.name.IndexOf("FieldMarkings", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    mats[i] = cleaned; dirty = true;
+                }
+                if (dirty) r.sharedMaterials = mats;
+            }
         }
 
         /// <summary>QA-706: turns the crest so it reads upright from the camera that frames the play (the user camera looks along the field, the broadcast camera across it).</summary>

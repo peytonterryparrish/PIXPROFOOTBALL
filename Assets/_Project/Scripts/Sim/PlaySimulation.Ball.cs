@@ -248,7 +248,7 @@ namespace PixFootball.Sim
             SimAgent c = Carrier;
             if (c == null) return;
             float dirY = c.Side == SimSide.Offense ? 1f : -1f;
-            float ballY = c.Pos.Y + dirY * (c.Move == CarrierMove.Dive && c.MoveTime > 0f ? 0.8f : 0.25f);
+            float ballY = c.Pos.Y + dirY * (c.Move == CarrierMove.Dive && c.MoveTime > 0f ? 0.95f : 0.25f);
 
             // out of bounds laterally
             // the ball and the body use the same rule: out when the ball (held in front of him) or his body crosses the sideline

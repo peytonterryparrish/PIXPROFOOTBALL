@@ -159,7 +159,7 @@ namespace PixFootball.Tests
             Scrimmage(f, 60, 4, 3);
             var off = f.CreateCallModel(true);
             Assert.AreEqual(PlaySide.Offense, off.Side);
-            Assert.IsTrue(off.Tabs.Contains(CallTab.Playbook) && off.Tabs.Contains(CallTab.Special));
+            Assert.IsTrue((off.Tabs.Contains(CallTab.Playbook) || off.Tabs.Contains(CallTab.Formation)) && off.Tabs.Contains(CallTab.Special));
             Assert.IsTrue(off.SpecialPlays.Any(p => p.Category == PlayCategory.Punt) && off.SpecialPlays.Any(p => p.Category == PlayCategory.FieldGoal));
             Assert.IsTrue(off.CoachPicks.Count >= 4);
             Assert.IsTrue(off.CoachPicks[0].Play.Side == PlaySide.Special || off.CoachPicks[0].Reason.Length > 0, "fourth down starts with the kicking decision");

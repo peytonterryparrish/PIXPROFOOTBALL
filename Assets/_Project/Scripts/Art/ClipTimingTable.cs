@@ -13,7 +13,7 @@ namespace PixFootball.Art
         public const string ResourcesName = "PixClipTiming";
         public const string EditorPath = "Assets/_Licensed/Resources/PixClipTiming.asset";
 
-        [Serializable] public class Entry { public string clip; public float t; public float t2; }
+        [Serializable] public class Entry { public string clip; public float t; public float t2; public float d; }
         public List<Entry> entries = new List<Entry>();
 
         Dictionary<string, Entry> _map;
@@ -43,6 +43,17 @@ namespace PixFootball.Art
             Entry en; t = 0f; t2 = 0f;
             if (_map.TryGetValue(clipName, out en)) { t = en.t; t2 = en.t2; return true; }
             return false;
+        }
+
+        /// <summary>The full entry of a clip (v0.7.0: t = key moment, t2 = second moment, d = travel distance in metres of the window t..t2), or false when it was not measured.</summary>
+        public static bool TryEntry(AnimationClip clip, out Entry e)
+        {
+            e = null;
+            var tb = Load();
+            if (tb == null || clip == null) return false;
+            float a, b; if (!tb.TryGet(clip.name, out a, out b)) return false;
+            e = tb._map[clip.name];
+            return true;
         }
 
         /// <summary>Key moment of a clip, or fraction * length when it was not measured.</summary>

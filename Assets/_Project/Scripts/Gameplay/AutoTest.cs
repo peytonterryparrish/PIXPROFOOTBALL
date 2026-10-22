@@ -70,6 +70,9 @@ namespace PixFootball.Gameplay
                 int tier; float scale; int upscaler;
                 if (args[i] == "-pixUpscaler" && int.TryParse(args[i + 1], out upscaler)) UpscalerControl.Override(upscaler);
                 if (args[i] == "-pixTier" && int.TryParse(args[i + 1], out tier)) { QualityTiers.Override(tier, -1f); }
+                float lodv;
+                if ((args[i] == "-pixLodNear" || args[i] == "-pixLodMid" || args[i] == "-pixLodFar") && float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out lodv))   // v0.7 A/B of the player LOD distances
+                { if (args[i] == "-pixLodNear") PlayerLod.Near = lodv; else if (args[i] == "-pixLodMid") PlayerLod.Mid = lodv; else PlayerLod.Far = lodv; }
                 if (args[i] == "-pixRenderScale" && float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out scale)) { QualityTiers.Override(-1, scale); }
             }
             if (!Flag("-pixAutotestVsync")) { QualitySettings.vSyncCount = 0; Application.targetFrameRate = -1; }   // measure real frame cost, not the display refresh

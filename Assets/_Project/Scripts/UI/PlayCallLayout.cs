@@ -41,10 +41,11 @@ namespace PixFootball.UI
         /// Size of the canvas in reference units for a screen, for a CanvasScaler in "match width or height" mode (the project uses 1920x1080 and 0.5).
         /// 4:3 gives about 1663 x 1247, 16:9 1920 x 1080, 21:9 about 2200 x 943.
         /// </summary>
-        public static Vector2 CanvasSizeFor(float screenW, float screenH, float match = 0.5f)
+        public static Vector2 CanvasSizeFor(float screenW, float screenH, float match = -1f)
         {
             if (screenW <= 0f || screenH <= 0f) return new Vector2(RefW, RefH);
-            float scale = Mathf.Pow(screenW / RefW, 1f - match) * Mathf.Pow(screenH / RefH, match);
+            // v0.7: the project's scaler is "Expand" (match < 0): scale = the smaller of the two axis ratios, so the reference rectangle always fits; 0..1 = the old match-width-or-height maths
+            float scale = match < 0f ? Mathf.Min(screenW / RefW, screenH / RefH) : Mathf.Pow(screenW / RefW, 1f - match) * Mathf.Pow(screenH / RefH, match);
             return new Vector2(screenW / scale, screenH / scale);
         }
 

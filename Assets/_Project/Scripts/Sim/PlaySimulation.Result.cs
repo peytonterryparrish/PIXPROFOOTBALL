@@ -20,6 +20,7 @@ namespace PixFootball.Sim
                 float dirY = c.Side == SimSide.Offense ? 1f : -1f;
                 EndY = c.Pos.Y + dirY * 0.2f;
                 if (c.Move == CarrierMove.Dive && c.MoveTime > 0f) EndY += dirY * 0.7f;
+                if (_ruledSpotY.HasValue) EndY = _ruledSpotY.Value;   // spotted where he was wrapped up, not where he slid to
             }
             else EndY = Ball.Pos.Y;
         }

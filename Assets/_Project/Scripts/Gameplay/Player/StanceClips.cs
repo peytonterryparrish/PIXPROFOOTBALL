@@ -10,6 +10,12 @@ namespace PixFootball.Gameplay
         {
             var lib = ArtLibrary.Load();
             if (lib == null) return default(ClipPlan);
+            if (spec.Kind == StanceKind.Holder)
+            {
+                // the kneeling start of the Yan holder take (hips 0.33 m, hands out for the snap), held: the take itself plays from the snap (AnimKit.Holder)
+                var hc = lib.ClipVariantCount(ArtKeys.KickHolder) > 0 ? lib.ClipVariant(ArtKeys.KickHolder, 0) : null;
+                if (hc != null) return new ClipPlan { Clip = hc, Start = 0f, End = 0.25f, Speed = 1f, FadeIn = 0.3f, FadeOut = 0.25f, Loop = true };
+            }
             string[] keys = StanceRules.ClipKeys(spec.Kind, role);
             AnimationClip c = null;
             for (int k = 0; k < keys.Length && c == null; k++)

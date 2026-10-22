@@ -20,6 +20,8 @@ namespace PixFootball.UI
         public Action OnBack;
         public Action<MatchConfig> OnStart;
         public Selectable First;
+        /// <summary>Glass: told the id of the home team whenever it changes (the menu player puts on its kit) and the name of the screen that is showing ("TEAM SELECT" / "MATCHUP").</summary>
+        public Action<string> OnHomeChanged, OnScreen;
 
         sealed class Card { public Image Wash, Crest; public TextMeshProUGUI Role, City, Nick, Overall, OvrLabel; public Image[] Chips = new Image[3]; public Image Bar; }
         Card _home, _away;
@@ -182,6 +184,7 @@ namespace PixFootball.UI
             _summary.text = SummaryText(_cfg, _cfg.HomeId == _cfg.AwayId);
         }
 
+        /// <summary>KICK OFF on team select. Glass: opens the matchup card first (one more A starts the game); Classic starts at once.</summary>
         void KickOff()
         {
             if (_cfg.HomeId == _cfg.AwayId)
@@ -190,6 +193,12 @@ namespace PixFootball.UI
                 if (_awaySel != null) _awaySel.SetOptions(_awaySel.Options, TeamCatalog.IndexOf(_cfg.AwayId));
                 Refresh();
             }
+            if (_glass && _matchup != null) { ShowMatchup(); return; }
+            StartGame();
+        }
+
+        void StartGame()
+        {
             _cfg.Seed = 0; _cfg.CpuVsCpu = false;
             TeamCatalog.SavedTeamId = _cfg.UserTeam == PixFootball.Core.Team.Home ? _cfg.HomeId : _cfg.AwayId;
             PixSettings.WeatherSetting = (int)_cfg.Weather; PixSettings.TimeSetting = (int)_cfg.Time;
@@ -198,6 +207,10 @@ namespace PixFootball.UI
             if (OnStart != null) OnStart(_cfg); else GameSession.StartMatch(_cfg);
         }
 
-        public void OnCancel(BaseEventData e) { if (OnBack != null) OnBack(); }
+        public void OnCancel(BaseEventData e)
+        {
+            if (_glass && _matchup != null && _matchup.Visible) { HideMatchup(); return; }   // B on the matchup card goes back to team select
+            if (OnBack != null) OnBack();
+        }
     }
 }

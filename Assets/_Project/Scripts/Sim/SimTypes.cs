@@ -28,7 +28,9 @@ namespace PixFootball.Sim
         Tackle, BlockWin, BlockLoss, Pancake, Shed, Sack, QbHit, Fumble, Recovery,
         OutOfBounds, Touchdown, Safety, FirstDownCrossed, Penalty, Jam,
         Kick, KickLanded, FairCatch, Touchback, FieldGoalGood, FieldGoalMissed, KickBlocked,
-        CarrierMove, BrokenTackle, Incomplete, Whistle, Scramble, Throwaway, Kneel, Spike, PlayEnd
+        CarrierMove, BrokenTackle, Incomplete, Whistle, Scramble, Throwaway, Kneel, Spike, PlayEnd,
+        /// <summary>v0.7: the kicker starts his approach (and the kick clip); Value = seconds until the ball is struck.</summary>
+        KickApproach
     }
 
     /// <summary>

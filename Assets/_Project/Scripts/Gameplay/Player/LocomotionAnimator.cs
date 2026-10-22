@@ -22,10 +22,26 @@ namespace PixFootball.Gameplay
 
         /// <summary>Exponential follow rate (1/s) of the animated velocity.</summary>
         public float SmoothRate = 9f;
+        /// <summary>v0.7.0 stride-matching trim of the playback rate (BodyMotion.LocoTrim), set by the view each frame.</summary>
+        public float Trim = 1f;
+        /// <summary>QA: global multiplier of the playback rate (the treadmill sweeps it to find the stride-matching table).</summary>
+        public static float DebugTrim = 1f;
+
+        /// <summary>v0.7.0 stride table (A-008), measured by the treadmill sweep (AnimQbShots): the playback-rate multiplier that keeps the ball of the planted foot standing still on the turf. Plain forward running needs about 20 percent more cadence between 4.5 and 5.5 m/s than the blend tree gives; the ball-carrier cycles and the walk / jog range are already matched.</summary>
+        public static float StrideTrim(float speed, bool carrying, bool backward)
+        {
+            if (carrying || backward) return 1f;
+            if (speed <= 3.5f) return 1f;
+            if (speed < 4.5f) return Mathf.Lerp(1f, 1.2f, speed - 3.5f);
+            if (speed <= 5.6f) return 1.2f;
+            if (speed < 6.6f) return Mathf.Lerp(1.2f, 1f, speed - 5.6f);
+            return 1f;
+        }
         float _ratio = 1f;
         static int _phaseCounter; readonly int _phaseId = ++_phaseCounter;
         Vector2 _smoothed;
         bool _hasController;
+        bool _carrying;
         int _actionLayer = -1;
         public bool InAction { get; private set; }
         public Vector2 SmoothedLocalVelocity { get { return _smoothed; } }
@@ -66,7 +82,9 @@ namespace PixFootball.Gameplay
             float vz = Vector3.Dot(worldVelocity, fwd);
             var target = new Vector2(vx, vz);
             // v0.8 smoothness: unhurried weight - the animated velocity follows the simulation with a ~0.11 s time constant (was 0.045 s: twitchy direction changes)
-            _smoothed = Vector2.Lerp(_smoothed, target, 1f - Mathf.Exp(-dt * SmoothRate));
+            // v0.7.0: slowing down follows the simulation faster than speeding up, so the feet stop with the body instead of skating on for a tenth of a second
+            float rate = target.sqrMagnitude < _smoothed.sqrMagnitude - 0.04f ? SmoothRate * 1.7f : SmoothRate;
+            _smoothed = Vector2.Lerp(_smoothed, target, 1f - Mathf.Exp(-dt * rate));
             float speed = _smoothed.magnitude;
             SetF(CycleOffsetP, (((uint)_phaseId * 2654435761u >> 8) & 0xFFFFu) / 65535f);     // each player starts his cycles at a different phase (no synchronised hops)
             SetF(VelX, _smoothed.x);
@@ -84,7 +102,7 @@ namespace PixFootball.Gameplay
             else maxAlong = BackSpeed;
             float ratio = speed > 0.5f ? Mathf.Clamp(speed / Mathf.Max(0.1f, maxAlong), 1f, 1.6f) : 1f;
             _ratio = Mathf.Lerp(_ratio, ratio, 1f - Mathf.Exp(-dt * 8f));
-            SetF(LocoSpeed, _ratio);
+            SetF(LocoSpeed, _ratio * Mathf.Clamp(Trim, 0.6f, 2.2f) * DebugTrim * StrideTrim(speed, _carrying, _smoothed.y < 0f));
 
             if (_actionLayer >= 0)
             {
@@ -109,6 +127,6 @@ namespace PixFootball.Gameplay
         }
 
         public void SetCelebrating(bool on) { if (Animator != null && _hasController && Ready) SetB(Celebrating, on); }
-        public void SetProtect(bool on) { if (Animator != null && _hasController && Ready) SetB(ProtectP, on); }
+        public void SetProtect(bool on) { _carrying = on; if (Animator != null && _hasController && Ready) SetB(ProtectP, on); }
     }
 }

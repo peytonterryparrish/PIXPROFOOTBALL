@@ -14,7 +14,8 @@ namespace PixFootball.Sim
             PassCatchY = r.Pos.Y;
             PassTipped = false;
             r.PathIdx = 0;
-            PlayAction(r, AgentAction.Catch, 0.35f);
+            PlayAction(r, AgentAction.Catch, GamePace.CatchSeconds);
+            r.CommitUntil = Time + GamePace.CatchSeconds; r.CommitSpeedFrac = GamePace.CatchSpeedFrac;   // catch -> run is not an instant flip
             LogEvent(SimEventType.Catch, r.Id, PasserId, new Vec3(r.Pos, Ball.Pos.Z), TackleType.None, r.Pos.Y - LosY);
         }
 

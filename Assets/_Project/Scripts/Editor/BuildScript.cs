@@ -51,7 +51,7 @@ namespace PixFootball.EditorTools
             AssetDatabase.DeleteAsset(ResLib);
             var slim = ScriptableObject.CreateInstance<ArtLibrary>();
             slim.playerAvatar = full.playerAvatar;
-            foreach (var p in full.prefabs) if (p != null && SlimPrefabs.Contains(p.key)) slim.prefabs.Add(new ArtLibrary.PrefabEntry { key = p.key, prefab = p.prefab });
+            foreach (var p in full.prefabs) if (p != null && (SlimPrefabs.Contains(p.key) || p.key.StartsWith("photo_player_"))) slim.prefabs.Add(new ArtLibrary.PrefabEntry { key = p.key, prefab = p.prefab });
             foreach (var a in full.audio) if (a != null && (a.key == "crowd_ambience" || a.key == "crowd_cheer") && slim.audio.Count < 2) slim.audio.Add(new ArtLibrary.AudioEntry { key = a.key, clip = a.clip });
             // v0.2: the 22-player match needs the mocap clips the animation mapping uses (clips under SlimClipMaxSeconds, a few variants per key) and the ball
             var perKey = new System.Collections.Generic.Dictionary<string, int>();

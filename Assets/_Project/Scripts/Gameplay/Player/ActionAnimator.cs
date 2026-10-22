@@ -20,7 +20,7 @@ namespace PixFootball.Gameplay
         {
             public AnimationClipPlayable Cp;
             public AnimationClip Clip;
-            public bool Active, Loop, Hold, Ending, Frozen;
+            public bool Active, Loop, Hold, Ending, Frozen, Scrub;
             public float T, Start, End, Speed = 1f, FadeIn = 0.1f, FadeOut = 0.15f, W, EndingT, EndingFade, EndW;
             public int Input = 1; public AvatarMask Mask;
             public float Eff { get { return Smooth(W); } }
@@ -58,6 +58,19 @@ namespace PixFootball.Gameplay
         /// <summary>Pauses the take where it is (the pose is held, the weight is kept).</summary>
         public void SetFrozen(bool on) { foreach (var s in _s) s.Frozen = on && s.Active; }
         public string CurrentClipName { get { var s = Cur; return s != null && s.Clip != null ? s.Clip.name : ""; } }
+        /// <summary>The newest clip (null when none plays).</summary>
+        public AnimationClip CurrentClip { get { var s = Cur; return s != null ? s.Clip : null; } }
+        /// <summary>True while the newest clip is still inside its window (not fading out, not held at the end).</summary>
+        public bool InWindow { get { var s = Cur; return s != null && !s.Ending && (s.Hold ? true : s.T < s.End - 0.001f); } }
+        /// <summary>Seconds of the newest clip's window that are left at its playback speed (0 for a looping / held / scrubbed clip).</summary>
+        public float RemainingSeconds { get { var s = Cur; return s == null || s.Ending || s.Loop || s.Hold || s.Scrub ? 0f : Mathf.Max(0f, (s.End - s.T) / Mathf.Max(0.05f, s.Speed)); } }
+        /// <summary>v0.7.0: the clip time is set by the caller (distance-matched drop-backs: the animation follows the simulated position instead of the clock). The clip never ends by itself while scrubbed.</summary>
+        public void SetScrub(bool on) { var s = Cur; if (s != null) s.Scrub = on; }
+        public void Scrub(float clipTime) { var s = Cur; if (s != null) { s.Scrub = true; s.T = Mathf.Clamp(clipTime, s.Start, s.End); } }
+        /// <summary>Changes the playback speed of the newest clip (stride matching for clips that travel).</summary>
+        public void SetSpeed(float speed) { var s = Cur; if (s != null) s.Speed = Mathf.Max(0.05f, speed); }
+        /// <summary>Clip time of the newest clip in seconds of the source clip.</summary>
+        public float CurrentTime { get { var s = Cur; return s != null ? s.T : 0f; } }
 
         Slot Cur { get { return _cur >= 0 && _s[_cur].Active ? _s[_cur] : null; } }
 
@@ -153,7 +166,7 @@ namespace PixFootball.Gameplay
             n.Cp.SetApplyFootIK(false);
             n.Cp.SetSpeed(0.0);
             _graph.Connect(n.Cp, 0, _mixer, n.Input);
-            n.Active = true; n.Ending = false; n.Frozen = false;
+            n.Active = true; n.Ending = false; n.Frozen = false; n.Scrub = false;
             n.Start = Mathf.Clamp(start, 0f, Mathf.Max(0f, clip.length - 0.02f));
             n.End = end <= 0f || end > clip.length ? clip.length : Mathf.Max(end, n.Start + 0.05f);
             n.T = loop && phase > 0f ? n.Start + Mathf.Repeat(phase, Mathf.Max(0.05f, n.End - n.Start)) : n.Start;
@@ -214,8 +227,9 @@ namespace PixFootball.Gameplay
                 bool newest = i == _cur;
                 if (!s.Ending)
                 {
-                    if (!s.Frozen) s.T += dt * s.Speed;
-                    if (s.T >= s.End)
+                    if (!s.Frozen && !s.Scrub) s.T += dt * s.Speed;
+                    if (s.Scrub) { /* the caller sets the time */ }
+                    else if (s.T >= s.End)
                     {
                         if (s.Loop) s.T = s.Start + Mathf.Repeat(s.T - s.Start, Mathf.Max(0.05f, s.End - s.Start));
                         else if (s.Hold) s.T = s.End;

@@ -53,8 +53,10 @@ namespace PixFootball.Gameplay
         bool OffensePreSnapInput(MatchInputFrame inp, ref bool recall)
         {
             bool snap = false;
-            bool lt = inp.LT, ltEdge = lt && !_prevLT; _prevLT = lt;
-            if (ltEdge) TryUserTimeout();
+            // v0.7: LT is held to show the routes on the turf (timeout moved to D-pad down / R3 on the offense)
+            _prevLT = inp.LT;
+            if (inp.LT) _routeHeld = true;
+            if (inp.Timeout && _ps == PsMode.None) TryUserTimeout();
             if (_psToastT > 0f) _psToastT -= Time.unscaledDeltaTime;
             switch (_ps)
             {
@@ -206,7 +208,7 @@ namespace PixFootball.Gameplay
         {
             if (Ui == null || Config.CpuVsCpu || Autopilot) return;
             var h = _hud;
-            h.Hints.Clear(); h.Adjustments.Clear(); h.Menu.Clear(); h.Wheel.Clear(); h.Icons.Clear();
+            h.Hints.Clear(); h.Adjustments.Clear(); h.Menu.Clear(); h.Wheel.Clear(); h.Icons.Clear(); h.Book = Flow.Book;
             bool off = _userIsOffense;
             h.OffenseSide = off;
             h.PlayName = Sim.OffPlay != null && off ? Sim.OffPlay.Name : (Sim.DefPlay != null ? Sim.DefPlay.Name : "");
@@ -220,15 +222,16 @@ namespace PixFootball.Gameplay
                 switch (_ps)
                 {
                     case PsMode.None:
+                        if (Routes != null && Routes.Shown) AddRouteIcons(h.Icons);   // the pass buttons over the receivers, like the route screen of a modern football game
                         h.Hints.Add(new HintPair("glyph_a", "SNAP")); h.Hints.Add(new HintPair("glyph_x", "AUDIBLE")); h.Hints.Add(new HintPair("glyph_y", "HOT ROUTE")); h.Hints.Add(new HintPair("glyph_lb", "FLIP"));
-                        h.Hints.Add(new HintPair("glyph_rb", "MOTION")); h.Hints.Add(new HintPair("glyph_dpad_left", "SLIDE")); h.Hints.Add(new HintPair("glyph_dpad_up", "NEW PLAY")); h.Hints.Add(new HintPair("glyph_lt", "TIMEOUT"));
+                        h.Hints.Add(new HintPair("glyph_rb", "MOTION")); h.Hints.Add(new HintPair("glyph_dpad_left", "SLIDE")); h.Hints.Add(new HintPair("glyph_dpad_up", "NEW PLAY")); h.Hints.Add(new HintPair("glyph_lt", "HOLD: ROUTES")); h.Hints.Add(new HintPair("glyph_dpad_down", "TIMEOUT"));
                         break;
                     case PsMode.Audible:
                         h.MenuTitle = "AUDIBLE";
                         for (int k = 0; k < 5; k++)
                         {
                             Play p = Flow.Audibles.Get(Sim.OffPlay, k);
-                            h.Menu.Add(new MenuRow { Button = AudibleButtons[k], Label = p != null ? p.Name : "-", Tag = p != null ? TagOf(p) : "", Dim = p == null });
+                            h.Menu.Add(new MenuRow { Button = AudibleButtons[k], Label = p != null ? p.Name : "-", Tag = p != null ? TagOf(p) : "", Dim = p == null, Play = p });
                         }
                         h.Hints.Add(new HintPair("", "PICK A BUTTON")); h.Hints.Add(new HintPair("glyph_x", "CANCEL"));
                         break;

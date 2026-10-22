@@ -12,7 +12,7 @@ namespace PixFootball.Gameplay
     [DefaultExecutionOrder(150)]
     public sealed class BallFollower : MonoBehaviour
     {
-        enum Mode { Free, Carry, QbHold, Tee }
+        enum Mode { Free, Carry, QbHold, Tee, Hand }
 
         Transform _ball;
         Mode _mode = Mode.Free;
@@ -24,6 +24,10 @@ namespace PixFootball.Gameplay
         SimAgentView _holder;
         int _side = 1;
         bool _throwing;
+        BodyMotion.Carriage _qbCarriage;
+        // v0.7.0 (note 30): no pops when the ball changes hands with the air - the offset between where it was and where the simulation puts it decays over a few frames
+        Vector3 _relOffset, _attachOffset; float _relT = 1f, _attachT = 1f; bool _attachPending;
+        public const float BlendSeconds = 0.12f;
 
         /// <summary>World position of the ball after the last LateUpdate (cameras and markers read it).</summary>
         public Vector3 Position { get { return _ball != null ? _ball.position : _pos; } }
@@ -51,6 +55,11 @@ namespace PixFootball.Gameplay
 
         public void SetFree(Vector3 pos, Vector3 vel, BallState state, bool atRest, Vector3 downfield, float dt)
         {
+            if ((_mode == Mode.QbHold || _mode == Mode.Carry || _mode == Mode.Hand) && _ball != null)
+            {
+                _relOffset = _ball.position - pos; _relT = 0f;
+                if (_relOffset.sqrMagnitude > 2.25f) _relOffset = Vector3.zero;      // a teleport (fumble through a pile, a kick) is not smoothed
+            }
             _mode = Mode.Free; _holder = null; _pos = pos; _vel = vel; _state = state; _atRest = atRest; _downfield = downfield;
             Vector3 flat = new Vector3(vel.x, 0f, vel.z);
             switch (state)
@@ -96,8 +105,11 @@ namespace PixFootball.Gameplay
             _mode = Mode.Tee; _pos = pos; _downfield = downfield; _holder = null;
         }
 
-        public void SetCarry(SimAgentView holder, int side) { _mode = Mode.Carry; _holder = holder; _side = side; }
-        public void SetQbHold(SimAgentView holder, bool throwing) { _mode = Mode.QbHold; _holder = holder; _throwing = throwing; }
+        public void SetCarry(SimAgentView holder, int side) { MarkAttach(); _mode = Mode.Carry; _holder = holder; _side = side; }
+        /// <summary>The ball in the open hand of the player (touchdown celebration, pre-spike): side +1 = right hand.</summary>
+        public void SetHand(SimAgentView holder, int side) { MarkAttach(); _mode = Mode.Hand; _holder = holder; _side = side; }
+        public void SetQbHold(SimAgentView holder, bool throwing, BodyMotion.Carriage carriage = BodyMotion.Carriage.None) { MarkAttach(); _mode = Mode.QbHold; _holder = holder; _throwing = throwing; _qbCarriage = carriage; }
+        void MarkAttach() { if (_mode == Mode.Free || _mode == Mode.Tee) _attachPending = true; }
 
         void LateUpdate()
         {
@@ -105,7 +117,8 @@ namespace PixFootball.Gameplay
             switch (_mode)
             {
                 case Mode.Free:
-                    _ball.SetPositionAndRotation(_pos, _rot);
+                    _relT += Time.deltaTime;
+                    _ball.SetPositionAndRotation(_pos + _relOffset * (1f - Mathf.SmoothStep(0f, 1f, _relT / BlendSeconds)), _rot);
                     break;
                 case Mode.Tee:
                 {
@@ -115,9 +128,15 @@ namespace PixFootball.Gameplay
                 }
                 case Mode.Carry:
                 case Mode.QbHold:
+                case Mode.Hand:
+                {
                     if (_holder == null || _holder.Avatar == null) break;
+                    Vector3 before = _ball.position;
                     PoseHeld();
+                    if (_attachPending) { _attachOffset = before - _ball.position; _attachT = 0f; _attachPending = false; if (_attachOffset.sqrMagnitude > 4f) _attachOffset = Vector3.zero; }
+                    if (_attachT < BlendSeconds) { _attachT += Time.deltaTime; _ball.position += _attachOffset * (1f - Mathf.SmoothStep(0f, 1f, _attachT / BlendSeconds)); }
                     break;
+                }
             }
         }
 
@@ -125,13 +144,22 @@ namespace PixFootball.Gameplay
         {
             var av = _holder.Avatar;
             Vector3 fwd = _holder.Forward, right = Vector3.Cross(Vector3.up, fwd);
+            if (_mode == Mode.Hand)
+            {
+                var hh = _side >= 0 ? av.RightHand : av.LeftHand; if (hh == null) return;
+                _ball.SetPositionAndRotation(hh.position + Vector3.up * 0.06f + fwd * 0.03f, Quaternion.FromToRotation(Vector3.right, (Vector3.up * 0.8f + fwd * 0.5f).normalized));
+                return;
+            }
             if (_mode == Mode.QbHold)
             {
                 if (av.RightHand == null) return;
-                Vector3 p;
+                Vector3 p; Vector3 qaxis = fwd + Vector3.up * 0.25f;
+                var lhand = av.LeftHand != null ? av.LeftHand.position : av.RightHand.position;
                 if (_throwing) p = av.RightHand.position + fwd * 0.04f + Vector3.up * 0.03f;
-                else p = (av.RightHand.position + (av.LeftHand != null ? av.LeftHand.position : av.RightHand.position)) * 0.5f + fwd * 0.04f;
-                _ball.SetPositionAndRotation(p, Quaternion.FromToRotation(Vector3.right, (fwd + Vector3.up * 0.25f).normalized));
+                else if (_qbCarriage == BodyMotion.Carriage.Ear) { p = av.RightHand.position + Vector3.up * 0.06f + fwd * 0.03f; qaxis = fwd + Vector3.up * 0.45f; }
+                else if (_qbCarriage == BodyMotion.Carriage.Chest) { p = (av.RightHand.position + lhand) * 0.5f + fwd * 0.02f; qaxis = Vector3.up * 0.95f + fwd * 0.3f; }     // both hands, the point up
+                else p = (av.RightHand.position + lhand) * 0.5f + fwd * 0.04f;
+                _ball.SetPositionAndRotation(p, Quaternion.FromToRotation(Vector3.right, qaxis.normalized));
                 return;
             }
             Transform fore = _side >= 0 ? av.RightForearm : av.LeftForearm;

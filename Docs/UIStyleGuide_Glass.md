@@ -2,7 +2,7 @@
 
 The Glass theme is the second UI skin of PIX Football (the first is Classic, described in `UIStyleGuide.md`). It is a clean, glassy, modern, high resolution look: graphite translucent panels over a live blurred 3D scene, a thin silver edge, a diagonal reflection, white type and one restrained orange accent. The two themes share every screen, behaviour, navigation path and data wiring. Only the surface language changes.
 
-Switch with Settings > Game > "UI theme (next menu)" (stored in PlayerPrefs `pix.uitheme`; takes effect on the next menu or scene) or pass `-pixUiTheme glass` (or `classic`) on the command line for one run. `UiTheme.DefaultKind` is **Classic** until every screen is verified (see `Docs/QA/glass_ui.md`).
+Switch with Settings > Game > "UI theme (next menu)" (stored in PlayerPrefs `pix.uitheme`; takes effect on the next menu or scene) or pass `-pixUiTheme glass` (or `classic`) on the command line for one run. `UiTheme.DefaultKind` is **Glass** since v0.7.0 (every screen verified; Classic stays selectable). The v0.7 canvas scaler is "Expand" (the 1920 x 1080 reference rectangle is always fully visible), see `Docs/QA/v070/ui_controls.md`.
 
 All lengths are canvas units on the 1920 x 1080 reference canvas (Canvas Scaler, match height 0.5). Values live in `GlassTokens` (pure data, JSON serialisable) and are exposed through the `GlassTheme` ScriptableObject (`Resources/PixGlass/GlassTheme`). No script hard-codes a glass colour, radius or duration.
 

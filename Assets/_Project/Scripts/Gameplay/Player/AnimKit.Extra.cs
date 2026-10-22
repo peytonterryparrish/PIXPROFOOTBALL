@@ -11,6 +11,27 @@ namespace PixFootball.Gameplay
         public const float KickLead = 0.5f;
 
         /// <summary>The kick of the kicker / punter. The window is trimmed around the foot contact (ClipTimingTable moment measured by ClipTimingBuilder).</summary>
+        /// <summary>Contact frame (seconds into the clip) of the photoreal biped place-kick take (`kick_off_biped`, measured 1.27 s: the kicking foot peaks at 14 m/s). The simulation's kickoff approach is 1.27 / GamePace.AnimationRate long, so the clip played at that rate lands its contact on the ball.</summary>
+        public const float BipedKickContact = 1.27f;
+
+        /// <summary>v0.7.0 (note 30): the kick clip starts at the simulation's approach and makes contact <paramref name="eta"/> seconds later (PlaySimulation.KickContactTime - Time): the clip is slowed (contact later than the clip's own lead) or started part-way (earlier) so its foot contact is the ball launch.</summary>
+        public static ClipPlan Kick(PlayKind kind, int seed, bool fast, float eta)
+        {
+            if (eta <= 0f) return Kick(kind, seed, fast);
+            var l = Lib; AnimationClip c = null; float tc = 0f;
+            if (kind == PlayKind.Kickoff && l != null && l.HasClip("kick_off_biped")) { c = l.Clip("kick_off_biped"); tc = BipedKickContact; }
+            if (c == null)
+            {
+                string key = kind == PlayKind.Punt ? (fast && l != null && l.HasClip(ArtKeys.PuntFast) ? ArtKeys.PuntFast : ArtKeys.Punt) : kind == PlayKind.FieldGoal ? ArtKeys.KickFieldGoal : ArtKeys.KickOff;
+                c = V(key, seed);
+                if (c == null || c.length > 9f) return default(ClipPlan);
+                tc = ClipTimingTable.Moment(c, 0.55f);
+            }
+            float start, speed = 1f;
+            if (tc >= eta) start = tc - eta; else { start = 0f; speed = Mathf.Clamp(tc / eta, 0.5f, 1f); }
+            return P(c, start, Mathf.Min(c.length, tc + 1.2f), speed, 0.16f, 0.4f);
+        }
+
         public static ClipPlan Kick(PlayKind kind, int seed, bool fast = false)
         {
             string key = kind == PlayKind.Punt ? (fast && Lib != null && Lib.HasClip(ArtKeys.PuntFast) ? ArtKeys.PuntFast : ArtKeys.Punt)
@@ -25,7 +46,7 @@ namespace PixFootball.Gameplay
         public static ClipPlan Holder(int seed)
         {
             var c = V(ArtKeys.KickHolder, seed);
-            return c == null ? default(ClipPlan) : P(c, 0f, Mathf.Min(c.length, 6f), 1f, 0.2f, 0.35f);
+            return c == null ? default(ClipPlan) : P(c, 0.12f, Mathf.Min(c.length, 3.2f), 1f, 0.2f, 0.35f);     // v0.7.0: starts 0.12 s in, so the hands-up catch (0.6 s into the take) is the snap arriving 0.45 s after the snap; kneels on through the kick
         }
 
         /// <summary>Kick returner catching the kick (kickoff catch / touchback).</summary>

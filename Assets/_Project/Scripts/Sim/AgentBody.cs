@@ -93,9 +93,14 @@ namespace PixFootball.Sim
         // traits
         public float VMax, Tau, AccelCap, LatBase, DecelBase, TurnRate, BackpedalFactor, ShuffleFactor;
         public float Agility01, Stamina01, Strength01;
+        /// <summary>Game-pace multiplier this body was built with (see <see cref="GamePace"/>; 1 = the v0.6 engine, used by free roam and the body tests).</summary>
+        public readonly float Pace;
 
-        public AgentBody(Ratings r, int weightLb, int heightIn)
+        public AgentBody(Ratings r, int weightLb, int heightIn) : this(r, weightLb, heightIn, 1f) { }
+
+        public AgentBody(Ratings r, int weightLb, int heightIn, float pace)
         {
+            Pace = pace;
             Mass = Math.Max(60f, weightLb * 0.45359f);
             HeightYd = Math.Max(1.6f, heightIn / 36f);
             Radius = SimMath.Clamp(0.34f + 0.0017f * (Mass - 70f), 0.34f, 0.46f);
@@ -112,6 +117,13 @@ namespace PixFootball.Sim
             TurnRate = (5.0f + 4.5f * Agility01) * (1f - 0.2f * massN);
             BackpedalFactor = 0.46f + 0.10f * Agility01;   // about 5-6 yd/s backward
             ShuffleFactor = 0.60f + 0.11f * Agility01;      // about 6-7 yd/s sideways
+            if (pace != 1f)
+            {
+                // v0.7 game pace: slower top speed, a lower burst, and slower cutting / braking / turning, so the body reads heavier rather than just time-stretched
+                VMax *= pace; AccelCap *= pace;
+                Tau *= 1f + (GamePace.AccelerationStretch - 1f) * (1f - pace) / (1f - GamePace.Scale);
+                LatBase *= pace; DecelBase *= pace; TurnRate *= pace;
+            }
         }
 
         public float Speed { get { return Vel.Length; } }
@@ -155,7 +167,7 @@ namespace PixFootball.Sim
         /// <summary>Instant ceiling applied after every impulse (tackles, dives, collisions): 1.08 x this body's own top speed, so no player is ever clocked above about 24 mph.</summary>
         public void LimitSpeed()
         {
-            float cap = VMax * Fatigue * SpeedMultiplier * 1.08f;
+            float cap = VMax * Fatigue * SpeedMultiplier * (Mass > 105f ? 1.03f : 1.08f);   // v0.7: big men (linemen) never exceed 1.03 x their top speed, shed bursts and lunges included
             float sp = Vel.Length;
             if (sp > cap) Vel = Vel * (cap / sp);
         }
@@ -259,7 +271,7 @@ namespace PixFootball.Sim
                 newSpeed = ns;
             }
             // nobody exceeds his own top speed by more than a few percent (dive lunges and knocks used to reach 28 mph)
-            float hardCap = vEff * Physique.OverspeedCap;
+            float hardCap = vEff * (Mass > 105f ? 1.03f : Physique.OverspeedCap);
             if (newSpeed > hardCap)
             {
                 float ns2 = Math.Max(hardCap, newSpeed - 30f * dt);

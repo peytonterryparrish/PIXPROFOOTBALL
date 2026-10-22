@@ -310,6 +310,8 @@ namespace PixFootball.Sim
                 else if (e.MoveCooldown <= 0f && !d.ControlledByUser) ChooseMove(e, run);
             }
             e.Lev = SimMath.Clamp(e.Lev, -1.05f, 1.05f);
+            // v0.7 commit window: a lock-up lasts at least GamePace.MinEngageSeconds before it can be won or lost, so the engage animation always plays out
+            if (e.Age < GamePace.MinEngageSeconds) e.Lev = SimMath.Clamp(e.Lev, -0.92f, 0.92f);
             // a blocker who is losing his man grabs him
             if (!e.IsShedding && e.Lev < -0.45f && e.Blockers.Count > 0) MaybeHolding(e, e.Blockers[0], 0.0085f * (-e.Lev));
 

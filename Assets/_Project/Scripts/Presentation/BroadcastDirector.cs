@@ -31,6 +31,7 @@ namespace PixFootball.Presentation
         public GameTracker Tracker { get { return _trk; } }
         public TvOverlays Overlays { get { return _ov; } }
         public ReplayController Replay { get { return _rc; } }
+        public ReplayPlayer ReplayActors { get { return _player; } }
         public ReplayRecorder Recorder { get { return _rec; } }
         public CrowdReaction Crowd { get { return _crowd; } }
         public FirstPersonFx FirstPerson { get { return _fp; } }

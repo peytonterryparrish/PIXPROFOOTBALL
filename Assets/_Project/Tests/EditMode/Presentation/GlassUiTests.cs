@@ -74,9 +74,9 @@ namespace PixFootball.Tests
 
         // ------------------------------------------------------------------ theme switch
         [Test]
-        public void ThemeDefaultsToClassicUntilGlassIsComplete()
+        public void ThemeDefaultsToGlass()
         {
-            Assert.AreEqual(UiThemeKind.Classic, UiTheme.DefaultKind);
+            Assert.AreEqual(UiThemeKind.Glass, UiTheme.DefaultKind);
         }
 
         [Test]

@@ -11,6 +11,8 @@ namespace PixFootball.Presentation
         public PlayerAvatar Avatar;
         public GameObject Go;
         public PlayerSize Size;
+        /// <summary>v0.7: <c>size + 3 * (int)BodyBase</c>, the pool key and the recorded body kind.</summary>
+        public int Key;
         public BoneSet Set;
         public int AgentIndex = -1;
     }
@@ -22,7 +24,7 @@ namespace PixFootball.Presentation
     [DefaultExecutionOrder(700)]
     public sealed class ReplayPlayer : MonoBehaviour
     {
-        readonly Dictionary<PlayerSize, Stack<ReplayActor>> _free = new Dictionary<PlayerSize, Stack<ReplayActor>>();
+        readonly Dictionary<int, Stack<ReplayActor>> _free = new Dictionary<int, Stack<ReplayActor>>();
         readonly ReplayActor[] _active = new ReplayActor[22];
         Transform _ball; GameObject _ballGo;
         int _lodTick;
@@ -43,12 +45,17 @@ namespace PixFootball.Presentation
             EnsureBall();
         }
 
-        ReplayActor Acquire(PlayerSize size)
+        ReplayActor Acquire(PlayerSize size) { return Acquire((int)size); }
+
+        /// <summary>Acquires an actor of one body kind: <paramref name="key"/> = <c>size + 3 * (int)BodyBase</c> (the 15 bodies of roster v2).</summary>
+        ReplayActor Acquire(int key)
         {
             Stack<ReplayActor> st;
-            if (_free.TryGetValue(size, out st) && st.Count > 0) { var a = st.Pop(); a.Go.SetActive(true); return a; }
+            if (_free.TryGetValue(key, out st) && st.Count > 0) { var a = st.Pop(); a.Go.SetActive(true); return a; }
+            var size = (PlayerSize)(key % 3);
+            PlayerAvatar.PendingBase = (BodyBase)(key / 3);
             var av = PlayerAvatar.Spawn(transform, size, TeamColors.Home, "Replay_" + size);
-            var actor = new ReplayActor { Avatar = av, Go = av.gameObject, Size = size };
+            var actor = new ReplayActor { Avatar = av, Go = av.gameObject, Size = size, Key = key };
             if (av.Root != null) actor.Set = BoneSet.Build(av.Root, av.Animator);
             if (av.Animator != null) { av.Animator.runtimeAnimatorController = null; av.Animator.cullingMode = AnimatorCullingMode.AlwaysAnimate; }
             return actor;
@@ -58,7 +65,7 @@ namespace PixFootball.Presentation
         {
             a.Go.SetActive(false); a.AgentIndex = -1;
             Stack<ReplayActor> st;
-            if (!_free.TryGetValue(a.Size, out st)) _free[a.Size] = st = new Stack<ReplayActor>();
+            if (!_free.TryGetValue(a.Key, out st)) _free[a.Key] = st = new Stack<ReplayActor>();
             st.Push(a);
         }
 
@@ -84,7 +91,7 @@ namespace PixFootball.Presentation
             for (int i = 0; i < 22; i++)
             {
                 var ag = clip.Agents[i];
-                var a = Acquire((PlayerSize)ag.Size);
+                var a = Acquire((int)ag.Size);
                 a.AgentIndex = i;
                 var kit = ag.Side == 0 ? clip.OffenseKit : clip.DefenseKit;
                 a.Avatar.SetColors(new TeamColors(kit[0], kit[1], kit[2]));
@@ -114,6 +121,26 @@ namespace PixFootball.Presentation
 
         public Transform ActorRoot(int agent) { return agent >= 0 && agent < 22 && _active[agent] != null ? _active[agent].Go.transform : null; }
 
+        /// <summary>Debug: logs where actor <paramref name="agent"/> really is and what its renderers do (the replay QA probe).</summary>
+        public string DebugDump(int agent)
+        {
+            var a = agent >= 0 && agent < 22 ? _active[agent] : null;
+            if (a == null) return "actor " + agent + " null";
+            var sb = new System.Text.StringBuilder();
+            sb.Append("actor " + agent + " go=" + a.Go.name + " active=" + a.Go.activeInHierarchy + " pos=" + a.Go.transform.position.ToString("0.00") + " rec=" + (Clip != null ? Clip.AgentPos(agent, Time).ToString("0.00") : "-") + " parent=" + (a.Go.transform.parent != null ? a.Go.transform.parent.name + "@" + a.Go.transform.parent.position.ToString("0.0") + " scale " + a.Go.transform.lossyScale.ToString("0.00") : "-"));
+            if (a.Avatar != null && a.Avatar.Root != null) sb.Append(" root.local=" + a.Avatar.Root.localPosition.ToString("0.00") + " rootworld=" + a.Avatar.Root.position.ToString("0.00"));
+            int on = 0, tot = 0, vis = 0;
+            foreach (var r in a.Go.GetComponentsInChildren<Renderer>(true)) { tot++; if (r.enabled && r.gameObject.activeInHierarchy) { on++; if (r.isVisible) vis++; } }
+            sb.Append(" renderers on/total=" + on + "/" + tot + " visible=" + vis);
+            int n = 0;
+            foreach (var smr in a.Go.GetComponentsInChildren<SkinnedMeshRenderer>(false))
+            {
+                if (n++ >= 3) break;
+                sb.Append(" | SMR " + smr.name + " bounds c=" + smr.bounds.center.ToString("0.0") + " s=" + smr.bounds.size.ToString("0.0") + " rootBone=" + (smr.rootBone != null ? smr.rootBone.name + "@" + smr.rootBone.position.ToString("0.0") : "null") + " mesh=" + (smr.sharedMesh != null ? smr.sharedMesh.name : "null") + " bones=" + smr.bones.Length);
+            }
+            return sb.ToString();
+        }
+
         void LateUpdate() { if (Clip != null) Pose(Time); }
 
         /// <summary>Interpolates the recording at time t onto the actors.</summary>
@@ -131,9 +158,12 @@ namespace PixFootball.Presentation
                 var tr = act.Go.transform;
                 Vector3 pos = lerp ? Vector3.Lerp(f0.Pos[k], f1.Pos[k], a) : f0.Pos[k];
                 float yaw = lerp ? Mathf.LerpAngle(f0.Yaw[k], f1.Yaw[k], a) : f0.Yaw[k];
-                tr.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
+                // C-008 (v0.7 note 27): the replay actor IS the avatar object (the live view has a view root above its avatar), so the recorded line-stance setback must be applied to the world position along the facing; writing it to the local position moved all 22 actors to the origin
+                float setback = lerp ? Mathf.Lerp(f0.Setback[k], f1.Setback[k], a) : f0.Setback[k];
+                Quaternion faceRot = Quaternion.Euler(0f, yaw, 0f);
+                tr.SetPositionAndRotation(pos + faceRot * new Vector3(0f, 0f, setback), faceRot);
                 // the facing correction of the live view (clip offset / hips loop) and the line stance setback live on the avatar root, not in the recorded bones
-                if (act.Avatar != null && act.Avatar.Root != null) { float by = lerp ? Mathf.LerpAngle(f0.BodyYaw[k], f1.BodyYaw[k], a) : f0.BodyYaw[k]; act.Avatar.Root.localRotation = Quaternion.Euler(0f, by, 0f); act.Avatar.transform.localPosition = new Vector3(0f, 0f, lerp ? Mathf.Lerp(f0.Setback[k], f1.Setback[k], a) : f0.Setback[k]); }
+                if (act.Avatar != null && act.Avatar.Root != null) { float by = lerp ? Mathf.LerpAngle(f0.BodyYaw[k], f1.BodyYaw[k], a) : f0.BodyYaw[k]; act.Avatar.Root.localRotation = Quaternion.Euler(0f, by, 0f); }
                 var bones = act.Set.Bones;
                 int ro = clip.RotOffset[k];
                 int n = Mathf.Min(bones.Length, clip.RotOffset[k + 1] - ro);

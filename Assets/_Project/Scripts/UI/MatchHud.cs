@@ -39,7 +39,7 @@ namespace PixFootball.UI
         RectTransform _banner; Image _bannerBg, _bannerBase, _bannerSlab, _bannerRail; TextMeshProUGUI _bannerText, _bannerSub; Coroutine _bannerCo;
         RectTransform _toast; TextMeshProUGUI _toastText; Coroutine _toastCo;
         // play call / pre-snap / penalty (v0.3)
-        PlayCallScreen _callScreen; PreSnapPanel _preSnap; PenaltyPanel _penalty; Action<bool> _penaltyDecision;
+        PlayCallScreen _callScreen; PlayCallStrip _callStrip; PreSnapPanel _preSnap; PenaltyPanel _penalty; Action<bool> _penaltyDecision;
         bool _callShown, _chromeVisible = true;
         RectTransform _scorebugRoot; GameObject _hintBar; RectTransform _flagStrip; TextMeshProUGUI _flagText;
         // coin toss / final / pause
@@ -64,7 +64,10 @@ namespace PixFootball.UI
             BuildBottomBar();
             BuildBanner();
             BuildHint();
+            // v0.7: the glass theme opens the call sheet (an overlay strip over the live field); Classic keeps the full-screen three-stage page
+            MatchFlow.UseCallSheet = _glassHud;
             _callScreen = PlayCallScreen.Create(_root); _callScreen.Hide();
+            if (_glassHud) { _callStrip = PlayCallStrip.Create(_root); _callStrip.Hide(); }
             _preSnap = PreSnapPanel.Create(_root); _preSnap.Hide();
             _penalty = PenaltyPanel.Create(_root);
             _kick = KickHud.Create(_root);
@@ -281,15 +284,18 @@ namespace PixFootball.UI
         {
             if (_callScreen == null) return;
             if (!_callShown) { _callShown = true; SetHint(""); }
-            _callScreen.Show(model, playClock);
+            Component view = _callScreen;
+            if (model.SheetMode && _callStrip != null) { if (_callScreen.gameObject.activeSelf) _callScreen.Hide(); _callStrip.Show(model, playClock); view = _callStrip; }
+            else { if (_callStrip != null && _callStrip.gameObject.activeSelf) _callStrip.Hide(); _callScreen.Show(model, playClock); }
             // reorder only when needed (this runs every frame while the call screen is open; a sibling change rebatches the whole canvas)
             int last = _root.childCount - 1;
-            if (_fade != null && _callScreen.transform.GetSiblingIndex() != last - 1) { _callScreen.transform.SetAsLastSibling(); _fade.transform.SetAsLastSibling(); }
+            if (_fade != null && view.transform.GetSiblingIndex() != last - 1) { view.transform.SetAsLastSibling(); _fade.transform.SetAsLastSibling(); }
         }
 
         public void HidePlayCall()
         {
             if (_callScreen != null) _callScreen.Hide();
+            if (_callStrip != null) _callStrip.Hide();
             _callShown = false;
             if (_tossRoot != null) Destroy(_tossRoot);
         }
@@ -730,7 +736,7 @@ namespace PixFootball.UI
         public void SetReplayMode(bool on)
         {
             _replayMode = on;
-            if (on) { if (_hintBar != null) _hintBar.SetActive(false); SetReceiverIcons(null, null); UpdateFlag(false, null); if (_banner != null) _banner.gameObject.SetActive(false); }
+            if (on) { if (_hintBar != null) _hintBar.SetActive(false); if (_marker != null) _marker.gameObject.SetActive(false); if (_whistle != null) _whistle.gameObject.SetActive(false); SetRouteBadges(null, null); if (_preSnap != null) _preSnap.Hide(); SetReceiverIcons(null, null); UpdateFlag(false, null); if (_banner != null) _banner.gameObject.SetActive(false); }
             // a replay shows no live camera name or play clock, and the top-left block sits below the letterbox bar instead of straddling it (QA-132 / 206)
             if (_camLabel != null) _camLabel.gameObject.SetActive(!on && !_hudMinimal);
             if (_bCam != null) _bCam.gameObject.SetActive(!on && !_hudMinimal);

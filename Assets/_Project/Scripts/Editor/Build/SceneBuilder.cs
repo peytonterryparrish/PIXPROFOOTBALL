@@ -257,6 +257,7 @@ namespace PixFootball.EditorTools
             Debug.Log("[PIX] clean materials applied to stadium: " + swapped);
             FixGoalPosts(stadium);
             V6Look.UpgradeStadium(stadium);
+            StadiumKitInstaller.Install(stadium);   // v0.7 kit-bash (centre-hung jumbotron)
             if (match) AddGoalPostColliders(stadium);
             // the roof lattice would cast a grid of shadows over the pitch from the sun and the floodlights
             foreach (var r in stadium.GetComponentsInChildren<Renderer>(true)) if (r.name.StartsWith("Skeleton")) r.shadowCastingMode = ShadowCastingMode.Off;

@@ -34,6 +34,8 @@ namespace PixFootball.Sim
         public Vec2 Wind;
         /// <summary>Game-long fatigue (null = every player starts every play fresh). Pass the same tracker to every play of a game and call <see cref="FatigueTracker.AfterPlay"/> after each one.</summary>
         public FatigueTracker Fatigue;
+        /// <summary>v0.7.0 (animation sync): seconds from the start of a quarterback throw (ball at the chest) to the release. 0 = the calibrated default (0.20 to 0.26 s by awareness). The match sets about 0.42 s so the throwing take (about 0.5 s of wind-up) plays at its natural tempo and the release lands on the release frame; a throw off a scramble uses 80 percent of it.</summary>
+        public float QbWindupSeconds;
 
         /// <summary>Sets the wind from the game's conditions for a play in which the offense (or kicking team) drives toward the given end zone.</summary>
         public PlaySimOptions SetWind(MatchConditions conditions, bool offenseAttacksPositiveZ)
@@ -213,6 +215,7 @@ namespace PixFootball.Sim
 
             ResetOutcomeFacts();
             PlaceBallPreSnap();
+            if (Kind == PlayKind.Scrimmage) DefenseAlignment.AlignLineIfEnabled(this);   // v0.7: the line lines up by technique before the blockers pick their men
             OffAI.Prepare();
             DefAI.Prepare();
             DefenseAlignment.Apply(this);
@@ -261,7 +264,7 @@ namespace PixFootball.Sim
             a.R = player.Ratings;
             int wt = player.Bio != null && player.Bio.WeightLb > 100 ? player.Bio.WeightLb : 215;
             int ht = player.Bio != null && player.Bio.HeightIn > 55 ? player.Bio.HeightIn : 72;
-            a.Body = new AgentBody(a.R, wt, ht);
+            a.Body = new AgentBody(a.R, wt, ht, GamePace.For(spec.Position));
             if (Options != null && Options.Fatigue != null) a.Body.Energy = Options.Fatigue.EnergyOf(player.Id);
             a.Body.Facing = facing;
             a.IsReceiverEligible = side == SimSide.Offense && PositionGroup.IsEligibleReceiver(spec.Position);
@@ -344,15 +347,37 @@ namespace PixFootball.Sim
             SetUser(userControlledAgent);
             _accum += Math.Min(dt, MaxTickSeconds);   // a long frame hitch must not fast-forward the play
             ControlInput inp = userInput;
+            // v0.7: a button pressed on a frame that is shorter than one fixed step (any display faster than 60 Hz) used to be dropped; pulses now wait for the next step
+            if (_hasCarried) { MergePulses(ref inp, _carried); _hasCarried = false; _carried = default(ControlInput); }
+            int steps = 0;
             while (_accum >= Dt - 1e-6f)
             {
                 _accum -= Dt;
                 Step(inp);
+                steps++;
                 inp.JukeLeft = inp.JukeRight = inp.Spin = inp.StiffArm = inp.Truck = inp.Hurdle = inp.Dive = inp.Jump = false;
                 inp.Tackle = inp.SwitchPlayer = inp.Snap = inp.Throwaway = false;
                 inp.ThrowToSlot = 0;
                 inp.KickPress = false;
             }
+            if (steps == 0 && HasPulse(inp)) { _carried = inp; _hasCarried = true; }
+        }
+
+        private bool _hasCarried;
+        private ControlInput _carried;
+
+        private static bool HasPulse(ControlInput i)
+        {
+            return i.JukeLeft || i.JukeRight || i.Spin || i.StiffArm || i.Truck || i.Hurdle || i.Dive || i.Jump || i.Tackle || i.SwitchPlayer || i.Snap || i.Throwaway || i.ThrowToSlot != 0 || i.KickPress;
+        }
+
+        private static void MergePulses(ref ControlInput into, ControlInput from)
+        {
+            into.JukeLeft |= from.JukeLeft; into.JukeRight |= from.JukeRight; into.Spin |= from.Spin; into.StiffArm |= from.StiffArm;
+            into.Truck |= from.Truck; into.Hurdle |= from.Hurdle; into.Dive |= from.Dive; into.Jump |= from.Jump; into.Tackle |= from.Tackle;
+            into.SwitchPlayer |= from.SwitchPlayer; into.Snap |= from.Snap; into.Throwaway |= from.Throwaway;
+            if (from.ThrowToSlot != 0 && into.ThrowToSlot == 0) { into.ThrowToSlot = from.ThrowToSlot; into.ThrowStyle = from.ThrowStyle; into.LeadNudge = from.LeadNudge; }
+            if (from.KickPress && !into.KickPress) { into.KickPress = true; into.KickPower = from.KickPower; into.KickTiming = from.KickTiming; into.KickAim = from.KickAim; }
         }
 
         /// <summary>Runs the whole play with no user input until it ends (CPU vs CPU / headless). Returns the result.</summary>
@@ -389,6 +414,15 @@ namespace PixFootball.Sim
 
         /// <summary>True while a user-controlled kicker is waiting for the kick button (the HUD runs the kick meter now); <see cref="ControlInput.KickPress"/> with the meter readings strikes the ball.</summary>
         public bool AwaitingUserKick { get { return Specials != null && Specials.AwaitingUserKick; } }
+
+        /// <summary>Absolute simulation time of the planned ball contact of a kick (kickoff, punt, field goal), or -1 when none is planned yet (a user kicker has not pressed). Pairs with <see cref="SimEventType.KickApproach"/>: start the kick clip there so its foot-contact frame lands on this time.</summary>
+        public float KickContactTime { get { return Specials != null ? Specials.ContactTime : -1f; } }
+
+        /// <summary>Agent id of the kicker / punter of this kick play (-1 on scrimmage plays).</summary>
+        public int KickerSlot { get { return Specials != null && Specials.KickerAgent != null && Kind != PlayKind.Scrimmage ? Specials.KickerAgent.Id : -1; } }
+
+        /// <summary>True once the kicker has struck the ball (kickoff, punt, field goal).</summary>
+        public bool KickStruck { get { return Specials != null && Specials.KickAway; } }
 
         private void StepCore(ControlInput input)
         {
@@ -492,12 +526,20 @@ namespace PixFootball.Sim
             ApplyUserControl(input);
             Blocks.Update();
             Moves.Update();
+            Tackles.ApplyDragHold();
 
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = Agents[i];
                 Vec2 want = a.Want;
                 if (a.State == AgentState.Down) want = Vec2.Zero;
+                if (a.CommitUntil > Time)
+                {
+                    // commit window (v0.7): after a catch the receiver secures the ball before he turns upfield at full speed
+                    float cap = a.Body.EffectiveVMax * a.CommitSpeedFrac;
+                    float wl = want.Length;
+                    if (wl > cap && wl > 0.001f) want = want * (cap / wl);
+                }
                 a.Body.Step(Dt, want, a.HasFace, a.FaceDir, a.Exertion);
             }
             SeparateBodies();
@@ -508,11 +550,13 @@ namespace PixFootball.Sim
             if (Phase != PlayPhase.Live) return;
             Tackles.Update();
             if (Phase != PlayPhase.Live) return;
-            CheckBoundsAndScoring();
+            if (_endAt < 0f) CheckBoundsAndScoring();   // (a runner who has been wrapped up is down by contact: the sideline and goal line no longer matter)
             if (Phase != PlayPhase.Live) return;
-            CheckFirstDown();
+            if (_endAt < 0f) CheckFirstDown();
 
             for (int i = 0; i < 22; i++) ResolveAction(Agents[i]);
+
+            if (_endAt >= 0f && Time >= _endAt) { EndPlay(_endReasonPending); return; }
 
             if (Time >= (Kind == PlayKind.Scrimmage ? MaxPlaySeconds : MaxKickPlaySeconds)) ForceEnd();
         }
@@ -703,13 +747,39 @@ namespace PixFootball.Sim
             LogEvent(SimEventType.Penalty, culprit.Id, -1, TackleType.None, (float)type, type.ToString());
         }
 
+        private float _endAt = -1f;
+        private EndReason _endReasonPending;
+        private float? _ruledSpotY;
+
+        /// <summary>True between the first contact of a tackle and the whistle (the wrap window): the play is decided but not yet over.</summary>
+        public bool EndPending { get { return _endAt >= 0f; } }
+
+        /// <summary>
+        /// Ends the play <paramref name="delay"/> seconds from now (the tackle's wrap-up). The ball is spotted where the carrier was at first contact;
+        /// everyone keeps moving normally until the whistle. A second request while one is pending is ignored.
+        /// </summary>
+        internal void EndPlayAfter(EndReason reason, float delay)
+        {
+            if (Phase != PlayPhase.Live || _endAt >= 0f) return;
+            SimAgent c = Carrier;
+            if (c != null)
+            {
+                float dirY = c.Side == SimSide.Offense ? 1f : -1f;
+                _ruledSpotY = c.Pos.Y + dirY * 0.2f;
+            }
+            _endReasonPending = reason;
+            _endAt = Time + delay;
+        }
+
         internal void EndPlay(EndReason reason)
         {
             if (Phase == PlayPhase.Dead) return;
             EndReason = reason;
             Phase = PlayPhase.Dead;
             Result = BuildResult(reason);
+            EndInfo = BuildEndInfo(reason);
             if (PendingPenalty != null && Result.Penalty == null) Result.WithPenalty(PendingPenalty);
+            if (PendingPenalty != null) EndInfo.Detail = "FLAG: " + (PendingPenalty.Def != null ? PendingPenalty.Def.Name.ToUpperInvariant() : PendingPenalty.Type.ToString());
             if (OffsettingPenalty != null && PendingPenalty != null) Result.OffsettingPenalty = OffsettingPenalty;
             LogEvent(SimEventType.PlayEnd, -1, -1, TackleType.None, Result.Yards, Result.Type.ToString());
             for (int i = 0; i < 22; i++)
@@ -820,6 +890,10 @@ namespace PixFootball.Sim
             Phase = PlayPhase.Dead;
             EndReason = EndReason.Penalty;
             Result = r;
+            string pn = r.Penalty != null ? (r.Penalty.Def != null ? r.Penalty.Def.Name : r.Penalty.Type.ToString()) : "FLAG";
+            int culprit = -1;
+            for (int i = Log.Events.Count - 1; i >= 0; i--) if (Log.Events[i].Type == SimEventType.Penalty) { culprit = Log.Events[i].AgentA; break; }
+            EndInfo = new PlayEndReason { Kind = PlayEndKind.Penalty, Text = "FLAG - " + pn.ToUpperInvariant(), Primary = culprit, PrimaryNumber = Jersey(culprit), Time = Time };
             LogEvent(SimEventType.PlayEnd, -1, -1, TackleType.None, 0f, "PreSnapPenalty");
         }
     }

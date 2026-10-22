@@ -110,6 +110,7 @@ namespace PixFootball.UI
         void SetFooter(bool withBack)
         {
             if (_footer == null) return;
+            if (!withBack && UiTheme.IsGlass) { SetHubFooter(); return; }
             if (withBack) _footer.Set(PromptFooter.Item("glyph_a", "SELECT"), PromptFooter.Item("glyph_b", "BACK"), PromptFooter.Item("glyph_analog_all", "NAVIGATE"));
             else _footer.Set(PromptFooter.Item("glyph_a", "SELECT"), PromptFooter.Item("glyph_analog_all", "NAVIGATE"));
         }
@@ -129,16 +130,28 @@ namespace PixFootball.UI
             StartCoroutine(SelectFirst(_settings.First != null ? _settings.First.gameObject : null));
         }
 
-        void OpenSettings()
+        void OpenSettings() { OpenSettingsAt(0); }
+
+        /// <summary>Opens the settings screen on page <paramref name="page"/> (the glass hub has one tile per page).</summary>
+        void OpenSettingsAt(int page)
         {
+            RememberOpener();
             GlassSection("SETTINGS");
+            _settings.SetPage(page);
             _menuRoot.SetActive(false); _settingsRoot.SetActive(true); SetFooter(true);
-            StartCoroutine(SelectFirst(_settings.First != null ? _settings.First.gameObject : null));
+            var first = _settings.TabFor(page) != null ? _settings.TabFor(page) : _settings.First;
+            StartCoroutine(SelectFirst(first != null ? first.gameObject : null));
         }
+
+        GameObject _opener;
+        /// <summary>The control that opened a sub screen gets the focus back when it closes (the hub tile, not always the first one).</summary>
+        void RememberOpener() { _opener = EventSystem.current != null ? EventSystem.current.currentSelectedGameObject : null; }
+        GameObject ReturnTarget(GameObject fallback) { return _opener != null && _opener.activeInHierarchy ? _opener : fallback; }
 
         // also driven by the autotest through SendMessage("OpenTeamSelect")
         void OpenTeamSelect()
         {
+            RememberOpener();
             GlassSection("TEAM SELECT");
             _menuRoot.SetActive(false); _teamRoot.SetActive(true); SetFooter(true);
             StartCoroutine(SelectFirst(_teamSelect.First != null ? _teamSelect.First.gameObject : null));
@@ -148,7 +161,7 @@ namespace PixFootball.UI
         {
             GlassSection("MAIN MENU");
             _teamRoot.SetActive(false); _menuRoot.SetActive(true); SetFooter(false);
-            StartCoroutine(SelectFirst(_firstButton != null ? _firstButton.gameObject : null));
+            StartCoroutine(SelectFirst(ReturnTarget(_firstButton != null ? _firstButton.gameObject : null)));
         }
 
         void CloseSettings()
@@ -156,7 +169,7 @@ namespace PixFootball.UI
             GlassSection("MAIN MENU");
             PixSettings.Save(); PixSettings.Apply();
             _settingsRoot.SetActive(false); _menuRoot.SetActive(true); SetFooter(false);
-            StartCoroutine(SelectFirst(_settingsBtn != null ? _settingsBtn.gameObject : null));
+            StartCoroutine(SelectFirst(ReturnTarget(_settingsBtn != null ? _settingsBtn.gameObject : null)));
         }
 
         /// <summary>QUIT asks first: one slip of A on the first column no longer closes the game (QA-802).</summary>
@@ -196,7 +209,33 @@ namespace PixFootball.UI
             view.SetIdentity(12, PixFootball.Core.Position.QB);
             view.transform.localPosition = Vector3.zero; view.transform.localRotation = Quaternion.identity;
             view.SnapYaw(StageAnchor.eulerAngles.y);
-            if (UiTheme.IsGlass) PixFootball.UI.Glass.GlassStage.Attach(gameObject, StageAnchor, StageCamera != null ? StageCamera : Camera.main);
+            _stageView = view;
+            if (UiTheme.IsGlass)
+            {
+                var st = PixFootball.UI.Glass.GlassStage.Attach(gameObject, StageAnchor, StageCamera != null ? StageCamera : Camera.main);
+                st.CanvasRect = _canvasRoot as RectTransform;
+                DressStage(_hubHomeId);   // the menu player wears the kit of the last home team
+            }
+        }
+
+        SimAgentView _stageView;
+        string _hubHomeId;
+
+        /// <summary>The menu player puts on the kit (uniform and helmet in the team colours) and the face of the quarterback of the given team. Public APIs of the player only.</summary>
+        void DressStage(string teamId)
+        {
+            if (_stageView == null || string.IsNullOrEmpty(teamId)) return;
+            var ti = TeamCatalog.ById(teamId);
+            if (ti == null) return;
+            var c = ti.Colors;
+            _stageView.Dress(c, c);
+            try
+            {
+                var lt = MatchData.TeamByKey(teamId);
+                int qb = lt != null ? lt.Depth.StarterId(PixFootball.Core.Position.QB) : 0;
+                _stageView.SetIdentity(qb > 0 ? qb : 12, PixFootball.Core.Position.QB);
+            }
+            catch (System.Exception e) { Debug.LogWarning("[PIX] menu stage identity: " + e.Message); }
         }
 
         void StartMusic()

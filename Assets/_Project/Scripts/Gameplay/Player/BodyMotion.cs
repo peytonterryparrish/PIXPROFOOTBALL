@@ -56,7 +56,7 @@ namespace PixFootball.Gameplay
         readonly PlayerAvatar _av;
         readonly Animator _animator;
         readonly Foot _left = new Foot(), _right = new Foot();
-        Vector3 _prevVel, _fwd = Vector3.forward;
+        Vector3 _prevVel, _fwd = Vector3.forward, _velDir = Vector3.forward;
         float _lat, _fwdAcc, _bank, _pitch, _speed;
         bool _haveVel;
         public bool Enabled = true;
@@ -94,6 +94,7 @@ namespace PixFootball.Gameplay
             _lat = LeanMath.Smooth(_lat, Mathf.Clamp(Vector3.Dot(acc, right), -40f, 40f), dt, 0.10f);
             _fwdAcc = LeanMath.Smooth(_fwdAcc, Mathf.Clamp(Vector3.Dot(acc, forward), -30f, 30f), dt, 0.14f);
             _speed = new Vector3(velocity.x, 0f, velocity.z).magnitude;
+            _velDir = _speed > 0.3f ? new Vector3(velocity.x, 0f, velocity.z) / _speed : _fwd;
         }
 
         /// <summary>Starts a stiff arm toward a world point (the defender's chest) for the given time.</summary>
@@ -101,7 +102,7 @@ namespace PixFootball.Gameplay
 
         public void UpdateStiffArmTarget(Vector3 point) { _armTarget = point; }
 
-        public void Cancel() { _protect = false; _protectW = 0f; _armTime = -1f; _left.Locked = _right.Locked = false; _left.Weight = _right.Weight = 0f; _bank = _pitch = 0f; _haveVel = false; }
+        public void Cancel() { _trim = 1f; _slideErr = 0f; _sHave = false; _carry = Carriage.None; _carryW = 0f; _toeL = _toeR = 0f; _protect = false; _protectW = 0f; _armTime = -1f; _left.Locked = _right.Locked = false; _left.Weight = _right.Weight = 0f; _bank = _pitch = 0f; _haveVel = false; }
 
         /// <summary>LateUpdate, after the animation: lean, foot lock, stiff arm.</summary>
         public void Late(float dt)
@@ -133,9 +134,153 @@ namespace PixFootball.Gameplay
             }
             // ---- protect ball
             ApplyProtect(dt, w);
+            // ---- quarterback carriage (v0.7.0): ball high at the chest in the pocket, cocked by the ear on the run
+            ApplyCarriage(dt, w);
+            // ---- stride matching (v0.7.0): measure the raw animation before the foot lock moves anything
+            TrackStride(dt, w);
             // ---- foot lock
             if (FootLockEnabled) { LockFoot(_left, dt, w); LockFoot(_right, dt, w); }
+            // ---- toe-out clamp (v0.7.0, A-001)
+            if (ToeClampEnabled) { ClampToes(_left, true, dt, w); ClampToes(_right, false, dt, w); }
         }
+
+        // ------------------------------------------------------------------------------------------ v0.7.0 stride matching (A-008)
+        public static bool StrideMatchEnabled = false;     // experiment (A-008): the closed loop did not beat the plain blend tree on the measured numbers, kept for QA only
+        readonly Vector3[] _sPrev = new Vector3[2]; bool _sHave; readonly float[] _sMin = { 0.12f, 0.12f };
+        float _slideErr = 0f, _trim = 1f;
+        /// <summary>Playback-rate trim (0.6 .. 2.2) of the locomotion blend: grows while the planted foot is dragged along with the body (the cycle is too slow for the ground speed), shrinks while it is pushed backwards (too fast). Closed loop on the raw animation: the planted foot of every gait, speed and body size ends up standing still on the turf instead of gliding.</summary>
+        public float LocoTrim { get { return StrideMatchEnabled ? _trim : 1f; } }
+        /// <summary>Signed slide of the planted foot over the ground speed (+ = the foot travels with the body).</summary>
+        public float SlideError { get { return _slideErr; } }
+
+        void TrackStride(float dt, float w)
+        {
+            if (_left.End == null || _right.End == null) return;
+            var cur0 = _left.End.position; var cur1 = _right.End.position;
+            if (!_sHave) { _sPrev[0] = cur0; _sPrev[1] = cur1; _sHave = true; return; }
+            bool moving = _speed > 1.6f && w > 0.6f;
+            float sum = 0f; int n = 0;
+            for (int i = 0; i < 2; i++)
+            {
+                Vector3 p = i == 0 ? cur0 : cur1;
+                float h = p.y - _gy;
+                _sMin[i] = Mathf.Min(h, _sMin[i] + 0.03f * dt);
+                if (moving && h < _sMin[i] + 0.02f)
+                {
+                    Vector3 v = (p - _sPrev[i]) / dt; v.y = 0f;
+                    sum += Vector3.Dot(v, _velDir) / _speed; n++;
+                }
+            }
+            _sPrev[0] = cur0; _sPrev[1] = cur1;
+            if (n > 0)
+            {
+                float s = Mathf.Clamp(sum / n, -1.2f, 1.2f);
+                _slideErr = Mathf.Lerp(_slideErr, s, 1f - Mathf.Exp(-dt / 0.28f));
+                _trim = Mathf.Clamp(_trim * (1f + Mathf.Clamp(_slideErr, -0.6f, 0.6f) * dt * 1.5f), 0.6f, 2.2f);
+            }
+            else if (!moving) _trim = Mathf.MoveTowards(_trim, 1f, dt * 0.9f);
+        }
+
+        // ------------------------------------------------------------------------------------------ v0.7.0 foot splay (A-001)
+        /// <summary>Largest toe-out / toe-in (degrees, measured on the ground plane against the body heading) a foot keeps while the locomotion layer runs. Several mocap cycles (the carrier run / sprint cycles: right foot +47..+65, the plain run / sprint cycles: right foot -25..-55) plant the foot way off the line of travel.</summary>
+        public const float MaxToeOut = 13f, MaxToeIn = 7f;
+        public static bool ToeClampEnabled = true;
+        float _toeL, _toeR;
+        /// <summary>QA: the toe correction (degrees) applied to the left / right foot this frame.</summary>
+        public float ToeCorrectionLeft { get { return _toeL; } }
+        public float ToeCorrectionRight { get { return _toeR; } }
+
+        /// <summary>Pure: the yaw correction (degrees, same sign convention as the measured angle: + = toes to the body's right) that brings a foot's toe angle inside [-maxIn, maxOut]. <paramref name="left"/> flips the sign (toe-out of the left foot is a negative angle).</summary>
+        public static float ToeCorrection(float angle, bool left, float maxOut = MaxToeOut, float maxIn = MaxToeIn)
+        {
+            float outward = left ? -angle : angle;
+            float target = Mathf.Clamp(outward, -maxIn, maxOut);
+            float delta = target - outward;
+            return left ? -delta : delta;
+        }
+
+        void ClampToes(Foot f, bool left, float dt, float w)
+        {
+            var toe = Bone(left ? HumanBodyBones.LeftToes : HumanBodyBones.RightToes);
+            float want = 0f;
+            if (toe != null && f.End != null && f.Lower != null && w > 0.5f && _speed > 1.2f)
+            {
+                float h = f.End.position.y - _gy;
+                float low = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.17f, 0.30f, h));     // only the foot on (or near) the turf: a kicked-up swing foot has no usable heading
+                Vector3 t = toe.position - f.End.position; t.y = 0f;
+                if (t.magnitude > 0.06f && low > 0.01f)
+                {
+                    float a = Vector3.SignedAngle(new Vector3(_fwd.x, 0f, _fwd.z), t, Vector3.up);
+                    if (Mathf.Abs(a) < 120f) want = Mathf.Clamp(ToeCorrection(a, left), -50f, 50f) * low * Mathf.Clamp01((w - 0.5f) * 2f);
+                }
+            }
+            ref float cur = ref (left ? ref _toeL : ref _toeR);
+            cur = LeanMath.Smooth(cur, want, dt, 0.04f);
+            if (Mathf.Abs(cur) >= 0.4f)
+            {
+                // half of the turn comes from the shin (tibial rotation about its long axis), half from the ankle about the vertical: no 50 degree ankle twist
+                Vector3 shin = f.End.position - f.Lower.position;
+                if (shin.sqrMagnitude > 1e-6f) f.Lower.rotation = Quaternion.AngleAxis(cur * 0.5f, shin.normalized) * f.Lower.rotation;
+                f.End.rotation = Quaternion.AngleAxis(cur * 0.5f, Vector3.up) * f.End.rotation;
+            }
+            if (toe != null && f.End != null)
+            {
+                Vector3 t2 = toe.position - f.End.position; t2.y = 0f;
+                float a2 = t2.magnitude > 0.06f ? Vector3.SignedAngle(new Vector3(_fwd.x, 0f, _fwd.z), t2, Vector3.up) * (left ? -1f : 1f) : float.NaN;
+                if (left) _toeAfterL = a2; else _toeAfterR = a2;
+            }
+        }
+        float _toeAfterL, _toeAfterR;
+        /// <summary>QA: toe-out (degrees, + = outward) of each foot right after the clamp.</summary>
+        public float ToeOutAfterLeft { get { return _toeAfterL; } }
+        public float ToeOutAfterRight { get { return _toeAfterR; } }
+
+        // ------------------------------------------------------------------------------------------ v0.7.0 quarterback carriage
+        public enum Carriage { None, Chest, Ear, Jam }
+        Carriage _carry; float _carryW;
+        /// <summary>Quarterback ball carriage: both hands high at the chest with the ball point up and the elbows in (pocket), or the ball cocked by the right ear with the left arm forward for balance (scramble / throw on the run).</summary>
+        public void SetCarriage(Carriage c) { _carry = c; }
+        /// <summary>Minimum weight of the carriage over a playing clip (the under-centre drop-back take carries the ball low at the belly; the pocket loop is already high): set by the quarterback flow.</summary>
+        public float CarriageFloor;
+        public Carriage CurrentCarriage { get { return _carry; } }
+        Carriage _carryShown;
+
+        void ApplyCarriage(float dt, float w)
+        {
+            if (_carry != Carriage.None) _carryShown = _carry;
+            _carryW = Mathf.MoveTowards(_carryW, _carry != Carriage.None ? 1f : 0f, dt / 0.16f);
+            // over a playing clip (drop-back, throw, handoff) the take's own arms win; the carriage owns the arms while the locomotion layer is up
+            float k = _carryW * Mathf.Max(Mathf.Clamp01(w * 1.25f), CarriageFloor * (1f - 0f));
+            if (k <= 0.01f) return;
+            var chest = Bone(HumanBodyBones.Chest); var head = Bone(HumanBodyBones.Head);
+            if (chest == null) return;
+            Vector3 right = Vector3.Cross(Vector3.up, _fwd);
+            var ru = Bone(HumanBodyBones.RightUpperArm); var rl = Bone(HumanBodyBones.RightLowerArm); var rh = Bone(HumanBodyBones.RightHand);
+            var lu = Bone(HumanBodyBones.LeftUpperArm); var ll = Bone(HumanBodyBones.LeftLowerArm); var lh = Bone(HumanBodyBones.LeftHand);
+            if (ru == null || rl == null || rh == null || lu == null || ll == null || lh == null) return;
+            if (_carryShown == Carriage.Chest)
+            {
+                Vector3 ball = chest.position + _fwd * 0.23f + Vector3.up * 0.04f;
+                LimbIK.Apply(ru, rl, rh, ball + right * 0.10f, right * 0.35f + Vector3.down * 0.9f - _fwd * 0.25f, k);
+                LimbIK.Apply(lu, ll, lh, ball - right * 0.10f, -right * 0.35f + Vector3.down * 0.9f - _fwd * 0.25f, k);
+            }
+            else if (_carryShown == Carriage.Jam)
+            {
+                // press corner: both hands up in front of the chest, palms to the receiver, ready to jam (reference 88 / 89)
+                Vector3 front = chest.position + _fwd * 0.30f + Vector3.up * 0.02f;
+                LimbIK.Apply(ru, rl, rh, front + right * 0.14f, right * 0.55f + Vector3.down * 0.8f - _fwd * 0.1f, k);
+                LimbIK.Apply(lu, ll, lh, front - right * 0.14f, -right * 0.55f + Vector3.down * 0.8f - _fwd * 0.1f, k);
+            }
+            else if (head != null)
+            {
+                Vector3 ear = head.position + right * 0.21f + Vector3.up * 0.04f + _fwd * 0.10f;
+                LimbIK.Apply(ru, rl, rh, ear, right * 0.7f + Vector3.up * 0.25f - _fwd * 0.5f, k);
+                LimbIK.Apply(lu, ll, lh, chest.position + _fwd * 0.38f - right * 0.14f + Vector3.up * 0.06f, -right * 0.5f + Vector3.down * 0.6f, k * 0.8f);
+            }
+        }
+
+        /// <summary>World position the ball sits at for the current carriage (pose-matched hands), for the ball follower.</summary>
+        public Carriage ShownCarriage { get { return _carryW > 0.2f ? _carryShown : Carriage.None; } }
 
         // protect ball: the carry arm folds the ball high and tight against the chest
         bool _protect; int _protectSide = 1; float _protectW;

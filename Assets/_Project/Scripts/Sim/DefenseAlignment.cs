@@ -12,9 +12,84 @@ namespace PixFootball.Sim
     {
         public const float PressDepth = 1.15f, OffCornerDepth = 6.4f, SlotOffDepth = 4.8f, DeepHalfDepth = 10.5f, DeepMiddleDepth = 12.0f, QuarterDepth = 9.0f, DeepHalfX = 9.0f;
 
+        /// <summary>Half a lineman's shoulder width: how far an "outside shade" / "inside shade" sits from the head-up spot (yards).</summary>
+        public const float ShadeYards = 0.6f;
+
+        /// <summary>
+        /// OPEN (B-013): the technique alignment is implemented and tested but OFF by default. With it ON the pass protection collapses (8.7 sacks a game; the slide-protection pairing in
+        /// <c>BlockerAI.AssignPassPro</c> sends the tackle to the guard's man) and, once that is patched, the shaded front stops the run (4.0 yards a carry, 7.9 yards an attempt),
+        /// so the blocking schemes and the run game need a calibration pass of their own before it can ship.
+        /// </summary>
+        public static bool UseTechniques = false;
+
+        /// <summary>Called by the simulation setup: aligns the line by technique when <see cref="UseTechniques"/> is on.</summary>
+        public static void AlignLineIfEnabled(PlaySimulation s) { if (UseTechniques) AlignLine(s); }
+
+        /// <summary>
+        /// v0.7 alignment techniques (Docs/QA/REFERENCE_Stances.md): the defensive line lines up relative to the ACTUAL offensive linemen, not at fixed x offsets.
+        /// Even techniques are head-up (0 center, 2 guard, 4 tackle, 6 tight end), odd are the outside shade (1 center, 3 guard, 5 tackle, 7 tight end), "i" the inside shade.
+        /// A 4-3 under is a 1-tech nose to the strong side, a 3-tech tackle to the weak side, a 5-tech weak end and a 7-tech strong end (9-tech when there is no tight end);
+        /// a 3-4 is a 0-tech nose with a 4-tech strong end and a 5-tech weak end. Strong side = the side of the tight end (right when there is none).
+        /// Returns the technique number given to each lineman by slot (left to right) for tests and the film room.
+        /// </summary>
+        public static int[] AlignLine(PlaySimulation s)
+        {
+            string name = s.DefForm != null ? s.DefForm.Name : "";
+            bool four = name == "4-3 Base" || name == "Nickel" || name == "Dime";
+            bool three = name == "3-4 Base";
+            if (!four && !three) return null;
+            var dl = new System.Collections.Generic.List<SimAgent>();
+            for (int i = 11; i < 22; i++) if (PositionGroup.IsDefensiveLine(s.Agents[i].PlayPos)) dl.Add(s.Agents[i]);
+            if (dl.Count != (four ? 4 : 3)) return null;
+            dl.Sort((a, b) => a.StartPos.X.CompareTo(b.StartPos.X));
+            // the offensive front, left to right
+            var ol = new System.Collections.Generic.List<SimAgent>();
+            SimAgent te = null; float teDist = 99f;
+            for (int i = 0; i < 11; i++)
+            {
+                SimAgent a = s.Agents[i];
+                if (a.StartPos.Y < s.LosY - 1.2f) continue;
+                if (PositionGroup.IsOffensiveLine(a.PlayPos)) ol.Add(a);
+                else if (a.PlayPos == Position.TE) { float d = Math.Abs(a.StartPos.X - s.BallX0); if (d < teDist) { teDist = d; te = a; } }
+            }
+            if (ol.Count != 5) return null;
+            ol.Sort((a, b) => a.StartPos.X.CompareTo(b.StartPos.X));
+            float lt = ol[0].StartPos.X, lg = ol[1].StartPos.X, c = ol[2].StartPos.X, rg = ol[3].StartPos.X, rt = ol[4].StartPos.X;
+            if (te != null && (te.StartPos.X < lt - 0.5f || te.StartPos.X > rt + 0.5f)) { } else te = null;   // only a tight end on the end of the line counts
+            int strong = te != null ? (te.StartPos.X >= c ? 1 : -1) : 1;
+            float sh = ShadeYards;
+            float[] x; int[] tech;
+            if (four)
+            {
+                // weak DE, weak DT, strong DT, strong DE (left to right when strong is right); mirrored when strong is left
+                float strongEnd = te != null ? te.StartPos.X + strong * sh : (strong > 0 ? rt : lt) + strong * sh;   // 7-tech outside the tight end, else the 5-tech (a 9 would be wider still)
+                float weakEnd = (strong > 0 ? lt : rt) - strong * sh;                                              // 5-tech outside the weak tackle
+                float weakDt = (strong > 0 ? lg : rg) - strong * sh;                                              // 3-tech: outside shade of the weak guard
+                float strongNose = c + strong * sh;                                                               // 1-tech: outside shade of the center toward the strong side
+                if (strong > 0) { x = new[] { weakEnd, weakDt, strongNose, strongEnd }; tech = new[] { 5, 3, 1, te != null ? 7 : 5 }; }
+                else { x = new[] { strongEnd, strongNose, weakDt, weakEnd }; tech = new[] { te != null ? 7 : 5, 1, 3, 5 }; }
+            }
+            else
+            {
+                float strongEnd = (strong > 0 ? rt : lt);                                      // 4-tech: head-up on the strong tackle
+                float weakEnd = (strong > 0 ? lt : rt) - strong * sh;                          // 5-tech: outside shade of the weak tackle
+                if (strong > 0) { x = new[] { weakEnd, c, strongEnd }; tech = new[] { 5, 0, 4 }; }
+                else { x = new[] { strongEnd, c, weakEnd }; tech = new[] { 4, 0, 5 }; }
+            }
+            for (int i = 0; i < dl.Count; i++)
+            {
+                SimAgent a = dl[i];
+                Vec2 p = new Vec2(SimMath.Clamp(x[i], 0.8f, FieldGeometry.Width - 0.8f), a.StartPos.Y);
+                a.Body.Pos = p; a.StartPos = p; a.Body.Vel = Vec2.Zero;
+                a.ClearHistory(p);
+            }
+            return tech;
+        }
+
         public static void Apply(PlaySimulation s)
         {
             if (s.Kind != PlayKind.Scrimmage || s.DefPlay == null) return;
+
             bool userPress = s.DefAdjust != null && s.DefAdjust.Press != PressMode.Auto;
             for (int i = 0; i < 11; i++)
             {

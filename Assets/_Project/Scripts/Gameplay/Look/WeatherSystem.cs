@@ -129,7 +129,7 @@ namespace PixFootball.Gameplay
             {
                 if (Lighting.NightRoot != null) Lighting.NightRoot.SetActive(night);
                 if (Lighting.DayRoot != null) Lighting.DayRoot.SetActive(!night);
-                if (Lighting.FloodRoot != null) Lighting.FloodRoot.SetActive(p.FloodlightsOn);
+                if (Lighting.FloodRoot != null) Lighting.FloodRoot.SetActive(p.FloodlightsOn && !Flag("-pixNoFlood"));
                 var sun = night ? Lighting.NightSun : Lighting.DaySun;
                 if (sun != null)
                 {
@@ -177,9 +177,12 @@ namespace PixFootball.Gameplay
             }
             if (_profile != null) Destroy(_profile);
             _profile = ScriptableObject.CreateInstance<VolumeProfile>();
-            _volume.sharedProfile = _profile;
+            // GFX-082: Volume.profile is an instantiated COPY of sharedProfile that QualityTiers.ApplyScene (which reads v.profile) creates on the first Apply and that the volume manager
+            // then keeps using; assigning a new sharedProfile at a runtime preset switch never reached the renderer (the Night exposure stayed, Day Snow blew out white). Set both.
+            _volume.sharedProfile = _profile; _volume.profile = _profile;
 
             var exp = _profile.Add<Exposure>(false); exp.mode.Override(ExposureMode.Fixed); exp.fixedExposure.Override(p.ExposureEV); _exposure = exp;
+            PresentationScreen.SceneExposureEv = p.ExposureEV - p.PostExposure; PresentationScreen.RefreshAll();   // v0.7: the jumbotron / studio screens follow the exposure
             var env = _profile.Add<VisualEnvironment>(false);
             var ind = _profile.Add<IndirectLightingController>(false); ind.indirectDiffuseLightingMultiplier.Override(Mathf.Max(0.5f, p.AmbientMultiplier)); ind.reflectionLightingMultiplier.Override(Mathf.Lerp(1f, 0.8f, p.CloudCover));
             env.skyAmbientMode.Override(SkyAmbientMode.Dynamic);
@@ -203,7 +206,7 @@ namespace PixFootball.Gameplay
                 g.gradientDiffusion.Override(2f); g.multiplier.Override(p.SkyMultiplier);
             }
             var fog = _profile.Add<Fog>(false);
-            fog.enabled.Override(true); fog.enableVolumetricFog.Override(p.VolumetricFog);
+            fog.enabled.Override(!Flag("-pixNoFog")); fog.enableVolumetricFog.Override(p.VolumetricFog && !Flag("-pixNoVolFog"));
             fog.meanFreePath.Override(p.FogMeanFreePath); fog.albedo.Override(C(p.FogAlbedo)); fog.anisotropy.Override(p.FogAnisotropy);
             fog.baseHeight.Override(0f); fog.maximumHeight.Override(p.FogMaxHeight);
 
@@ -250,7 +253,7 @@ namespace PixFootball.Gameplay
             }
             if (_dramaProfile != null) Destroy(_dramaProfile);
             _dramaProfile = ScriptableObject.CreateInstance<VolumeProfile>();
-            _drama.sharedProfile = _dramaProfile;
+            _drama.sharedProfile = _dramaProfile; _drama.profile = _dramaProfile;   // see BuildVolume (GFX-082)
             var ca = _dramaProfile.Add<ColorAdjustments>(false);
             ca.postExposure.Override(p.PostExposure - 0.3f); ca.contrast.Override(p.Contrast + 14f); ca.saturation.Override(p.Saturation + 5f); ca.colorFilter.Override(C(p.ColorFilter));
             var bloom = _dramaProfile.Add<Bloom>(false); bloom.intensity.Override(Mathf.Min(1f, p.Bloom + 0.14f)); bloom.threshold.Override(0.8f); bloom.scatter.Override(0.7f);
@@ -327,6 +330,24 @@ namespace PixFootball.Gameplay
             Shader.SetGlobalVector(PixLook.PixWeather2, new Vector4(PixLook.Legacy || NoPuddles ? 0f : Preset.Puddles, Preset.RainIntensity > 0.05f ? 0.55f : 0.1f, Preset.FieldIlluminance / Mathf.PI, 0f));
             Shader.SetGlobalFloat(LegacyId, PixLook.Legacy ? 1f : 0f);
             var wear = FieldWear.Instance; if (wear != null) wear.Publish();
+        }
+
+        /// <summary>Debug dump (GFX-082): the exposure the volume stack really resolves, the sun, and every active volume with its priority / weight / exposure.</summary>
+        public string DebugState()
+        {
+            var sb = new System.Text.StringBuilder();
+            var e = VolumeManager.instance.stack != null ? VolumeManager.instance.stack.GetComponent<Exposure>() : null;
+            sb.Append("stack exposure ").Append(e != null ? e.mode.value + " " + e.fixedExposure.value.ToString("0.00") + " comp " + e.compensation.value.ToString("0.00") + " active=" + e.active : "none");
+            sb.Append(" | weather volume exposure ").Append(_exposure != null ? _exposure.fixedExposure.value.ToString("0.00") : "-");
+            sb.Append(" | sun ").Append(RenderSettings.sun != null ? RenderSettings.sun.name + " " + RenderSettings.sun.intensity.ToString("0") + " " + RenderSettings.sun.gameObject.activeInHierarchy : "none");
+            sb.Append(" | volumes:");
+            foreach (var v in FindObjectsByType<Volume>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (!v.enabled || v.profile == null) continue;
+                Exposure ex; bool has = v.profile.TryGet(out ex);
+                sb.Append(" [").Append(v.name).Append(" p").Append(v.priority.ToString("0")).Append(" w").Append(v.weight.ToString("0.00")).Append(has && ex.active ? " EXP " + ex.mode.value + " " + ex.fixedExposure.value.ToString("0.0") + (ex.fixedExposure.overrideState ? "" : "(no override)") : "").Append("]");
+            }
+            return sb.ToString();
         }
 
         /// <summary>Instant state for tests, tools and the gallery (no particle warm-up): applies the preset and advances nothing.</summary>

@@ -14,8 +14,8 @@ namespace PixFootball.UI
     public static class UiTheme
     {
         const string Key = "pix.uitheme";
-        /// <summary>The theme used when the player never chose one. Stays Classic until every screen is rebuilt and verified (Docs/QA/glass_ui.md says "ALL SCREENS COMPLETE" when it can flip to Glass).</summary>
-        public const UiThemeKind DefaultKind = UiThemeKind.Classic;
+        /// <summary>The theme used when the player never chose one. v0.7: Glass (every screen is rebuilt and verified; Classic stays available in Settings and with -pixUiTheme classic).</summary>
+        public const UiThemeKind DefaultKind = UiThemeKind.Glass;
         static int _forced = -1, _stored = -1; static bool _cliRead;
 
         public static readonly string[] Names = { "Glass", "Classic" };

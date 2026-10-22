@@ -32,7 +32,7 @@ namespace PixFootball.Sim
         {
             for (int i = 0; i < 11; i++) Agents[i].Assign = OffPlay.Assignments[i];
             if (relayout) LayoutOffense();
-            OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
+            DefenseAlignment.AlignLineIfEnabled(this); OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
         }
 
         void LayoutOffense()
@@ -168,7 +168,7 @@ namespace PixFootball.Sim
             DefPlay = call;
             for (int i = 0; i < 11; i++) Agents[11 + i].Assign = call.Assignments[i];
             LayoutDefense();
-            OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
+            DefenseAlignment.AlignLineIfEnabled(this); OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
         }
 
         void LayoutDefense()

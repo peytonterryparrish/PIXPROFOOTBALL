@@ -155,14 +155,46 @@ namespace PixFootball.Gameplay
             // the game keeps simulating and playing audio when the window loses focus (alt-tab, overlays, automation)
             Application.runInBackground = true;
             if (Quality >= 0 && Quality < QualitySettings.names.Length && QualitySettings.GetQualityLevel() != Quality) QualitySettings.SetQualityLevel(Quality, true);
-            if (!Application.isEditor && !HasScreenArgs())
-            {
-                var mode = Fullscreen ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed;
-                if (ResolutionWidth > 0 && ResolutionHeight > 0) Screen.SetResolution(ResolutionWidth, ResolutionHeight, mode);
-                else if (Screen.fullScreenMode != mode) Screen.fullScreenMode = mode;
-            }
+            if (!Application.isEditor && !HasScreenArgs()) ApplyDisplayMode();
             ApplyFrameSettings();
             AudioListener.volume = MasterVolume;
+        }
+
+        /// <summary>
+        /// v0.7 (note 2): the display mode and size that fit THIS monitor. First launch (nothing stored) = borderless full screen at the monitor's native resolution; a stored size larger than the monitor
+        /// is scaled down keeping its aspect; a window leaves room for the title bar and the taskbar so its bottom edge can never sit under the screen edge.
+        /// </summary>
+        public static void ApplyDisplayMode()
+        {
+            int nw, nh; NativeSize(out nw, out nh);
+            int w = ResolutionWidth, h = ResolutionHeight;
+            bool stored = w > 0 && h > 0;
+            if (!stored) { w = nw; h = nh; }
+            bool full = Fullscreen;
+            int fw, fh; FitSize(w, h, nw, nh, full, out fw, out fh);
+            Screen.SetResolution(fw, fh, full ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed);
+        }
+
+        /// <summary>The desktop resolution of the display the game window is on (Display.main reports the monitor, Screen.currentResolution the current video mode).</summary>
+        public static void NativeSize(out int w, out int h)
+        {
+            w = 0; h = 0;
+            try { var info = Screen.mainWindowDisplayInfo; w = info.width; h = info.height; } catch (System.Exception) { }
+            if (w < 640 || h < 480) { w = Display.main.systemWidth; h = Display.main.systemHeight; }
+            if (w < 640 || h < 480) { w = Screen.currentResolution.width; h = Screen.currentResolution.height; }
+            if (w < 640 || h < 480) { w = 1920; h = 1080; }
+        }
+
+        /// <summary>Pure: the size to ask for given a wanted size and the monitor. Full screen never exceeds the monitor; a window keeps 40 px at the sides and 110 px (title bar + taskbar) at the bottom. The aspect of the wanted size is kept.</summary>
+        public static void FitSize(int wantW, int wantH, int monitorW, int monitorH, bool fullScreen, out int w, out int h)
+        {
+            int maxW = fullScreen ? monitorW : monitorW - 40, maxH = fullScreen ? monitorH : monitorH - 110;
+            w = Mathf.Max(640, wantW); h = Mathf.Max(480, wantH);
+            if (w > maxW || h > maxH)
+            {
+                float k = Mathf.Min((float)maxW / w, (float)maxH / h);
+                w = Mathf.Max(640, Mathf.FloorToInt(w * k)); h = Mathf.Max(480, Mathf.FloorToInt(h * k));
+            }
         }
 
         /// <summary>Vertical sync and the frame cap (a graphics-tier switch resets vsync to the level's value, so QualityTiers calls this again after it).</summary>

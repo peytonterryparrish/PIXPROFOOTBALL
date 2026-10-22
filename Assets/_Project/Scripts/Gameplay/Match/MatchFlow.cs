@@ -59,6 +59,8 @@ namespace PixFootball.Gameplay
         public PlayResult Result;
         public PlayKind Kind;
         public CoreTeam Offense;
+        /// <summary>v0.7: why the play ended (tackler, sideline, incomplete, kick result...), straight from the simulation. Null for plays that never ran.</summary>
+        public PixFootball.Sim.PlayEndReason EndReason;
         public bool Applied;
         public int QuarterBefore, QuarterAfter;
         public int HomePoints, AwayPoints;
@@ -329,7 +331,7 @@ namespace PixFootball.Gameplay
             Dictionary<int, Ratings> sro = IsUser(offTeam) ? null : Boost(ro, delta);
             Dictionary<int, Ratings> srd = IsUser(offTeam.Opponent()) ? null : Boost(rd, delta);
             var sim = new PlaySimulation();
-            var simOptions = new PlaySimOptions { Playbook = Book, Hash = _nextHash, AutoSnap = autoSnap, AutoSnapDelay = autoSnapDelay, Penalties = true, BallSlickness = Config.BallSlickness, Fatigue = Fatigue };
+            var simOptions = new PlaySimOptions { Playbook = Book, Hash = _nextHash, AutoSnap = autoSnap, AutoSnapDelay = autoSnapDelay, Penalties = true, BallSlickness = Config.BallSlickness, Fatigue = Fatigue, QbWindupSeconds = 0.42f };
             if (State.Conditions != null) simOptions.SetWind(State.Conditions.ForQuarter(State.Quarter), PlayFrame.For(State).TowardsPlusZ);
             if (SimOptionsHook != null) SimOptionsHook(simOptions);
             try { sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions); }
@@ -350,7 +352,7 @@ namespace PixFootball.Gameplay
         {
             PlayResult r = sim.Result;
             if (r == null) throw new InvalidOperationException("The play has not ended.");
-            var o = new PlayOutcome { Result = r, Kind = sim.Kind, Offense = State.Possession, QuarterBefore = State.Quarter };
+            var o = new PlayOutcome { Result = r, Kind = sim.Kind, Offense = State.Possession, QuarterBefore = State.Quarter, EndReason = sim.EndInfo };
             int h0 = State.HomeScore, a0 = State.AwayScore, down0 = State.Down, dist0 = State.Distance, spot0 = State.BallSpot;
             CoreTeam poss0 = State.Possession; GamePhase phase0 = State.Phase;
             float ballX = sim.Ball.Pos.X;

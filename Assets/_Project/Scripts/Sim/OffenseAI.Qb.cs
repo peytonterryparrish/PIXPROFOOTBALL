@@ -669,6 +669,7 @@ namespace PixFootball.Sim
             q.PendingStyle = style;
             q.PendingNudge = nudge;
             q.WindupLeft = 0.26f - 0.06f * SimMath.Rating01(q.R.Awareness);
+            if (S.Options.QbWindupSeconds > 0f) q.WindupLeft = S.Options.QbWindupSeconds * (q.QbState == QbPhase.Scramble ? 0.8f : 1f) * (1.04f - 0.08f * SimMath.Rating01(q.R.Awareness));      // v0.7.0: animation-synced wind-up
             q.PrevQbState = q.QbState;
             q.QbState = QbPhase.Windup;
             q.HasFace = true;

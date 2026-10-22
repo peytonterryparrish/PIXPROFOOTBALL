@@ -49,13 +49,13 @@ namespace PixFootball.Presentation
             _barBottom = TvUi.Bar(lroot, "BarBottom", Color.black, new Vector2(0, 0), new Vector2(0, 0), Vector2.zero, new Vector2(0, 0)).rectTransform; _barBottom.anchorMax = new Vector2(1, 0); _barBottom.sizeDelta = new Vector2(0, 0);
 
             // replay tag + title (top right, inside the top bar)
-            _tag = UiKit.Rect(_root, "Tag"); UiKit.Anchor(_tag, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-70, -14), new Vector2(560, 100));
+            _tag = UiKit.Rect(_root, "Tag"); UiKit.Anchor(_tag, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-250, -14), new Vector2(560, 100));
             var tagBg = TvUi.Strip(_tag, "Bg", TvUi.Gold, 52, 18, true, true); UiKit.Anchor(tagBg.rectTransform, new Vector2(1, 1), new Vector2(1, 1), Vector2.zero, new Vector2(430, 52));
             _tagText = TvUi.Text(_tag, "INSTANT REPLAY", 38, new Color(0.06f, 0.07f, 0.1f), true, TextAlignmentOptions.Center, new Vector2(1, 1), new Vector2(1, 1), new Vector2(0, -2), new Vector2(430, 52), 4f);
             _titleText = TvUi.Text(_tag, "", 32, Color.white, true, TextAlignmentOptions.MidlineRight, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-10, -62), new Vector2(560, 38), 3f);
 
             // slow motion tag (below the title)
-            _slowTag = UiKit.Rect(_root, "SlowTag"); UiKit.Anchor(_slowTag, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-70, -132), new Vector2(340, 44));
+            _slowTag = UiKit.Rect(_root, "SlowTag"); UiKit.Anchor(_slowTag, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-250, -132), new Vector2(340, 44));
             var sb = TvUi.Strip(_slowTag, "Bg", new Color(0.176f, 0.353f, 0.737f, 0.95f), 44, 14, true, true); UiKit.Anchor(sb.rectTransform, new Vector2(1, 1), new Vector2(1, 1), Vector2.zero, new Vector2(340, 44));
             _slowText = TvUi.Text(_slowTag, "SLOW MOTION 0.25x", 26, Color.white, true, TextAlignmentOptions.Center, new Vector2(1, 1), new Vector2(1, 1), Vector2.zero, new Vector2(340, 44), 2f);
 

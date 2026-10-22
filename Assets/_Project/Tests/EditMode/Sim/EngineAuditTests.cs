@@ -70,9 +70,9 @@ namespace PixFootball.Tests
             SimAgent k = sim.Specials.KickerAgent;
             Assert.NotNull(k);
             float minX = 99f, maxX = -99f;
-            for (int i = 1; i < 11; i++) { SimAgent a = sim.Agents[i]; minX = Math.Min(minX, a.Pos.X); maxX = Math.Max(maxX, a.Pos.X); Assert.That(Math.Abs(a.Pos.Y - (sim.LosY - 1f)), Is.LessThan(1.6f), "a coverage man sits on the kicking line"); }
+            for (int i = 1; i < 11; i++) { SimAgent a = sim.Agents[i]; minX = Math.Min(minX, a.Pos.X); maxX = Math.Max(maxX, a.Pos.X); Assert.That(Math.Abs(a.Pos.Y - (sim.LosY - KickTiming.CoverageStartBack)), Is.LessThan(1.6f), "a coverage man sits on the kicking line (v0.7: a few steps back, so the line can run level with the ball at contact)"); }
             Assert.That(maxX - minX, Is.GreaterThan(35f), "the coverage unit spreads across the field, not a single file");
-            Assert.That(sim.LosY - k.Pos.Y, Is.InRange(3.5f, 6.5f), "the kicker runs up from behind the line");
+            Assert.That(sim.LosY - k.Pos.Y, Is.InRange(4.5f, 8f), "the kicker runs up from behind the line (5-7 steps)");
         }
     }
 }

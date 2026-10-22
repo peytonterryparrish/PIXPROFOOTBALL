@@ -246,6 +246,9 @@ namespace PixFootball.Art
             CatchToeTap = "catch_toe_tap", PushOob = "push_oob", BenchSit = "bench_sit", WrRelease = "wr_release", LbReadStep = "lb_read_step", Backpedal45 = "backpedal_diag",
             Swat = "swat", CoachAmbient = "coach_ambient", HuddleLeader = "huddle_leader", IdleHelmet = "idle_helmet";
         // distinct per-position stance clips (v0.8, QA-899..901): every position gets its own pose instead of one shared DL / safety clip
+        // v0.7.0 Track A: derived clean QB throws (cut from the 10 s BoNES studio takes around the detected release), pump fake, and derived stance holds
+        public const string PixQbThrowSet = "pixqb_throw_set", PixQbThrowRun = "pixqb_throw_run", PixQbThrowOff = "pixqb_throw_off", PixQbThrowAway = "pixqb_throw_away", PixQbPump = "pixqb_pump",
+            PixStanceWr = "pixstance_wr", PixStanceQbUnder = "pixstance_qb_under", PixStanceCbPress = "pixstance_cb_press", PixStanceCbOff = "pixstance_cb_off", PixStanceOl = "pixstance_ol", PixStanceLb = "pixstance_lb", PixStanceRb = "pixstance_rb";
         public const string StanceOl3ptL = "stance_ol_3pt_l", StanceOl3ptR = "stance_ol_3pt_r", StanceCenter = "stance_center", StanceTe = "stance_te", StanceDl3pt = "stance_dl_3pt",
             StanceDl4pt = "stance_dl_4pt", StanceWide9 = "stance_wide9", StanceLb = "stance_lb", StanceCbPress = "stance_cb_press", StanceCbOff = "stance_cb_off", StanceS = "stance_s",
             StanceWr = "stance_wr", StanceRb = "stance_rb", StanceKicker = "stance_kicker", StanceHolder = "stance_holder", StanceSnapper = "stance_snapper";

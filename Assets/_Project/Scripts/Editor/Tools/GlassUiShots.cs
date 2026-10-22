@@ -98,6 +98,7 @@ namespace PixFootball.EditorTools
             foreach (var r in roots) Bind(r, _ui);
             Settle(roots);
             NavAudit(name, roots);
+            foreach (var gs in Object.FindObjectsByType<GlassStage>(FindObjectsSortMode.None)) gs.Refresh((float)w / h);   // per-aspect framing of the menu player (GUI-020)
 
             Texture2D scene = null;
             if (sceneCam != null)

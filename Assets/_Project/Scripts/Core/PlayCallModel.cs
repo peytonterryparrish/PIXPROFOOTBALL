@@ -3,7 +3,8 @@ using System.Collections.Generic;
 
 namespace PixFootball.Core
 {
-    public enum CallTab { Playbook, AskCoach, Recent, Special }
+    /// <summary>The classic tabs come first (their numeric values are stored by older code); v0.7 added the call-sheet tabs (Formation, Concept, PlayType, Personnel, Favorites). AskCoach is shown as "SUGGESTED" on the sheet.</summary>
+    public enum CallTab { Playbook, AskCoach, Recent, Special, Formation, Concept, PlayType, Personnel, Favorites }
     public enum CallStage { Formation, Set, Play }
     public enum CallFilter { All, Run, Pass, PlayAction, Screen, Zone, Man, Blitz }
 
@@ -55,6 +56,14 @@ namespace PixFootball.Core
         public int PlayCount { get { int n = 0; foreach (SetEntry s in Sets) n += s.Plays.Count; return n; } }
     }
 
+    /// <summary>One group of the call sheet (v0.7): a formation family, a concept, a play type or a personnel package, with the plays it holds.</summary>
+    public sealed class CallGroup
+    {
+        public string Label = "", Detail = "";
+        public Formation Formation;
+        public List<Play> Plays = new List<Play>();
+    }
+
     /// <summary>
     /// The pure navigation model of the full play-call screen (2K5 / NCAA style): Formation -> Set -> Play cards (three per page) for offense,
     /// defense and special teams, plus the Ask Coach, Recent and Special Teams tabs, type filters, play flipping, the timeout request and
@@ -71,6 +80,15 @@ namespace PixFootball.Core
         public List<CoachPick> CoachPicks = new List<CoachPick>();
         public List<Play> RecentPlays = new List<Play>();
         public List<Play> SpecialPlays = new List<Play>();
+        /// <summary>The plays the user calls most (set by the match flow from the stored call counts); the sheet's FAVORITES tab.</summary>
+        public List<Play> FavoritePlays = new List<Play>();
+        /// <summary>v0.7 call sheet: always on the play stage, tabs SUGGESTED / FORMATION / CONCEPT / PLAY TYPE / PERSONNEL / RECENT / FAVORITES (+ SPECIAL TEAMS), a group list beside the cards, quick search.</summary>
+        public bool SheetMode { get; private set; }
+        public readonly List<CallGroup> Groups = new List<CallGroup>();
+        public int GroupIndex { get; private set; }
+        public string SearchText { get; private set; } = "";
+        /// <summary>True when <see cref="SearchText"/> is a single initial letter chosen with the pad (matches the start of a name) instead of typed text (matches anywhere).</summary>
+        public bool SearchIsLetter { get; private set; }
 
         public CallTab Tab { get; private set; }
         public CallStage Stage { get; private set; }
@@ -88,10 +106,14 @@ namespace PixFootball.Core
 
         readonly List<Play> _plays = new List<Play>();
 
-        public PlayCallModel(Playbook book, PlaySide side, bool includePlaybookTab, bool includeSpecialTab)
+        public PlayCallModel(Playbook book, PlaySide side, bool includePlaybookTab, bool includeSpecialTab) : this(book, side, includePlaybookTab, includeSpecialTab, false) { }
+
+        public PlayCallModel(Playbook book, PlaySide side, bool includePlaybookTab, bool includeSpecialTab, bool sheet)
         {
             Book = book; Side = side;
-            if (includePlaybookTab && side != PlaySide.Special) { Tabs.Add(CallTab.Playbook); Tabs.Add(CallTab.AskCoach); Tabs.Add(CallTab.Recent); }
+            SheetMode = sheet && includePlaybookTab && side != PlaySide.Special;
+            if (SheetMode) { Tabs.Add(CallTab.AskCoach); Tabs.Add(CallTab.Formation); Tabs.Add(CallTab.Concept); Tabs.Add(CallTab.PlayType); Tabs.Add(CallTab.Personnel); Tabs.Add(CallTab.Recent); Tabs.Add(CallTab.Favorites); }
+            else if (includePlaybookTab && side != PlaySide.Special) { Tabs.Add(CallTab.Playbook); Tabs.Add(CallTab.AskCoach); Tabs.Add(CallTab.Recent); }
             if (includeSpecialTab) Tabs.Add(CallTab.Special);
             if (Tabs.Count == 0) Tabs.Add(CallTab.Special);
             if (includePlaybookTab && side != PlaySide.Special) BuildFormations();
@@ -233,10 +255,11 @@ namespace PixFootball.Core
         {
             Tab = tab ?? Tabs[0];
             if (!Tabs.Contains(Tab)) Tab = Tabs[0];
-            Chosen = null; TimeoutRequested = false; Flip = false; Filter = CallFilter.All;
-            FormationIndex = 0; SetIndex = 0; PlayIndex = 0;
+            Chosen = null; TimeoutRequested = false; Flip = false; Filter = CallFilter.All; SearchText = ""; SearchIsLetter = false;
+            FormationIndex = 0; SetIndex = 0; PlayIndex = 0; GroupIndex = 0;
             for (int i = 0; i < Formations.Count; i++) if (Formations[i].Label == LastFormation.ToUpperInvariant()) FormationIndex = i;
             Stage = Tab == CallTab.Playbook ? CallStage.Formation : CallStage.Play;
+            if (SheetMode) { Stage = CallStage.Play; RebuildGroups(); }
             RebuildPlays();
             Touch();
         }
@@ -256,11 +279,19 @@ namespace PixFootball.Core
         {
             _plays.Clear();
             IEnumerable<Play> src = null;
+            if (SheetMode && SearchText.Length > 0 && Tab != CallTab.Special)
+            {
+                foreach (Play p in AllSheetPlays()) if (SearchMatches(p) && Matches(p)) _plays.Add(p);
+                PlayIndex = Math.Max(0, Math.Min(PlayIndex, _plays.Count - 1));
+                return;
+            }
             switch (Tab)
             {
                 case CallTab.AskCoach: foreach (CoachPick p in CoachPicks) _plays.Add(p.Play); break;
                 case CallTab.Recent: src = RecentPlays; break;
+                case CallTab.Favorites: src = FavoritePlays; break;
                 case CallTab.Special: src = InterleaveByCategory(SpecialPlays); break;
+                case CallTab.Formation: case CallTab.Concept: case CallTab.PlayType: case CallTab.Personnel: src = CurrentGroupPlays(); break;
                 default: src = SetPlays(); break;
             }
             if (src != null) foreach (Play p in src) if (Matches(p)) _plays.Add(p);
@@ -312,6 +343,140 @@ namespace PixFootball.Core
             return FilterMatches(Filter, p);
         }
 
+        // ================================================================================================ the call sheet (v0.7)
+        /// <summary>The unfiltered plays behind the current tab (what the type filters look at); null for the tabs that have no filters.</summary>
+        IEnumerable<Play> ViewPlays()
+        {
+            if (SheetMode && SearchText.Length > 0 && Tab != CallTab.Special) return AllSheetPlays();
+            switch (Tab)
+            {
+                case CallTab.Recent: return RecentPlays;
+                case CallTab.Favorites: return FavoritePlays;
+                case CallTab.Formation: case CallTab.Concept: case CallTab.PlayType: case CallTab.Personnel: return CurrentGroupPlays();
+                case CallTab.Playbook: return SetPlays();
+                default: return null;
+            }
+        }
+
+        List<Play> CurrentGroupPlays()
+        {
+            return Groups.Count > 0 ? Groups[Math.Max(0, Math.Min(GroupIndex, Groups.Count - 1))].Plays : new List<Play>();
+        }
+
+        public CallGroup CurrentGroup { get { return Groups.Count > 0 ? Groups[Math.Max(0, Math.Min(GroupIndex, Groups.Count - 1))] : null; } }
+
+        /// <summary>Every callable play of the playbook for this side (what the quick search looks through): the formations' plays in playbook order.</summary>
+        public List<Play> AllSheetPlays()
+        {
+            var l = new List<Play>();
+            foreach (FormationEntry fe in Formations) foreach (SetEntry se in fe.Sets) l.AddRange(se.Plays);
+            return l;
+        }
+
+        /// <summary>Whether the tab shows a group list beside the cards (formation families, concepts, play types, personnel packages).</summary>
+        public bool TabHasGroups { get { return SheetMode && (Tab == CallTab.Formation || Tab == CallTab.Concept || Tab == CallTab.PlayType || Tab == CallTab.Personnel) && SearchText.Length == 0; } }
+
+        void RebuildGroups()
+        {
+            Groups.Clear();
+            if (!SheetMode) return;
+            switch (Tab)
+            {
+                case CallTab.Formation:
+                    foreach (FormationEntry fe in Formations)
+                    {
+                        var g = new CallGroup { Label = fe.Label, Detail = fe.Detail, Formation = fe.Formation };
+                        foreach (SetEntry se in fe.Sets) g.Plays.AddRange(se.Plays);
+                        if (g.Plays.Count > 0) Groups.Add(g);
+                    }
+                    break;
+                case CallTab.Concept:
+                {
+                    var byName = new Dictionary<string, CallGroup>();
+                    foreach (Play p in AllSheetPlays())
+                    {
+                        string key = p.Name.ToUpperInvariant(); CallGroup g;
+                        if (!byName.TryGetValue(key, out g)) { g = new CallGroup { Label = key, Formation = Book.FindFormation(p.FormationName) }; byName[key] = g; Groups.Add(g); }
+                        g.Plays.Add(p);
+                    }
+                    Groups.Sort((a, b) => string.CompareOrdinal(a.Label, b.Label));
+                    foreach (CallGroup g in Groups) g.Detail = g.Plays.Count + (g.Plays.Count == 1 ? " FORMATION" : " FORMATIONS");
+                    break;
+                }
+                case CallTab.PlayType:
+                {
+                    var order = new List<PlayCategory>(); var map = new Dictionary<PlayCategory, CallGroup>();
+                    foreach (Play p in AllSheetPlays())
+                    {
+                        CallGroup g;
+                        if (!map.TryGetValue(p.Category, out g)) { g = new CallGroup { Label = CategoryName(p.Category), Formation = Book.FindFormation(p.FormationName) }; map[p.Category] = g; order.Add(p.Category); }
+                        g.Plays.Add(p);
+                    }
+                    order.Sort((a, b) => ((int)a).CompareTo((int)b));
+                    foreach (PlayCategory c in order) { map[c].Detail = map[c].Plays.Count + " PLAYS"; Groups.Add(map[c]); }
+                    break;
+                }
+                case CallTab.Personnel:
+                {
+                    var map = new Dictionary<string, CallGroup>();
+                    foreach (Play p in AllSheetPlays())
+                    {
+                        Formation f = Book.FindFormation(p.FormationName); string key = f != null ? PersonnelText(f) : "OTHER"; CallGroup g;
+                        if (!map.TryGetValue(key, out g)) { g = new CallGroup { Label = key.ToUpperInvariant(), Formation = f }; map[key] = g; Groups.Add(g); }
+                        g.Plays.Add(p);
+                    }
+                    Groups.Sort((a, b) => b.Plays.Count.CompareTo(a.Plays.Count));
+                    foreach (CallGroup g in Groups) g.Detail = g.Plays.Count + " PLAYS";
+                    break;
+                }
+            }
+            GroupIndex = 0;
+            if (Tab == CallTab.Formation) for (int i = 0; i < Groups.Count; i++) if (Groups[i].Label == (LastFormation ?? "").ToUpperInvariant()) GroupIndex = i;
+        }
+
+        /// <summary>Sheet: next / previous group (D-pad down / up).</summary>
+        public void StepGroup(int d)
+        {
+            if (!TabHasGroups || Groups.Count == 0 || Chosen != null) return;
+            GroupIndex = Wrap(GroupIndex + d, Groups.Count); PlayIndex = 0; Filter = CallFilter.All; RebuildPlays(); Touch();
+        }
+
+        // ---- quick search by play name
+        bool SearchMatches(Play p)
+        {
+            if (SearchText.Length == 0) return true;
+            string n = p.Name ?? "";
+            if (SearchIsLetter) return n.StartsWith(SearchText, StringComparison.OrdinalIgnoreCase);
+            return n.IndexOf(SearchText, StringComparison.OrdinalIgnoreCase) >= 0 || (p.FormationName ?? "").IndexOf(SearchText, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        public void SetSearch(string text, bool letter = false)
+        {
+            if (!SheetMode || Chosen != null) return;
+            text = (text ?? "").Trim();
+            if (text == SearchText && letter == SearchIsLetter) return;
+            SearchText = text; SearchIsLetter = letter && text.Length == 1; PlayIndex = 0; Filter = CallFilter.All; RebuildPlays(); Touch();
+        }
+
+        public void AppendSearch(char c) { SetSearch(SearchText + c, false); }
+        public void BackspaceSearch() { if (SearchText.Length > 0) SetSearch(SearchText.Substring(0, SearchText.Length - 1), false); }
+        public void ClearSearch() { SetSearch("", false); }
+
+        /// <summary>Pad quick find: RS left / right steps the initial letter (A..Z, then off). Only letters that start a play are offered.</summary>
+        public void CycleLetter(int d)
+        {
+            if (!SheetMode || Chosen != null) return;
+            var letters = new List<char>();
+            foreach (Play p in AllSheetPlays()) { if (string.IsNullOrEmpty(p.Name)) continue; char c = char.ToUpperInvariant(p.Name[0]); if (!letters.Contains(c)) letters.Add(c); }
+            letters.Sort();
+            if (letters.Count == 0) return;
+            int cur = SearchText.Length == 1 && SearchIsLetter ? letters.IndexOf(char.ToUpperInvariant(SearchText[0])) : -1;
+            int next = cur + d;
+            if (cur < 0 && d < 0) next = letters.Count - 1;
+            if (next < 0 || next >= letters.Count) { ClearSearch(); return; }
+            SetSearch(letters[next].ToString(), true);
+        }
+
         /// <summary>
         /// The type filters worth offering: ALL plus every filter that matches at least one play of the unfiltered view (QA-616: no filter that opens an empty page).
         /// The current filter is always included so the row never loses the selection.
@@ -321,7 +486,7 @@ namespace PixFootball.Core
             CallFilter[] candidates = Side == PlaySide.Defense
                 ? new[] { CallFilter.All, CallFilter.Zone, CallFilter.Man, CallFilter.Blitz }
                 : new[] { CallFilter.All, CallFilter.Run, CallFilter.Pass, CallFilter.PlayAction, CallFilter.Screen };
-            IEnumerable<Play> src = Tab == CallTab.Recent ? (IEnumerable<Play>)RecentPlays : (Tab == CallTab.Playbook ? (IEnumerable<Play>)SetPlays() : null);
+            IEnumerable<Play> src = ViewPlays();
             if (src == null) return candidates;
             var res = new List<CallFilter>();
             foreach (CallFilter f in candidates)
@@ -344,7 +509,12 @@ namespace PixFootball.Core
 
         public static string TabName(CallTab t)
         {
-            switch (t) { case CallTab.Playbook: return "PLAYBOOK"; case CallTab.AskCoach: return "ASK COACH"; case CallTab.Recent: return "RECENT"; default: return "SPECIAL TEAMS"; }
+            switch (t)
+            {
+                case CallTab.Playbook: return "PLAYBOOK"; case CallTab.AskCoach: return "ASK COACH"; case CallTab.Recent: return "RECENT";
+                case CallTab.Formation: return "FORMATION"; case CallTab.Concept: return "CONCEPT"; case CallTab.PlayType: return "PLAY TYPE"; case CallTab.Personnel: return "PERSONNEL"; case CallTab.Favorites: return "FAVORITES";
+                default: return "SPECIAL TEAMS";
+            }
         }
 
         /// <summary>The play as it will be called and drawn (mirrored when Flip is on).</summary>
@@ -412,6 +582,12 @@ namespace PixFootball.Core
         {
             get
             {
+                if (SheetMode)
+                {
+                    if (SearchText.Length > 0) return "SEARCH  >  " + SearchText.ToUpperInvariant();
+                    var g = CurrentGroup;
+                    return TabName(Tab) + (TabHasGroups && g != null ? "  >  " + g.Label : "");
+                }
                 if (Tab != CallTab.Playbook) return TabName(Tab);
                 string s = CurrentFormation != null ? CurrentFormation.Label : "";
                 if (Stage == CallStage.Formation) return "FORMATION";
@@ -427,6 +603,12 @@ namespace PixFootball.Core
         public void Navigate(int dx, int dy)
         {
             if (Chosen != null) return;
+            if (SheetMode)
+            {
+                if (dx != 0 && _plays.Count > 0) { PlayIndex = Math.Max(0, Math.Min(_plays.Count - 1, PlayIndex + dx)); Touch(); }
+                else if (dy != 0) StepGroup(dy < 0 ? 1 : -1);
+                return;
+            }
             if (Stage == CallStage.Formation && Tab == CallTab.Playbook)
             {
                 if (dy != 0 && Formations.Count > 0) { FormationIndex = Wrap(FormationIndex + (dy < 0 ? 1 : -1), Formations.Count); SetIndex = 0; PlayIndex = 0; Touch(); }
@@ -449,6 +631,12 @@ namespace PixFootball.Core
         public void Confirm()
         {
             if (Chosen != null) return;
+            if (SheetMode)
+            {
+                if (Highlighted == null) return;
+                if (Tab == CallTab.Formation && CurrentGroup != null) LastFormation = CurrentGroup.Label;
+                Chosen = Displayed(Highlighted); Touch(); return;
+            }
             if (Stage == CallStage.Formation && Tab == CallTab.Playbook)
             {
                 if (CurrentFormation == null) return;
@@ -472,6 +660,13 @@ namespace PixFootball.Core
         public bool Back()
         {
             if (Chosen != null) return false;
+            if (SheetMode)
+            {
+                // B: clear a search first, then jump back to the coach's suggestions (one press from anywhere)
+                if (SearchText.Length > 0) { ClearSearch(); return true; }
+                if (Tab != CallTab.AskCoach && Tabs.Contains(CallTab.AskCoach)) { SetTab(CallTab.AskCoach); return true; }
+                return false;
+            }
             if (Tab != CallTab.Playbook && Tabs.Contains(CallTab.Playbook)) { SetTab(CallTab.Playbook); return true; }
             if (Stage == CallStage.Play && Tab == CallTab.Playbook)
             {
@@ -501,9 +696,10 @@ namespace PixFootball.Core
         public void SetTab(CallTab t)
         {
             if (!Tabs.Contains(t)) return;
-            Tab = t; PlayIndex = 0; Filter = CallFilter.All;
+            Tab = t; PlayIndex = 0; Filter = CallFilter.All; SearchText = ""; SearchIsLetter = false;
             Stage = t == CallTab.Playbook ? CallStage.Formation : CallStage.Play;
             Flip = false;
+            if (SheetMode) { Stage = CallStage.Play; RebuildGroups(); }
             RebuildPlays(); Touch();
         }
 

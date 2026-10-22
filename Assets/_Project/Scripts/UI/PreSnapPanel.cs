@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using PixFootball.Core;
 using PixFootball.Gameplay;
 using TMPro;
 using UnityEngine;
@@ -117,7 +118,7 @@ namespace PixFootball.UI
                 if (!_menuBuilt || pad != _menuPad || !string.Equals(h.MenuTitle, _shownMenuTitle) || !SameMenu(_menu, h.Menu))
                 {
                     _menuBuilt = true; _menuPad = pad; _shownMenuTitle = h.MenuTitle; _menu.Clear(); _menu.AddRange(h.Menu);
-                    RebuildMenu(h.MenuTitle, _menu);
+                    _book = h.Book; RebuildMenu(h.MenuTitle, _menu);
                 }
             }
             else _menuBuilt = false;
@@ -136,6 +137,7 @@ namespace PixFootball.UI
         }
 
         bool _menuPad = true;
+        Playbook _book;
 
         public void Hide()
         {
@@ -180,7 +182,7 @@ namespace PixFootball.UI
             for (int i = 0; i < a.Count; i++)
             {
                 MenuRow x = a[i], y = b[i];
-                if (x.Button != y.Button || x.Selected != y.Selected || x.Dim != y.Dim || !string.Equals(x.Label, y.Label) || !string.Equals(x.Tag, y.Tag)) return false;
+                if (x.Button != y.Button || x.Selected != y.Selected || x.Dim != y.Dim || !ReferenceEquals(x.Play, y.Play) || !string.Equals(x.Label, y.Label) || !string.Equals(x.Tag, y.Tag)) return false;
             }
             return true;
         }
@@ -227,27 +229,46 @@ namespace PixFootball.UI
             float y = 90f;
             foreach (MenuRow r in menu)
             {
+                // v0.7: audible rows carry the play art (mini field), the personnel and the concept, like the call sheet's compact side list
+                bool art = r.Play != null && _book != null;
+                float rowH = art ? 104f : 76f;
                 var row = UiKit.Panel(_menuRoot, "Row", r.Selected ? UiColors.AccentBlue : (r.Dim ? new Color(0.14f, 0.15f, 0.19f, 1f) : UiColors.Row));
-                UiKit.Anchor(row.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(20, -y), new Vector2(580, 76));
+                UiKit.Anchor(row.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(20, -y), new Vector2(580, rowH));
                 var icon = UiPrompts.ButtonIcon(row.rectTransform, UiPrompts.GlyphOf(r.Button), 52f);
                 icon.GetComponent<LayoutElement>().ignoreLayout = true;
                 UiKit.Anchor(icon, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(16, 0), icon.sizeDelta);
                 bool hasTag = !string.IsNullOrEmpty(r.Tag);
+                float textX = 128f;
+                if (art)
+                {
+                    var well = UiKit.Panel(row.rectTransform, "Art", UiTheme.IsGlass ? new Color(0.02f, 0.03f, 0.04f, 0.55f) : Color.black); UiKit.Anchor(well.rectTransform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(Mathf.Max(120f, 16f + icon.sizeDelta.x + 12f), 0), new Vector2(132, rowH - 14f));
+                    well.gameObject.AddComponent<RectMask2D>();
+                    var dr = UiKit.Rect(well.rectTransform, "Diagram"); UiKit.Stretch(dr, 2, 2, 2, 2);
+                    var dg = dr.gameObject.AddComponent<PlayDiagramGraphic>(); dg.SetDiagram(PlayDiagram.For(_book, r.Play));
+                    textX = Mathf.Max(120f, 16f + icon.sizeDelta.x + 12f) + 144f;
+                }
                 // long coverage / play names shrink and end in "..." before they reach the tag chip (QA-789)
-                float labelW = 580f - 128f - (hasTag ? 124f : 16f);
-                var lbl = UiKit.Label(row.rectTransform, r.Label.ToUpperInvariant(), 28, r.Dim ? UiColors.TextMuted : Color.white, true, TextAlignmentOptions.MidlineLeft, "Label");
-                UiKit.Anchor(lbl.rectTransform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(128, 0), new Vector2(labelW, 60)); lbl.characterSpacing = 1.5f;
-                Fit(lbl, 16f, 28f);
+                float labelW = 580f - textX - (hasTag ? 124f : 16f);
+                var lbl = UiKit.Label(row.rectTransform, r.Label.ToUpperInvariant(), art ? 24 : 28, r.Dim ? UiColors.TextMuted : Color.white, true, art ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.MidlineLeft, "Label");
+                UiKit.Anchor(lbl.rectTransform, new Vector2(0, art ? 1f : 0.5f), new Vector2(0, art ? 1f : 0.5f), new Vector2(textX, art ? -14f : 0), new Vector2(labelW, art ? 34f : 60f)); lbl.characterSpacing = 1.5f;
+                Fit(lbl, 16f, art ? 24f : 28f);
+                if (art)
+                {
+                    Formation f = _book.FindFormation(r.Play.FormationName);
+                    string pers = f != null ? (r.Play.Side == PixFootball.Core.PlaySide.Offense ? PixFootball.Core.PlayCallModel.PersonnelText(f) : f.Unit) : "";
+                    var sub = UiKit.Label(row.rectTransform, (pers + "   " + PixFootball.Core.PlayCallModel.ConceptLabel(r.Play)).Trim(), 20, UiColors.TextSecondary, false, TextAlignmentOptions.TopLeft, "Sub");
+                    UiKit.Anchor(sub.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(textX, -52f), new Vector2(labelW + (hasTag ? 110f : 0f), 30f)); Fit(sub, 14f, 20f);
+                }
                 if (hasTag)
                 {
-                    var chip = UiKit.Panel(row.rectTransform, "Tag", PlayTags.ColorOf(r.Tag, UiColors.AccentBlue)); UiKit.Anchor(chip.rectTransform, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-12, 0), new Vector2(100, 38));
+                    var chip = UiKit.Panel(row.rectTransform, "Tag", PlayTags.ColorOf(r.Tag, UiColors.AccentBlue)); UiKit.Anchor(chip.rectTransform, new Vector2(1, art ? 1f : 0.5f), new Vector2(1, art ? 1f : 0.5f), new Vector2(-12, art ? -14f : 0), new Vector2(100, 38));
                     var tt = UiKit.Label(chip.rectTransform, r.Tag, 20, PlayTags.TextColorOf(r.Tag), true, TextAlignmentOptions.Center, "TagText"); UiKit.Stretch(tt.rectTransform); tt.characterSpacing = 1.5f;
                     Fit(tt, 13f, 20f);
                 }
                 _menuRows.Add(row.gameObject);
-                y += 84f;
+                y += rowH + 8f;
             }
-            _menuRoot.sizeDelta = new Vector2(620, 100f + menu.Count * 84f);
+            _menuRoot.sizeDelta = new Vector2(620, y + 16f);
         }
 
         void RebuildWheel(string title, List<WheelOption> wheel)

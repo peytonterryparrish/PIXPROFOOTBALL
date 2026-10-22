@@ -32,9 +32,9 @@ namespace PixFootball.Gameplay
     /// Spawns, pools and drives the 22 SimAgentViews (S/M/L bodies by position) plus the ball for one live play: converts simulation
     /// state to the stadium with a <see cref="PlayFrame"/> and derives the animation hints (throw distance, catch direction, tackle approach...).
     /// </summary>
-    public sealed class PlayStage : MonoBehaviour
+    public sealed partial class PlayStage : MonoBehaviour
     {
-        readonly Dictionary<PlayerSize, List<SimAgentView>> _pool = new Dictionary<PlayerSize, List<SimAgentView>>();
+        readonly Dictionary<int, List<SimAgentView>> _pool = new Dictionary<int, List<SimAgentView>>();     // key = size + 3 * base (v0.7 roster v2: 15 bodies)
         readonly SimAgentView[] _views = new SimAgentView[22];
         readonly int[] _carrySide = new int[22];
         readonly float[] _carrySideAt = new float[22];
@@ -64,16 +64,21 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>Takes a pooled view of this body size. v0.6.0: a view that last wore <paramref name="wantId"/> is preferred, so the same player keeps his face / kit options from play to play (no re-dressing hitch with the photoreal bodies).</summary>
-        SimAgentView Acquire(PlayerSize size, int wantId = int.MinValue)
+        static int PoolKey(PlayerSize size, PixFootball.Art.BodyBase b) { return (int)size + 3 * (int)b; }
+
+        SimAgentView Acquire(PlayerSize size, int wantId = int.MinValue) { return Acquire(size, PixFootball.Art.BodyBase.Std, wantId); }
+
+        SimAgentView Acquire(PlayerSize size, PixFootball.Art.BodyBase baseShape, int wantId)
         {
             List<SimAgentView> st;
-            if (_pool.TryGetValue(size, out st) && st.Count > 0)
+            if (_pool.TryGetValue(PoolKey(size, baseShape), out st) && st.Count > 0)
             {
                 int pick = st.Count - 1;
                 if (wantId != int.MinValue) for (int i = st.Count - 1; i >= 0; i--) if (st[i].IdentityId == wantId) { pick = i; break; }
                 var v = st[pick]; st.RemoveAt(pick); v.gameObject.SetActive(true); return v;
             }
-            return SimAgentView.CreateForMatch(transform, size, "Player_" + size);
+            PlayerAvatar.PendingBase = baseShape;
+            return SimAgentView.CreateForMatch(transform, size, "Player_" + size + (baseShape == PixFootball.Art.BodyBase.Std ? "" : "_" + baseShape));
         }
 
         void Return(SimAgentView v)
@@ -81,7 +86,8 @@ namespace PixFootball.Gameplay
             if (v == null) return;
             v.gameObject.SetActive(false);
             List<SimAgentView> st;
-            if (!_pool.TryGetValue(v.Size, out st)) _pool[v.Size] = st = new List<SimAgentView>();
+            int key = PoolKey(v.Size, v.Avatar != null ? v.Avatar.Base : PixFootball.Art.BodyBase.Std);
+            if (!_pool.TryGetValue(key, out st)) _pool[key] = st = new List<SimAgentView>();
             st.Add(v);
         }
 
@@ -109,7 +115,9 @@ namespace PixFootball.Gameplay
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = sim.Agents[i];
-                var v = Acquire(PixSettings.PhotoPlayers && a.Player != null && a.Player.Bio != null ? RoleUtil.SizeOf(a.PlayPos, a.Player.Bio.WeightLb) : RoleUtil.SizeOf(a.PlayPos), a.Player != null ? a.Player.Id : 1000 + i);
+                PlayerSize bodySize = RoleUtil.SizeOf(a.PlayPos); PixFootball.Art.BodyBase bodyBase = PixFootball.Art.BodyBase.Std;
+                if (PixSettings.PhotoPlayers) BodySelect.For(a.PlayPos, a.Player != null && a.Player.Bio != null ? a.Player.Bio.HeightIn : 0, a.Player != null && a.Player.Bio != null ? a.Player.Bio.WeightLb : 0, out bodySize, out bodyBase);
+                var v = Acquire(bodySize, bodyBase, a.Player != null ? a.Player.Id : 1000 + i);
                 v.AgentId = i; v.Role = RoleUtil.Of(a.PlayPos);
                 v.Stance = StanceRules.For(a.PlayPos, a.Side, sim.Kind, a.Side == SimSide.Offense ? sim.OffForm.Unit : sim.DefForm.Unit, a.StartPos.X - sim.BallX0, a.StartPos.Y - sim.LosY, _shotgun, a.ReturnerRole);
                 var set = a.Side == SimSide.Offense ? offense : defense;
@@ -259,7 +267,9 @@ namespace PixFootball.Gameplay
                 Vector3 vel = Frame.VelToUnity(a.Vel);
                 Vector3 face = Frame.DirToUnity(a.Facing);
                 if (Sim.Phase == PlayPhase.PreSnap && a.Action == AgentAction.Stance) v.ReplanStance(StanceRules.For(a.PlayPos, a.Side, Sim.Kind, a.Side == SimSide.Offense ? Sim.OffForm.Unit : Sim.DefForm.Unit, a.StartPos.X - Sim.BallX0, a.StartPos.Y - Sim.LosY, _shotgun, a.ReturnerRole));   // audibles, flips and shifts move players
-                AnimHints h = BuildHints(a, v);
+                AgentAction viewAction = FlowAction(i, a, v);      // v0.7.0: the intended receiver reaches before the ball arrives, the quarterback and the runner meet for the hand-off
+                AnimHints h = BuildHints(a, v, viewAction);
+                h.EventEta = _flowEta;
                 float lat = 0f;
                 if (a.Move != CarrierMove.None)
                 {
@@ -268,7 +278,7 @@ namespace PixFootball.Gameplay
                     if (a.Move == CarrierMove.JukeLeft) lat = -1f; else if (a.Move == CarrierMove.JukeRight) lat = 1f;
                 }
                 if (_anyWalk && _walks[i].Active) StepWalk(i, dt, ref pos, ref vel, ref face);
-                v.ApplyMatch(pos, vel, face, a.Action, h, lat, specials, _shotgun, dt);
+                v.ApplyMatch(pos, vel, face, viewAction, h, lat, specials, _shotgun, dt);
             }
             if (Contacts != null) Contacts.Tick(dt);
             if (Look != null) Look.Tick(dt);
@@ -317,11 +327,12 @@ namespace PixFootball.Gameplay
             b.ApplyContact(-n * delta, yawAB + 180f, w, turnB);
         }
 
-        AnimHints BuildHints(SimAgent a, SimAgentView v)
+        AnimHints BuildHints(SimAgent a, SimAgentView v, AgentAction act)
         {
             var h = new AnimHints { Seed = a.Id * 7 + _playIndex * 3, Side = 'C', Carrying = a.HasBall, Kind = Sim.Kind };
             Vector3 fwd = v.Forward, right = Vector3.Cross(Vector3.up, fwd);
-            switch (a.Action)
+            AddFlowHints(ref h, a, v);
+            switch (act)
             {
                 case AgentAction.Throw:
                 {
@@ -390,7 +401,8 @@ namespace PixFootball.Gameplay
                 {
                     bool qbPass = h.Side == SimSide.Offense && h.Slot == 0 && !Sim.PassIsThrown && Sim.Kind == PlayKind.Scrimmage
                                   && (h.QbState == QbPhase.Set || h.QbState == QbPhase.Windup || h.QbState == QbPhase.Dropback || h.QbState == QbPhase.Scramble || h.QbState == QbPhase.Mesh || h.QbState == QbPhase.Fake);
-                    if (qbPass || Sim.Kind == PlayKind.FieldGoal || Sim.Kind == PlayKind.Punt) { Ball.SetQbHold(v, h.Action == AgentAction.Throw); return; }
+                    if (qbPass || Sim.Kind == PlayKind.FieldGoal || Sim.Kind == PlayKind.Punt) { Ball.SetQbHold(v, h.Action == AgentAction.Throw, v.Motion != null ? v.Motion.ShownCarriage : BodyMotion.Carriage.None); return; }
+                    if (h.Action == AgentAction.Celebrate && !SimAgentView.DebugNoFlow) { Ball.SetHand(v, CelebrateHand(h, v)); return; }      // v0.7.0 (note 29): the ball stays in one hand through the whole celebration
                     // carry arm: away from the nearest defender, with hysteresis
                     if (Time.time - _carrySideAt[h.Id] > 1.0f)
                     {

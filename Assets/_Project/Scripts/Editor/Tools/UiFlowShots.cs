@@ -130,12 +130,12 @@ namespace PixFootball.EditorTools
                 string tag = Tag(sz);
                 hud.SetScore(Snap());
                 InputDeviceTracker.Force(true);
-                hud.SetHint("[A][B][X][Y][LB][RB] THROW (TAP = BULLET, HOLD = LOB)   [RS] LEAD   [LS] SCRAMBLE");
+                hud.SetHint("[A][B][X][Y][LB][RB] THROW (HOLD = BULLET, TAP = LOB)   [RS] LEAD   [LS] SCRAMBLE");
                 Save("hud_throw_hint_pad_" + tag, sz[0], sz[1], go.transform);
                 if (sz[0] == 1920)
                 {
                     InputDeviceTracker.Force(false);
-                    hud.SetHint("[A][B][X][Y][LB][RB] THROW (TAP = BULLET, HOLD = LOB)   [RS] LEAD   [LS] SCRAMBLE");
+                    hud.SetHint("[A][B][X][Y][LB][RB] THROW (HOLD = BULLET, TAP = LOB)   [RS] LEAD   [LS] SCRAMBLE");
                     Save("hud_throw_hint_keyboard", sz[0], sz[1], go.transform);
                     InputDeviceTracker.Force(true);
                     hud.SetHint("[RT] SPRINT   [A] HURDLE   [B] SPIN   [X] DIVE   [Y] TRUCK   [LB][RB] STIFF-ARM   [RS] JUKE   [LT] PROTECT");
