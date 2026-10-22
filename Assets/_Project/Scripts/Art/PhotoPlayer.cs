@@ -103,7 +103,7 @@ namespace PixFootball.Art
                 Part p; if (!_map.TryGetValue(k, out p)) continue;
                 foreach (var r in p.lods) if (r != null) r.shadowCastingMode = ShadowCastingMode.Off;
             }
-            foreach (var smr in GetComponentsInChildren<SkinnedMeshRenderer>(true)) { smr.quality = SkinQuality.Bone4; smr.updateWhenOffscreen = false; }
+            foreach (var smr in GetComponentsInChildren<SkinnedMeshRenderer>(true)) { smr.quality = SkinQuality.Bone4; smr.updateWhenOffscreen = false; var lb = smr.localBounds; lb.Expand(1.6f); smr.localBounds = lb; }   // GFX-423: bounds padded by 0.8 m a side (a lying, ragdolled or diving body leaves the bind-pose box; the renderer used to be culled while still on screen), instead of the cost of updateWhenOffscreen
             ApplyDefaultVisibility();
             SetupHelmetFrame();
             SetLevel(0);
@@ -199,6 +199,7 @@ namespace PixFootball.Art
             SetPix(Mat("Cleats"), Luma(tertiary) > 0.45f ? tertiary : new Color(0.9f, 0.9f, 0.9f).linear, secondary, new Color(0.04f, 0.04f, 0.04f).linear);
             SetPix(Mat("Helmet_Shell"), primary, secondary, tertiary);
             if (_hasAppearance) ApplyAccents();
+            var pads = GetComponent<PhotoPadTint>(); if (pads != null) pads.Sync(false);   // v0.9 (GFX-443): the pad shell follows a re-dress at once (it polled every 20 frames)
         }
 
         /// <summary>Helmet shell colours when they differ from the jersey (primary shell, secondary stripe, tertiary outline).</summary>
@@ -378,6 +379,16 @@ namespace PixFootball.Art
             return 3;
         }
 
+        /// <summary>true: at LOD0 the shadow is cast by the LOD1 renderer (see SetLevel).</summary>
+        public static bool ShadowProxy = true;
+        readonly Dictionary<Renderer, ShadowCastingMode> _baseCast = new Dictionary<Renderer, ShadowCastingMode>();
+        bool BaseCasts(Renderer r)
+        {
+            ShadowCastingMode m;
+            if (!_baseCast.TryGetValue(r, out m)) { m = r.shadowCastingMode; if (m == ShadowCastingMode.ShadowsOnly) m = ShadowCastingMode.On; _baseCast[r] = m; }
+            return m == ShadowCastingMode.On || m == ShadowCastingMode.TwoSided;
+        }
+
         /// <summary>Activates the renderer of every visible part for the level (0 = hero ... 3 = far).</summary>
         public void SetLevel(int level)
         {
@@ -391,10 +402,19 @@ namespace PixFootball.Art
                 bool helmetPart = p.key == "Helmet_Shell" || p.key == "FaceMask" || p.key == "Chinstrap" || p.key == "HelmetPad" || p.key == "Visor";
                 if (helmetPart && !manageHelmetLod && p.key != "Visor") { continue; }
                 int pick = level < p.lods.Length ? level : (p.hideBeyond ? -1 : p.lods.Length - 1);
+                // GFX-404 (v0.9): the LOD0 body (60 k triangles) is drawn for the camera only; its shadow comes from the LOD1 mesh (same silhouette within 0.7 %, half the triangles, drawn into 3-4 cascades)
+                bool proxy = ShadowProxy && level == 0 && p.visible && !_headHidden && p.lods.Length > 1 && p.lods[1] != null && p.lods[0] != null && BaseCasts(p.lods[0]) && BaseCasts(p.lods[1]);
                 for (int i = 0; i < p.lods.Length; i++)
                 {
                     var r = p.lods[i]; if (r == null) continue;
                     bool on = p.visible && i == pick;
+                    if (proxy && i <= 1)
+                    {
+                        on = true;
+                        var want = i == 0 ? ShadowCastingMode.Off : ShadowCastingMode.ShadowsOnly;
+                        if (r.shadowCastingMode != want) r.shadowCastingMode = want;
+                    }
+                    else if (i <= 1 && _baseCast.ContainsKey(r) && !_headHidden) { var bm = _baseCast[r]; if (r.shadowCastingMode != bm) r.shadowCastingMode = bm; }
                     if (r.gameObject.activeSelf != on) r.gameObject.SetActive(on);
                 }
             }
@@ -415,6 +435,7 @@ namespace PixFootball.Art
         {
             if (_headHidden == hide) return;
             _headHidden = hide;
+            foreach (var kv in _baseCast) if (kv.Key != null) kv.Key.shadowCastingMode = kv.Value;   // undo the LOD0 shadow proxy before the head parts are memorised
             foreach (var p in parts)
             {
                 if (p == null || p.lods == null) continue;
@@ -430,6 +451,7 @@ namespace PixFootball.Art
                     r.shadowCastingMode = hide ? ShadowCastingMode.ShadowsOnly : orig;
                 }
             }
+            if (!hide) ApplyVisibility();
         }
 
         void OnDestroy()

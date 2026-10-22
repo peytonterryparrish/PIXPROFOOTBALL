@@ -154,6 +154,27 @@ namespace PixFootball.Sim
                 if (d.Side == BlockerSide) continue;
                 if (IsRusher(d)) rushers.Add(d);
             }
+            // v0.9.0 (E-176): the offensive front (the line plus a tight end on it) is matched to the defensive front with the SAME monotone (non-crossing) assignment the run blocks use, so a slide
+            // protection or a technique alignment can never send a tackle to the guard's man (the cause of the 8.7-sack game with the technique alignment on); the leftover blockers and rushers
+            // (a back, a blitzing linebacker or safety) are matched greedily below.
+            if (S.Kind == PlayKind.Scrimmage && blockers.Count > 0 && blockers[0].Side == SimSide.Offense)
+            {
+                var line = new List<SimAgent>(); var front = new List<SimAgent>();
+                int slideDir = 0;
+                foreach (SimAgent b in blockers)
+                {
+                    bool onLine = b.StartPos.Y > S.LosY - 1.2f;
+                    if (PositionGroup.IsOffensiveLine(b.PlayPos) || (b.PlayPos == Position.TE && onLine)) line.Add(b);
+                    var ba0 = (BlockAssignment)b.Assign;
+                    if (ba0.Target == BlockTarget.SlideLeft) slideDir = -1; else if (ba0.Target == BlockTarget.SlideRight) slideDir = 1;
+                }
+                foreach (SimAgent r in rushers)
+                    if (r.IsDefensiveLineman || (PositionGroup.IsLinebacker(r.PlayPos) && r.StartPos.Y - S.LosY < 3.4f)) front.Add(r);
+                line.SortStable((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
+                front.SortStable((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
+                var matchedPro = new HashSet<int>();
+                MonotoneMatch(line, front, slideDir, matchedPro);
+            }
             for (int pass = 0; pass < 2; pass++)
             {
                 var pairs = new List<Pair>();
@@ -210,8 +231,15 @@ namespace PixFootball.Sim
             // delayed releases (chip blocks, screen walls)
             if (ba.Block == BlockKind.Chip && S.Time > 0.9f && a.PassProRelease < 0f)
             {
-                a.PassProRelease = S.Time;
-                a.BlockTargetId = -1;
+                // v0.9.0 (E-186): the back chips the edge man and leaves when the tackle has him (his lead above 0.3) or after 1.4 s, not at 0.9 s whatever the end is doing
+                SimAgent edge = a.BlockTargetId >= 0 ? S.Agents[a.BlockTargetId] : null;
+                bool edgeHeld = edge != null && edge.State == AgentState.Engaged && edge.Engagement != null && edge.Engagement.Lev > 0.3f && !edge.Engagement.Blockers.Contains(a);
+                bool edgeFree = edge != null && edge.State != AgentState.Engaged && edge.State != AgentState.Down;
+                if (edgeHeld || S.Time > 1.4f || edge == null || (!edgeFree && edge.State == AgentState.Down))
+                {
+                    a.PassProRelease = S.Time;
+                    a.BlockTargetId = -1;
+                }
             }
 
             a.ReactionClock -= PlaySimulation.Dt;
@@ -227,7 +255,8 @@ namespace PixFootball.Sim
                     a.BlockTargetId = nt != null ? nt.Id : -1;
                     t = nt;
                 }
-                a.ReactionClock = 0.16f + (1f - SimMath.Rating01(a.R.Awareness)) * 0.12f;
+                // v0.9.0 (E-183): a blocker keeps his man for 0.6 s (he used to re-pick every 0.16-0.28 s and thrash between nearby defenders) unless the man is gone
+                a.ReactionClock = (valid ? 0.6f : 0.2f) + (1f - SimMath.Rating01(a.R.Awareness)) * 0.12f;
             }
 
             switch (ba.Block)
@@ -259,12 +288,17 @@ namespace PixFootball.Sim
             }
             Vec2 toAnchor = (anchor - t.Pos).Norm();
             Vec2 gp = t.Pos + toAnchor * (a.Body.Radius + t.Body.Radius + 0.28f);
-            float lim = dirDown ? S.LosY + 0.9f : S.LosY - 0.9f;
+            // v0.9.0 (E-177): the pass set. A pass blocker sets 0.4 yd behind the line and kick-slides back with the rusher's outside shoulder (3.5-4.5 yd/s at most), meeting him there; he no longer
+            // chases the rusher up to a point 0.9 yd PAST the line, which met every rush at the line and never gave ground until locked
+            bool isLine = PositionGroup.IsOffensiveLine(a.PlayPos) || (S.Kind == PlayKind.Scrimmage && a.Side == SimSide.Offense && a.StartPos.Y > S.LosY - 1.2f);
+            float lim = dirDown ? S.LosY - (isLine ? 0.4f : 0.2f) : S.LosY + (isLine ? 0.4f : 0.2f);
+            if (S.Kind != PlayKind.Scrimmage) lim = dirDown ? S.LosY + 0.9f : S.LosY - 0.9f;   // kick protection keeps its line
             if (dirDown && gp.Y > lim) gp = new Vec2(gp.X, lim);
             if (!dirDown && gp.Y < lim) gp = new Vec2(gp.X, lim);
             Vec2 to = gp - a.Pos;
             float dist = to.Length;
-            a.Want = to.Norm() * Math.Min(vmax * 0.82f, Math.Max(1.4f, dist * 6f));
+            float cap = S.Kind == PlayKind.Scrimmage ? Math.Min(vmax * 0.62f, 4.5f) : vmax * 0.82f;
+            a.Want = to.Norm() * Math.Min(cap, Math.Max(1.4f, dist * 6f));
             a.HasFace = true; a.FaceDir = (t.Pos - a.Pos).Norm();
         }
 
@@ -279,6 +313,21 @@ namespace PixFootball.Sim
                 Vec2 goal;
                 if (c != null && c != a) goal = c.Pos + new Vec2(0f, 4f * up);
                 else goal = a.Pos + new Vec2(0f, 4f * up);
+                // v0.9.0 (E-187): second-level work first: the nearest unblocked linebacker or safety within 7 yd on the play side, instead of a point 4 yd past the carrier that drags the line across the formation
+                SimAgent work = null; float wd = 7f;
+                int rdd = RunDir();
+                for (int oi = (a.Side == SimSide.Offense ? 11 : 0), oe = oi + 11; oi < oe; oi++)
+                {
+                    SimAgent d = S.Agents[oi];
+                    if (d.State == AgentState.Down || d.Body.FallenTime > 0.3f || d.HasBall || d.Engagement != null) continue;
+                    if (!(PositionGroup.IsLinebacker(d.PlayPos) || PositionGroup.IsSafety(d.PlayPos))) continue;
+                    if ((d.Pos.X - a.Pos.X) * rdd < -1.5f) continue;
+                    if (TargetedByOthers(a, d) > 0) continue;
+                    float dd = (d.Pos - a.Pos).Length;
+                    if (dd < wd) { wd = dd; work = d; }
+                }
+                if (work != null) goal = work.Pos + work.Vel * 0.2f;
+                else if (c != null && c != a) goal = new Vec2(a.Pos.X + (c.Pos.X - a.Pos.X) * 0.4f, goal.Y);
                 Vec2 to = goal - a.Pos;
                 a.Want = to.Norm() * (vmax * 0.8f);
                 return;
@@ -317,7 +366,8 @@ namespace PixFootball.Sim
                 // free to engage anyone who crosses the path (handled by engagement detection)
                 if ((wp - a.Pos).Length < 1.3f) a.PullStage++;
                 Vec2 to = wp - a.Pos;
-                a.Want = to.Norm() * (vmax * 0.95f);
+                // v0.9.0 (E-184): the pull has a first step: the speed ramps from 0.6 to 0.95 of top over 0.5 s (and the lineman reacts to the snap like his teammates), he no longer runs from tick 1 at 0.95
+                a.Want = to.Norm() * (vmax * (0.60f + 0.35f * SimMath.Clamp01(S.Time / 0.5f)));
                 a.HasFace = false;
                 return;
             }
@@ -530,7 +580,7 @@ namespace PixFootball.Sim
                 if ((d.Pos - a.Pos).Length > 14f) continue;
                 float sc = score(d) - 1.0f * TargetedByOthers(a, d);
                 if (d.Engagement != null && d.Engagement.Blockers.Count >= 2) sc -= 6f;
-                if (current != null && d == current) sc += 1.0f;
+                if (current != null && d == current) sc += 2.0f;   // v0.9.0 (E-183): stickier (was +1.0)
                 if (sc > bestScore) { bestScore = sc; best = d; }
             }
             return best;
@@ -603,8 +653,17 @@ namespace PixFootball.Sim
             if (S.Kind == PlayKind.Kickoff && S.Specials.KickAway && a.Side == SimSide.Defense && !S.Specials.CatchMade)
             {
                 // the wall: hold a row 12-18 yards in front of the returner until the coverage arrives, then take the first man to reach it
-                float row = a.StartPos.Y <= 79f ? 78f : 84f;
+                // v0.9.0 (E-344): the wall rows are relative to the kick spot (they were the absolute lines 78 and 84, which pushed a safety-kick return line 15-20 yd upfield)
+                float row = a.StartPos.Y <= S.LosY + 44f ? S.LosY + 43f : S.LosY + 49f;
                 Vec2 hold = new Vec2(a.StartPos.X + (FieldGeometry.CenterX - a.StartPos.X) * 0.18f, Math.Min(row, 94f));
+                // v0.9.0 (E-343): a wedge blocker forms the wedge 5 yd in front of the returner (offsets -4, -1.3, 1.3, 4)
+                var wba = a.Assign as BlockAssignment;
+                if (wba != null && wba.Block == BlockKind.Wedge && S.Specials.ReturnerAgent != null)
+                {
+                    float[] wo = { -4f, -1.3f, 1.3f, 4f };
+                    SimAgent rr = S.Specials.ReturnerAgent;
+                    hold = new Vec2(rr.Pos.X + wo[Math.Max(0, Math.Min(3, a.Slot - 2))], Math.Min(rr.Pos.Y - 5f, 94f));   // (the returner faces the kicker: the kick comes from the low-Y end, so the wedge is toward LOS)
+                }
                 SimAgent near = null; float nd = 99f;
                 for (int oi619 = (a.Side == SimSide.Offense ? 11 : 0), oe619 = oi619 + 11; oi619 < oe619; oi619++)
                 { SimAgent d = S.Agents[oi619]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;

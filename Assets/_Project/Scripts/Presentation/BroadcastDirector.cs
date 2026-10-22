@@ -186,7 +186,7 @@ namespace PixFootball.Presentation
         {
             if (!_attached) return;
             _impactMax = Mathf.Max(_impactMax, c.Intensity);
-            if (c.Big && c.Intensity >= 0.55f) { _bigHit = true; _bigHitTime = _rec.SnapRelativeTime; _bigHitAgent = c.AgentB >= 0 ? c.AgentB : c.AgentA; }
+            if (c.Big && c.Intensity >= 0.55f) { _bigHit = true; _bigHitTime = _rec.SnapRelativeTime; _bigHitAgent = c.HasRoles ? c.Victim : (c.AgentB >= 0 ? c.AgentB : c.AgentA); }      // v0.9.0 CONNECT E-348: the replay focuses on the victim of a big hit, whatever the contact kind
         }
 
         public void OnPlayFrame(float dt, bool live)
@@ -297,7 +297,8 @@ namespace PixFootball.Presentation
             if (!_attached) yield break;
             // let the post-play shots finish (the wind-down is already over)
             float w = 0f;
-            while ((_activeShot != null || _queue.Count > 0) && w < 3.2f) { w += Time.unscaledDeltaTime; TickShots(Time.unscaledDeltaTime); yield return null; }
+            // v0.9.0 CONNECT E-380: the plan is trimmed to the wind now, so this only mops up a straggler (was up to 3.2 s of dead wait)
+            while ((_activeShot != null || _queue.Count > 0) && w < 0.8f) { w += Time.unscaledDeltaTime; TickShots(Time.unscaledDeltaTime); yield return null; }
             AbortShots();
             CommitClip();
             if (_lastClip != null && _wantAuto && !_rc.Active)

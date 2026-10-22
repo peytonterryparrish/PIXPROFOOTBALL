@@ -13,7 +13,11 @@ namespace PixFootball.Sim
         Route, Catch, Throw, Handoff, Carry,
         Juke, Spin, StiffArm, Truck, Hurdle, Dive,
         TackleWrapUp, TackleBigHit, TackleShoestring, TackleDive, TackleGang,
-        Tackled, Fallen, Stumble, Kick, Jump, Celebrate
+        Tackled, Fallen, Stumble, Kick, Jump, Celebrate,
+        /// <summary>v0.9.0 (E-083 / E-093): a quarterback gives himself up feet first (no contact, no fumble). Appended at the end: existing values keep their numbers.</summary>
+        Slide,
+        /// <summary>v0.9.0 (E-275): rising from the turf after a fall (hands and knees, then up); the body is back in the game when the action ends.</summary>
+        GetUp
     }
 
     /// <summary>Tackle outcomes (descriptive, for animation and the event log).</summary>
@@ -30,7 +34,11 @@ namespace PixFootball.Sim
         Kick, KickLanded, FairCatch, Touchback, FieldGoalGood, FieldGoalMissed, KickBlocked,
         CarrierMove, BrokenTackle, Incomplete, Whistle, Scramble, Throwaway, Kneel, Spike, PlayEnd,
         /// <summary>v0.7: the kicker starts his approach (and the kick clip); Value = seconds until the ball is struck.</summary>
-        KickApproach
+        KickApproach,
+        /// <summary>v0.9.0 (E-244): a defender arrived inside the wrap window and piled on (a = the late tackler, b = the carrier).</summary>
+        PileOn,
+        /// <summary>v0.9.0 (E-234): a rusher got a hand on the passer before the release (a = the rusher, b = the passer).</summary>
+        QbHurry
     }
 
     /// <summary>
@@ -107,6 +115,8 @@ namespace PixFootball.Sim
         public Vec3 Pos;
         public float Value;
         public string Note;
+        /// <summary>v0.9.0 (E-350): on a Tackle event, the ball carrier velocity (yd/s) at first contact, before the tackle slows him; zero on other events.</summary>
+        public Vec2 Vel;
 
         public override string ToString()
         {
@@ -120,9 +130,9 @@ namespace PixFootball.Sim
     {
         public readonly List<PlayEvent> Events = new List<PlayEvent>();
 
-        public void Add(float time, SimEventType type, int a, int b, Vec3 pos, TackleType tackle = TackleType.None, float value = 0f, string note = null)
+        public void Add(float time, SimEventType type, int a, int b, Vec3 pos, TackleType tackle = TackleType.None, float value = 0f, string note = null, Vec2 vel = default(Vec2))
         {
-            Events.Add(new PlayEvent { Time = time, Type = type, AgentA = a, AgentB = b, Pos = pos, Tackle = tackle, Value = value, Note = note });
+            Events.Add(new PlayEvent { Time = time, Type = type, AgentA = a, AgentB = b, Pos = pos, Tackle = tackle, Value = value, Note = note, Vel = vel });
         }
 
         public int Count { get { return Events.Count; } }

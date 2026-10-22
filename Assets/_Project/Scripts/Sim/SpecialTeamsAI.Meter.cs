@@ -65,7 +65,7 @@ namespace PixFootball.Sim
             float timing = _userKickPress ? SimMath.Clamp01(i.KickTiming) : 0.45f;
             float aim = _userKickPress ? SimMath.Clamp(i.KickAim, -1f, 1f) : 0f;
             m.Power = KickMeter.PowerMultiplier(power, timing);
-            m.Spread = KickMeter.SpreadMultiplier(timing);
+            m.Spread = KickMeter.SpreadMultiplier(timing) * (1f + 0.30f * SimMath.Clamp01((power - 0.90f) / 0.10f));   // v0.9.0 (E-315): the last 10 percent of power costs accuracy (power versus accuracy is a real choice)
             m.AimYards = aim * KickMeter.AimYardsAtFullDeflection;
             m.AimAngle = aim * KickMeter.AimAngleAtFullDeflection;
             return m;
@@ -123,6 +123,19 @@ namespace PixFootball.Sim
             return SimMath.Clamp01(1f - d);
         }
 
+        /// <summary>
+        /// v0.9.0 (E-312): the recommended period of the kick-meter cursor (a full sweep and back, seconds). With <see cref="PingPongEased"/> and the wider Perfect / Great bands the sweet spot
+        /// lasts about 0.2 s (it was a 46 ms Perfect window at 1.15 s).
+        /// </summary>
+        public const float CursorPeriodSeconds = 1.45f;
+
+        /// <summary>A ping-pong cursor that slows down near the sweet spot in the middle of the bar (about 0.55 of its speed there, faster toward the ends), so a human can actually hit it.</summary>
+        public static float PingPongEased(float t, float period, float ease = 0.45f)
+        {
+            float x = PingPong(t, period);
+            return SimMath.Clamp01(x + ease * (float)Math.Sin(2.0 * Math.PI * x) / (float)(2.0 * Math.PI));
+        }
+
         /// <summary>Position (0..1) of a cursor that ping-pongs along the bar with the given period (seconds) at time t.</summary>
         public static float PingPong(float t, float period)
         {
@@ -142,10 +155,10 @@ namespace PixFootball.Sim
         public static string TimingLabel(float timing01)
         {
             float t = SimMath.Clamp01(timing01);
-            if (t >= 0.92f) return "Perfect";
-            if (t >= 0.78f) return "Great";
-            if (t >= 0.58f) return "Good";
-            if (t >= 0.35f) return "Fair";
+            if (t >= 0.85f) return "Perfect";   // v0.9.0 (E-312): was 0.92 (a 46 ms window on a 1.15 s cursor)
+            if (t >= 0.65f) return "Great";
+            if (t >= 0.45f) return "Good";
+            if (t >= 0.25f) return "Fair";
             return "Poor";
         }
 

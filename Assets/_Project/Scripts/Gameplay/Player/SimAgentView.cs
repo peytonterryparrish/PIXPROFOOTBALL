@@ -79,6 +79,7 @@ namespace PixFootball.Gameplay
             if (v.Avatar.Animator != null) v.Avatar.Animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;   // players outside the camera are not posed
             v.Ragdoll = go.AddComponent<RagdollRig>(); v.Ragdoll.Setup(v.Avatar.Animator);
             v.Motion = new BodyMotion(v.Avatar);
+            v.InitStanceLayer();      // v0.9.0 QBSTANCE
             v.CaptureRest();
             if (v.Avatar.Animator != null)
             {
@@ -124,7 +125,7 @@ namespace PixFootball.Gameplay
 
 
         /// <summary>v0.6 root cause fix of "OL / DL / CBs face backwards": the clip that is playing is authored facing some other way than the simulation facing, so the body is turned by the measured offset while the clip's weight is up.</summary>
-        float _clipYawCur, _setback; bool _reaction;
+        float _clipYawCur, _setback, _setbackFull; Vector3 _setbackFrom; bool _reaction;
         void ApplyClipFacing(float dt)
         {
             if (Avatar == null || Avatar.Root == null) return;
@@ -132,11 +133,21 @@ namespace PixFootball.Gameplay
             _clipYawCur = Mathf.MoveTowardsAngle(_clipYawCur, _clipYaw, 900f * Mathf.Max(dt, 0.0001f));
             bool owned = !ContactDriven || _reaction;   // sideline reactions (cheer, frustration) are plain clips: they get their offset too
             float w = Rig != null && Rig.Valid && owned && !(Ragdoll != null && Ragdoll.Active) ? Mathf.Clamp01(Rig.Weight) : 0f;
-            _tableYaw = DebugNoClipFacing ? 0f : _clipYawCur * w;
+            // v0.9.0 CONNECT E-264: the offset follows the poses' own cross-fade weights (the outgoing take's offset leaves while the incoming one's arrives) instead of a 900 deg/s slew
+            if (Rig != null && Rig.Valid && !DebugNoConnect) _tableYaw = DebugNoClipFacing || !owned || (Ragdoll != null && Ragdoll.Active) ? 0f : Rig.FacingOffset;
+            else _tableYaw = DebugNoClipFacing ? 0f : _clipYawCur * w;
             Avatar.SetVisualYaw(_tableYaw + _loopYaw);
             // linemen in a 3-point stance lean over their simulated position: pull the body back so the helmets meet across the ball instead of overlapping it (QA-455)
             bool lineStance = _lastAction == AgentAction.Stance && (Stance.Kind == StanceKind.ThreePoint || Stance.Kind == StanceKind.CenterSnap || Stance.Kind == StanceKind.FourPoint);
-            _setback = Mathf.MoveTowards(_setback, lineStance && !ContactDriven ? 0.36f : 0f, 1.6f * Mathf.Max(dt, 0.0001f));
+            // v0.9.0 CONNECT E-170: the setback is given back over the first metre and a half the lineman really travels (not at a fixed 1.6 m/s: the whole line skated forward)
+            if (lineStance && !ContactDriven && !StanceLayerOn) { _setback = Mathf.MoveTowards(_setback, 0.36f, 1.6f * Mathf.Max(dt, 0.0001f)); _setbackFrom = transform.position; _setbackFull = _setback; }
+            else if (_setbackFull > 0.001f && !ContactDriven && !DebugNoConnect)
+            {
+                float tr = new Vector2(transform.position.x - _setbackFrom.x, transform.position.z - _setbackFrom.z).magnitude;
+                _setback = Mathf.Min(_setback, _setbackFull * (1f - Mathf.SmoothStep(0f, 1f, tr / 1.5f)));
+                if (_setback < 0.002f) { _setback = 0f; _setbackFull = 0f; }
+            }
+            else _setback = Mathf.MoveTowards(_setback, 0f, 1.6f * Mathf.Max(dt, 0.0001f));
             Avatar.transform.localPosition = new Vector3(0f, 0f, -_setback);
         }
 
@@ -164,9 +175,11 @@ namespace PixFootball.Gameplay
         public void ResetForPlay(Vector3 position, float yaw)
         {
             transform.position = position; _yaw = yaw; transform.rotation = Quaternion.Euler(0f, yaw, 0f);
-            _lastAction = (AgentAction)(-1); _ownsClip = false; ResetFlow(); _groundOff = 0f; if (Avatar != null && Avatar.Root != null) { var rp = Avatar.Root.localPosition; Avatar.Root.localPosition = new Vector3(rp.x, 0f, rp.z); } _kickT = -1f; _lastRush = RushMove.None; ContactDriven = false; _reaction = false; _clipYaw = 0f; _clipYawCur = 0f; _loopYaw = 0f; _tableYaw = 0f; _setback = 0f; if (Avatar != null) { Avatar.SetVisualYaw(0f); Avatar.transform.localPosition = Vector3.zero; }
+            _lastAction = (AgentAction)(-1); _ownsClip = false; ResetFlow(); _groundOff = 0f; if (Avatar != null && Avatar.Root != null) { var rp = Avatar.Root.localPosition; Avatar.Root.localPosition = new Vector3(rp.x, 0f, rp.z); } _kickT = -1f; _lastRush = RushMove.None; ContactDriven = false; _reaction = false; _clipYaw = 0f; _clipYawCur = 0f; _loopYaw = 0f; _tableYaw = 0f; _setback = 0f; _setbackFull = 0f; _loopHeld = 0f; _viewOff = Vector3.zero; Huddle = false; _liveSince = -1f; _lastChangeAt = -9f; _engClip = null; _fell = false; _trigMove = PlayerMove.None; _reachW = _reachTarget = _tuckW = _tuckTarget = 0f; ResetPopFilter(); PopsAbsorbed = 0; if (Avatar != null) { Avatar.SetVisualYaw(0f); Avatar.transform.localPosition = Vector3.zero; }
             if (Ragdoll != null) Ragdoll.Cancel();
+            if (StanceLayer != null) { StanceLayer.Cancel(); } _poseHave = false; _qbStanceHold = false; StanceInput = default(StanceDyn);
             if (Motion != null) Motion.Cancel();
+            ResetGait();
             if (Rig != null) Rig.StopImmediate();
             if (Anim != null) Anim.Drive(Vector3.zero, Forward, 1f);
         }
@@ -174,11 +187,13 @@ namespace PixFootball.Gameplay
         // ------------------------------------------------------------------------------------------ match
         public void ApplyMatch(Vector3 position, Vector3 velocity, Vector3 facing, AgentAction action, in AnimHints h, float lateralHint, bool specialTeams, bool shotgunQb, float dt)
         {
-            transform.position = position;
+            position = ApplyViewOffset(position, dt);                                    // v0.9.0 CONNECT E-231: a player who lay elsewhere catches up at a walking pace
+            bool ragdollOn = Ragdoll != null && Ragdoll.Active && Ragdoll.Machine.Phase != RagdollPhase.Recover;
+            if (!ragdollOn) transform.position = position;                               // v0.9.0 CONNECT E-228: the ragdoll's bones are children of this root: it stays where the hit began
             float target = Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg;
             float turnRate = (action == AgentAction.Tackled || action == AgentAction.Fallen) ? 120f : 720f;
             _yaw = Mathf.MoveTowardsAngle(_yaw, target, turnRate * dt);
-            transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
+            if (!ragdollOn) transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
             Vector3 f = Forward;
             if (Motion != null) Anim.Trim = Motion.LocoTrim;      // v0.7.0: stride matching
             Anim.Drive(velocity, f, dt);
@@ -192,47 +207,84 @@ namespace PixFootball.Gameplay
                 Motion.LocomotionWeight = (ContactDriven || (Ragdoll != null && Ragdoll.Active)) ? 0f : 1f - (Rig != null ? Mathf.Clamp01(Rig.Weight) : 0f);
             }
 
+            if (Motion != null) DriveGait(velocity, f, action, h.Carrying, dt);
             _clock += dt;
             if (Motion != null && !h.IsQb)
             {
-                bool jam = !ContactDriven && action == AgentAction.Stance && Stance.Kind == StanceKind.CornerPress;      // v0.7.0: the press corner's hands are up and ready
+                bool jam = !ContactDriven && (action == AgentAction.Stance || (!DebugNoConnect && _liveSince >= 0f && _clock - _liveSince < 0.5f)) && Stance.Kind == StanceKind.CornerPress;      // v0.7.0: the press corner's hands are up and ready (v0.9.0 CONNECT E-188: and stay up through the jam, 0.5 s after the snap)
                 Motion.SetCarriage(jam ? BodyMotion.Carriage.Jam : BodyMotion.Carriage.None); Motion.CarriageFloor = jam ? 0.85f : 0f;
             }
+            if (Rig != null) Rig.MaskSpeedOverride = new Vector2(velocity.x, velocity.z).magnitude;      // v0.9.0 CONNECT E-260: the upper-body mask follows the simulated speed every frame
+            if (action == AgentAction.Backpedal || action == AgentAction.Shuffle) _lastLocoYaw = Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg;
+            ClearTrigger();                                                                              // v0.9.0 CONNECT E-158
+            if (Huddle) { _lastAction = action; return; }                                                // v0.9.0 CONNECT E-252: standing in the huddle: the stage owns him
             if (ContactDriven) { _lastAction = action; _lastRush = h.Rush; _commitUntil = 0f; return; }   // an authored take / ragdoll / get-up is running
             if (QbFlow(action, h, shotgunQb, dt)) { _lastAction = action; _lastRush = h.Rush; return; }      // v0.7.0: the quarterback follows his simulation state (drop-back, pocket, scramble)
+            ServiceEngageLoop(action);                                                                   // v0.9.0 CONNECT E-185: the hand fight loops after the pair take
+            action = ConnectAction(action, h);                                                           // v0.9.0 CONNECT E-248 / E-259: stance holds through the snap Idle, no clip thrash
             action = CommitFilter(action);                                                               // v0.7.0: a throw / catch / hand-off plays out unless a higher priority event arrives
             bool changed = action != _lastAction || (action == AgentAction.Engaged && h.Rush != _lastRush);
             if (!changed) return;
             var prevAction = _lastAction;
-            _lastAction = action; _lastRush = h.Rush;
+            _lastAction = action; _lastRush = h.Rush; _lastChangeAt = _clock;
+            if (action == AgentAction.Fallen) { _fallPos = transform.position; _fell = true; }
+            Vector2 localVel = new Vector2(Vector3.Dot(velocity, Vector3.Cross(Vector3.up, f)), Vector3.Dot(velocity, f));
+            bool getUp = false;
 
             ClipPlan plan = default(ClipPlan);
             bool owns = true, getOff = false;
             switch (action)
             {
                 case AgentAction.Stance: plan = StanceClips.Plan(Stance, h.Seed, Role); break;
-                case AgentAction.Block: plan = AnimKit.Block(h.Seed); break;
-                case AgentAction.Engaged: plan = AnimKit.Engaged(h); break;
+                case AgentAction.Block:
+                    plan = DebugNoConnect ? AnimKit.Block(h.Seed) : AnimKit.BlockPlan(h, Role, localVel); if (!plan.Valid) plan = AnimKit.Block(h.Seed);
+                    if (plan.Valid && !plan.Loop) { _engClip = plan.Clip; _engHold = Mathf.Min(1.0f, plan.Clip.length * 0.4f); _engAction = AgentAction.Block; }      // the run-block footwork settles into the tail of its own take (no drop to the idle)
+                    break;
+                case AgentAction.Engaged:
+                {
+                    float holdFrom = 0f;
+                    plan = DebugNoConnect ? default(ClipPlan) : AnimKit.EngagedPair(h, out holdFrom);
+                    if (plan.Valid) { _engClip = plan.Clip; _engHold = holdFrom; _engAction = AgentAction.Engaged; } else plan = AnimKit.Engaged(h);
+                    break;
+                }
                 case AgentAction.Shed: plan = AnimKit.Shed(h.Seed); break;
-                case AgentAction.Catch: plan = AnimKit.Catch(h); break;
-                case AgentAction.Throw: plan = AnimKit.Throw(h); break;
+                case AgentAction.Stumble: if (!DebugNoConnect) plan = AnimKit.Stumble(h.Seed, h.Speed); else owns = false; break;
+                case AgentAction.Catch: plan = DebugNoConnect ? AnimKit.Catch(h) : AnimKit.CatchFamily(h); break;
+                case AgentAction.Throw: plan = AnimKit.Throw(h); NoteThrowPose(plan, h); break;
                 case AgentAction.Handoff: plan = AnimKit.Handoff(h); break;
-                case AgentAction.Jump: plan = AnimKit.Jump(h.Seed); break;
-                case AgentAction.Spin: plan = AnimKit.Spin(h.Seed); break;
+                case AgentAction.Jump: plan = h.Defender && !DebugNoConnect ? AnimKit.SwatPlan(h) : default(ClipPlan); if (!plan.Valid) plan = AnimKit.Jump(h.Seed); break;
+                case AgentAction.Spin: plan = DebugNoConnect ? AnimKit.Spin(h.Seed) : AnimKit.SpinDir(h.Seed, lateralHint); break;
                 case AgentAction.TackleWrapUp: case AgentAction.TackleBigHit: case AgentAction.TackleShoestring: case AgentAction.TackleDive: case AgentAction.TackleGang:
-                    plan = AnimKit.Tackle(h, false); break;
-                case AgentAction.Tackled: plan = h.Tackle != TackleType.None || h.Sack ? AnimKit.Tackle(h, true) : AnimKit.Fall(h.Seed); break;
-                case AgentAction.Fallen: plan = AnimKit.Fall(h.Seed); break;
+                    plan = DebugNoConnect ? AnimKit.Tackle(h, false) : AnimKit.TacklePair(h, false); break;
+                case AgentAction.Tackled: plan = h.Tackle != TackleType.None || h.Sack ? (DebugNoConnect ? AnimKit.Tackle(h, true) : AnimKit.TacklePair(h, true)) : (DebugNoConnect ? AnimKit.Fall(h.Seed) : AnimKit.FallThenRise(h.Seed)); break;
+                case AgentAction.Fallen: plan = DebugNoConnect ? AnimKit.Fall(h.Seed) : AnimKit.FallThenRise(h.Seed); break;
                 case AgentAction.Celebrate: plan = AnimKit.Celebrate(h.Seed); break;
-                case AgentAction.Kick: plan = AnimKit.Kick(h.Kind, h.Seed, false, h.EventEta); if (!plan.Valid) { _kickT = 0f; owns = false; } break;     // v0.8: kicking mocap, the procedural swing stays as the fallback
+                case AgentAction.Kick: plan = AnimKit.KickPlan(h); if (!plan.Valid) { _kickT = 0f; owns = false; } break;     // v0.8: kicking mocap, the procedural swing stays as the fallback
                 default: owns = false; break;
             }
-            if (!plan.Valid && prevAction == AgentAction.Stance && action != AgentAction.Stance && action != AgentAction.Kick) { plan = AnimKit.GetOff(Role, h.Seed); getOff = plan.Valid; }     // v0.8: explode out of the stance
+            if (!plan.Valid && prevAction == AgentAction.Stance && action != AgentAction.Stance && action != AgentAction.Kick) { plan = DebugNoConnect ? AnimKit.GetOff(Role, h.Seed) : GetOffByFirst(action, h, velocity, f); getOff = plan.Valid; }     // v0.8: explode out of the stance (v0.9.0 CONNECT E-251: by the first move and its heading)
+            if (!plan.Valid && !DebugNoConnect && !h.Live && prevAction == AgentAction.Stance && action == AgentAction.Run && (Role == PlayerRole.WR || Role == PlayerRole.RB || Role == PlayerRole.TE))
+                plan = AnimKit.MotionStart(h.Seed, Vector3.SignedAngle(new Vector3(f.x, 0f, f.z), new Vector3(velocity.x, 0f, velocity.z), Vector3.up));      // the man in motion leaves his stance with the ready-to-motion take
+            if (!plan.Valid && !DebugNoConnect && (Role == PlayerRole.DB || Role == PlayerRole.LB) && h.Live && (prevAction == AgentAction.Backpedal || prevAction == AgentAction.Shuffle) && (action == AgentAction.Run || action == AgentAction.Sprint || action == AgentAction.Route))
+            {
+                // E-191: the hip flip when a coverage player stops backpedalling and runs with the receiver
+                float turn = Mathf.DeltaAngle(_lastLocoYaw, Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg);
+                plan = AnimKit.TurnAndRun(h.Seed, turn);
+            }
+            if (!plan.Valid && !DebugNoConnect && _fell && prevAction == AgentAction.Fallen && action != AgentAction.Tackled && action != AgentAction.Fallen)
+            {
+                // E-212: the fall is followed by the get-up, and the body that lay where the fall happened walks on to the simulation instead of popping there
+                plan = AnimKit.GetUp(h.Seed % 2 == 0, h.Seed); getUp = plan.Valid;
+                Vector3 gap = _fallPos - transform.position; gap.y = 0f;
+                if (getUp && gap.sqrMagnitude > 0.01f) AddViewOffset(gap);
+                _fell = false;
+            }
             if (!plan.Valid && Role == PlayerRole.QB && h.Kind == PixFootball.Sim.PlayKind.FieldGoal && prevAction == AgentAction.Stance && action != AgentAction.Stance && action != AgentAction.Kick) plan = AnimKit.Holder(h.Seed);      // v0.7.0: the holder catches the snap and places the ball
             if (!plan.Valid && Role == PlayerRole.QB && (h.Kind == PixFootball.Sim.PlayKind.Kneel || h.Kind == PixFootball.Sim.PlayKind.Spike) && action != AgentAction.Stance) plan = AnimKit.QbSpecial(h.Kind, h.Seed);
             var mv = MoveFor(action, lateralHint);
-            if (mv != PlayerMove.None && !(action == AgentAction.Spin && plan.Valid)) { Anim.Trigger(mv); owns = false; }
-            if (plan.Valid && Rig != null) { plan = PacedPlan(action, plan); Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); NoteCommit(action, plan, getOff); }
+            if (mv != PlayerMove.None && !(action == AgentAction.Spin && plan.Valid)) { Anim.Trigger(mv); owns = false; _trigMove = mv; _trigClearAt = _clock + 0.3f; }
+            if (plan.Valid && Rig != null && action == AgentAction.Engaged && plan.Clip == Rig.CurrentClip && Rig.InWindow) { /* E-263: the pair that is already playing is not restarted */ }
+            else if (plan.Valid && Rig != null) { plan = PacedPlan(action, plan); Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); NoteCommit(action, plan, getOff); if (getUp) { _commitPri = 5; _commitUntil = _clock + Mathf.Clamp(plan.Clip.length * 0.8f, 0.4f, 1.3f); } }
             else if (_ownsClip && Rig != null) { Rig.Stop(0.18f); _ownsClip = false; }
         }
 
@@ -251,7 +303,7 @@ namespace PixFootball.Gameplay
         /// v0.6 closed-loop facing: the pose of the playing animation (locomotion blends mix clips authored facing -60 to -135 degrees away, e.g. the quarterback shuffles used for back-pedal and strafe) is measured from the hips every frame
         /// and the body is turned so it faces the simulation heading. Only for plain locomotion / stance / block actions; takes that really turn the hips (throws, spins, tackles, falls) are left alone.
         /// </summary>
-        float _loopYaw, _tableYaw; bool _loopAllowed;
+        float _loopYaw, _tableYaw, _loopHeld; bool _loopAllowed;
         public float LoopYaw { get { return _loopYaw; } }
         public static bool DebugNoFacingLoop;
 
@@ -271,14 +323,16 @@ namespace PixFootball.Gameplay
             bool allow = _loopAllowed && !ContactDriven && !DebugNoClipFacing && !DebugNoFacingLoop && !(Ragdoll != null && Ragdoll.Active);
             if (allow)
             {
-                var pose = BodyHeading.Measure(Avatar.Animator);
+                var pose = BodyHeading.MeasureThrottled(Avatar.Animator);   // GFX-419
                 if (pose.Valid && pose.HipsHeight > 0.5f)
                 {
-                    float err = StanceRules.YawDelta(pose.Yaw, _yaw);
+                    float err = StanceRules.YawDelta(pose.Yaw, _yaw + _gaitBias);      // v0.9.0: the playing gait cycles travel along the velocity
                     if (Mathf.Abs(err) > 8f) _loopYaw = Mathf.LerpAngle(_loopYaw, _loopYaw - err, 1f - Mathf.Exp(-dt / 0.09f));
+                    _loopHeld = _loopYaw;
                 }
             }
-            else _loopYaw = Mathf.MoveTowardsAngle(_loopYaw, 0f, 420f * dt);
+            else if (DebugNoConnect || ContactDriven || (Ragdoll != null && Ragdoll.Active)) { _loopYaw = Mathf.MoveTowardsAngle(_loopYaw, 0f, 420f * dt); _loopHeld = _loopYaw; }
+            else _loopYaw = _loopHeld * (1f - Mathf.Clamp01(Rig.Weight));      // v0.9.0 CONNECT E-265: the loop correction leaves with the locomotion layer (folded into the new clip over its cross-fade), it no longer unwinds on its own at 420 deg/s
             Avatar.SetVisualYaw(_tableYaw + _loopYaw);
         }
 
@@ -286,10 +340,14 @@ namespace PixFootball.Gameplay
         int _lodTick;
         void LateUpdate()
         {
-            if (Avatar != null && Avatar.Lod != null && ((++_lodTick + AgentId) & 3) == 0) Avatar.Lod.Update(transform.position);
+            if (Avatar != null && Avatar.Lod != null) Avatar.Lod.Update(transform.position);   // GFX-389 (v0.9): every frame (a distance and a tan), the old 1-in-4 cadence let a player sit one level off for 4 frames
             UpdateFacingLoop(Time.deltaTime);
+            PopFilterLate(Time.deltaTime);      // v0.9.0 CONNECT E-250
             FitGround(Time.deltaTime);
             if (Motion != null) Motion.Late(Time.deltaTime);
+            LateStancePose(Time.deltaTime);      // v0.9.0 QBSTANCE: the authored stance poses (hand on the turf, hips high, QB crouch) over the animation
+            ArmIkLate(Time.deltaTime);          // v0.9.0 CONNECT E-125 / E-127 / E-146
+            ActionGroundLate(Time.deltaTime);   // v0.9.0 LOCOMOTION LOCO-015: ground contact of the action clips, on the final pose (after the stance / QB pose IK and the arm IK)
             if (_kickT < 0f || Avatar == null || Avatar.RightUpperLeg == null || Avatar.RightLowerLeg == null) return;
             _kickT += Time.deltaTime;
             float t = _kickT;

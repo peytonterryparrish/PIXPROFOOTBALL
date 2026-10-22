@@ -15,7 +15,7 @@ namespace PixFootball.Art
         [Tooltip("All LOD renderers of the Pads part; sharedMaterials = [shell, trim, metal].")]
         public Renderer[] pads = new Renderer[0];
         public PhotoPlayer photo;
-        public int interval = 20;
+        public int interval = 60;   // v0.9 (GFX-443): only a safety net now; PhotoPlayer.SetTeamColors syncs the pads at once
 
         Material _shell;
         Color _p, _s, _t;

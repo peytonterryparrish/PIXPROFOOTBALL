@@ -10,14 +10,14 @@ namespace PixFootball.Core
         {
             { RouteKind.Go, new[] { 0f, 5f, 0f, 14f, 0f, 40f } },
             { RouteKind.Fade, new[] { 1f, 4f, 3f, 14f, 4f, 38f } },
-            { RouteKind.Hitch, new[] { 0f, 6f, 0f, 4.5f } },
+            { RouteKind.Hitch, new[] { 0f, 7f, 0f, 5.5f } },
             { RouteKind.Curl, new[] { 0f, 12f, -1.5f, 10f } },
-            { RouteKind.Comeback, new[] { 0f, 14f, 2.5f, 11f } },
+            { RouteKind.Comeback, new[] { 0f, 14f, 2.5f, 12f } },
             { RouteKind.Slant, new[] { 0f, 2f, -2.5f, 4.5f, -9f, 11f } },
-            { RouteKind.Out, new[] { 0f, 9f, 8f, 9.5f } },
+            { RouteKind.Out, new[] { 0f, 10.5f, 8f, 11f } },
             { RouteKind.Dig, new[] { 0f, 12f, -12f, 12f } },
-            { RouteKind.Post, new[] { 0f, 9f, -5f, 16f, -11f, 30f } },
-            { RouteKind.Corner, new[] { 0f, 9f, 6f, 16f, 12f, 28f } },
+            { RouteKind.Post, new[] { 0f, 12f, -13f, 30f } },
+            { RouteKind.Corner, new[] { 0f, 12f, 13f, 30f } },
             { RouteKind.Seam, new[] { 0f, 8f, 0f, 22f, 0f, 40f } },
             { RouteKind.Drag, new[] { -3f, 2f, -18f, 3f } },
             { RouteKind.Cross, new[] { 0f, 5f, -8f, 13f, -24f, 15f } },
@@ -35,7 +35,7 @@ namespace PixFootball.Core
             { RouteKind.In, new[] { 0f, 6f, -8f, 6.5f } },
         };
 
-        public const float RouteSpeed = 7f;   // the QB's timing estimate of a route (not the receiver's speed: the sim runs him at his own top speed); 8.2 made throws too early (+18 pass yds, sacks -0.3)
+        public const float RouteSpeed = 5.6f;   // v0.9.0 (E-110): the QB's timing estimate of a route IS the receiver's average pace including the stand-still start (a 9 yd out takes about 1.9 s for a 75 WR, not the 1.5 s that 7 yd/s gave); the sim runs the stems at 88-98 percent of his top speed
 
         public static List<RouteWaypoint> Build(RouteKind kind, Vec2 start, float sign)
         {
@@ -150,7 +150,7 @@ namespace PixFootball.Core
                 if (i == puller)
                 {
                     float sx = F.Slots[i].X;
-                    BlockAt(i, BlockKind.Pull, BlockTarget.Playside, RunGap.None, P(sx * 0.35f, -1.3f), P(dir * 2.9f, -0.9f), P(dir * 5.2f, 1.3f));
+                    BlockAt(i, BlockKind.Pull, BlockTarget.Playside, RunGap.None, P(sx * 0.35f, -0.7f), P(dir * 2.9f, -0.7f), P(dir * 5.2f, 1.3f));
                 }
                 else if (i == C) BlockAt(i, BlockKind.Man, BlockTarget.Backside);
                 else if (F.Slots[i].X * dir >= -0.1f) BlockAt(i, BlockKind.Man, BlockTarget.Playside);
@@ -166,7 +166,7 @@ namespace PixFootball.Core
             for (int i = LT; i <= RT; i++)
             {
                 float sx = F.Slots[i].X;
-                if (i == g) BlockAt(i, BlockKind.Pull, BlockTarget.EdgeDefender, RunGap.None, P(sx * 0.2f, -1.3f), P(dir * 2.5f, -1.2f), P(dir * 4.3f, 0.8f));
+                if (i == g) BlockAt(i, BlockKind.Pull, BlockTarget.EdgeDefender, RunGap.None, P(sx * 0.2f, -0.7f), P(dir * 2.5f, -0.9f), P(dir * 4.3f, 0.8f));
                 else if (i == t) BlockAt(i, BlockKind.Seal, BlockTarget.Backside);
                 else if (i == C) BlockAt(i, BlockKind.Man, BlockTarget.Backside);
                 else BlockAt(i, BlockKind.Man, BlockTarget.Playside);
@@ -306,8 +306,8 @@ namespace PixFootball.Core
             return new[]
             {
                 qb, s1,
-                S(Position.LT, -2.5f, 0f, "LT"), S(Position.LG, -1.25f, 0f, "LG"), S(Position.C, 0f, 0f, "C"),
-                S(Position.RG, 1.25f, 0f, "RG"), S(Position.RT, 2.5f, 0f, "RT"),
+                S(Position.LT, -2.5f, -0.15f, "LT"), S(Position.LG, -1.25f, -0.15f, "LG"), S(Position.C, 0f, -0.15f, "C"),
+                S(Position.RG, 1.25f, -0.15f, "RG"), S(Position.RT, 2.5f, -0.15f, "RT"),
                 a, b, c, d
             };
         }
@@ -316,10 +316,10 @@ namespace PixFootball.Core
         {
             var list = new List<Formation>();
             list.Add(new Formation(Singleback, PlaySide.Offense, "11", OffSlots(
-                S(Position.QB, 0, -1, "QB"), S(Position.RB, 0, -6, "HB"),
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
                 S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"), S(Position.WR, -8f, -1, "H"))));
             list.Add(new Formation(IForm, PlaySide.Offense, "21", OffSlots(
-                S(Position.QB, 0, -1, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -7, "HB"),
                 S(Position.FB, 0, -4, "F"), S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"))));
             list.Add(new Formation(ShotgunF, PlaySide.Offense, "11", OffSlots(
                 S(Position.QB, 0, -5, "QB"), S(Position.RB, 2f, -5, "HB"),
@@ -328,7 +328,7 @@ namespace PixFootball.Core
                 S(Position.QB, 0, -4, "QB"), S(Position.RB, 0, -7, "HB"),
                 S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"), S(Position.WR, -8f, -1, "H"))));
             list.Add(new Formation(GoalLine, PlaySide.Offense, "22", OffSlots(
-                S(Position.QB, 0, -1, "QB"), S(Position.RB, 0, -6, "HB"),
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
                 S(Position.FB, 0, -3, "F"), S(Position.TE, 3.75f, 0, "Y"), S(Position.TE, -3.75f, 0, "Y2"), S(Position.WR, 12f, 0, "Z"))));
             list.Add(new Formation(Empty, PlaySide.Offense, "01", OffSlots(
                 S(Position.QB, 0, -5, "QB"), S(Position.WR, -8f, -1, "W"),
@@ -345,10 +345,10 @@ namespace PixFootball.Core
                 S(Position.QB, 0, -5, "QB"), S(Position.RB, -2f, -5, "HB"),
                 S(Position.TE, 13f, -1.2f, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 14.5f, 0, "Z"), S(Position.WR, 16.5f, -1.2f, "H")), ShotgunF, "Bunch"));
             list.Add(new Formation("Singleback Ace", PlaySide.Offense, "12", OffSlots(
-                S(Position.QB, 0, -1, "QB"), S(Position.RB, 0, -6, "HB"),
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
                 S(Position.TE, 3.75f, 0, "Y"), S(Position.TE, -3.75f, 0, "Y2"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z")), Singleback, "Ace (12)"));
             list.Add(new Formation("I-Form Slot", PlaySide.Offense, "20", OffSlots(
-                S(Position.QB, 0, -1, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -7, "HB"),
                 S(Position.FB, 0, -4, "F"), S(Position.WR, 8f, -1, "H"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, 0, "Z")), IForm, "Slot (20)"));   // 7 on the line (QA-510)
             list.Add(new Formation("Pistol Trips", PlaySide.Offense, "11", OffSlots(
                 S(Position.QB, 0, -4, "QB"), S(Position.RB, 0, -7, "HB"),
@@ -502,8 +502,15 @@ namespace PixFootball.Core
                 float yc = Math.Min(-3f, b.F.Slots[0].Y + 0.8f);
                 b.SetQb(QbAction.Toss, 0, d, slot);
                 b.OlZone(d);
-                b.Block("HB", BlockKind.Lead, BlockTarget.EdgeDefender);
-                return b.Carry(lbl, CarryStyle.Sweep, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 3f, yc), P(d * 9f, yc + 1.5f), P(d * 14f, 0.5f), P(d * 18f, 8f));
+                b.Block("Y", BlockKind.Man, BlockTarget.EdgeDefender);   // v0.9.0 (E-156): the tight end takes the edge defender, the back leads outside of him
+                b.Block("HB", BlockKind.Lead, BlockTarget.Linebacker);
+                foreach (string wl in new[] { "X", "Z", "W", "H" })   // v0.9.0 (E-156): the playside receivers block the force players (the corner, then the nearest linebacker or safety)
+                {
+                    if (wl == lbl || !b.Has(wl)) continue;
+                    float wx = b.F.Slots[b.Idx(wl)].X;
+                    if (wx * d > 3f) b.Block(wl, BlockKind.Man, Math.Abs(wx) >= 9f ? BlockTarget.Cornerback : BlockTarget.Linebacker);
+                }
+                return b.Carry(lbl, CarryStyle.Sweep, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 3f, yc), P(d * 8f, yc + 1.5f), P(d * 12f, 0.5f), P(d * 15f, 8f));
             });
             AddRun(pb, "Kneel", PlayCategory.Kneel, new[] { Singleback }, false, (b, d) =>
             {

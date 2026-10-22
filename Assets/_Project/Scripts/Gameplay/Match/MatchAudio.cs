@@ -56,10 +56,25 @@ namespace PixFootball.Gameplay
             s.Play();
         }
 
+        float _lastWhistleAt = -99f;
+        /// <summary>The referee whistle (dead ball / kickoff only). v0.9.0 CONNECT E-383: a second request inside <see cref="WhistleDebounce"/> seconds is dropped (the sim's Whistle event, the penalty flag and the end-of-play reaction used to stack).</summary>
         public void Whistle()
         {
+            float now = Time.realtimeSinceStartup;
+            if (now - _lastWhistleAt < WhistleDebounce) return;
+            _lastWhistleAt = now;
             var c = _rt != null ? (Pick(_rt.sfxWhistle) ?? _rt.whistle) : null;
             Shot(c, 0.55f, Random.Range(0.97f, 1.03f));
+        }
+        const float WhistleDebounce = 1.5f;
+
+        /// <summary>v0.9.0 CONNECT E-379: the pre-snap "call" sound (audible, flip, defender switch): a UI tick plus a little crowd stir, NOT the referee whistle (that is reserved for dead balls).</summary>
+        public void CallCue()
+        {
+            if (_rt == null) return;
+            var c = Pick(_rt.sfxUi) ?? _rt.uiClick ?? _rt.uiMove;
+            Shot(c, 0.55f, Random.Range(0.97f, 1.04f));
+            Stir(0.15f);
         }
 
         /// <summary>

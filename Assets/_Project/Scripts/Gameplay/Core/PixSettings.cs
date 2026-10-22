@@ -60,9 +60,9 @@ namespace PixFootball.Gameplay
         public static int FrameCapIndex { get { return Mathf.Clamp(GetI("fpscap", 0), 0, FrameCaps.Length - 1); } set { SetI("fpscap", Mathf.Clamp(value, 0, FrameCaps.Length - 1)); } }
         /// <summary>v0.4: HDRP dynamic resolution scale (1 = native).</summary>
         public static float RenderScale { get { return GetF("scale", 1f); } set { SetF("scale", Mathf.Clamp(value, 0.5f, 1f)); } }
-        /// <summary>v0.5: 0 Off, 1 DLSS, 2 FSR.</summary>
-        public static int Upscaler { get { return GetI("upscaler", 0); } set { SetI("upscaler", Mathf.Clamp(value, 0, 2)); } }
-        public static readonly string[] UpscalerNames = { "Off", "DLSS", "FSR" };
+        /// <summary>v0.5: 0 Off, 1 DLSS, 2 FSR; v0.9: 3 Auto.</summary>
+        public static int Upscaler { get { return GetI("upscaler", 3); } set { SetI("upscaler", Mathf.Clamp(value, 0, 3)); } }   // v0.9 (GFX-417): default Auto (DLSS Quality on an RTX GPU, FSR 2 Quality on others that support it, else the native image with TAA)
+        public static readonly string[] UpscalerNames = { "Off", "DLSS", "FSR", "Auto" };
 
         // ---- gameplay and camera
         public static bool InvertLookY { get { return GetI("invert", 0) == 1; } set { SetI("invert", value ? 1 : 0); } }

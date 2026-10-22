@@ -18,7 +18,7 @@ namespace PixFootball.Gameplay
         public static float PitchDegrees(float forwardAccel, float speed, float maxDegrees = 9f)
         {
             if (speed < 0.5f) return 0f;
-            return Mathf.Clamp(forwardAccel * 0.9f, -maxDegrees * 0.5f, maxDegrees);
+            return Mathf.Clamp(forwardAccel * 0.9f, -maxDegrees * 1.3f, maxDegrees);      // v0.9.0: braking leans back as far as 12 degrees (it was 4.5)
         }
 
         /// <summary>Exponential smoothing with time constant tau.</summary>
@@ -68,6 +68,8 @@ namespace PixFootball.Gameplay
         Vector3 _armTarget; float _armTime, _armTotal;
         public bool StiffArmActive { get { return _armTime >= 0f && _armTime <= _armTotal; } }
 
+        /// <summary>v0.9.0 LOCOMOTION: stride warp, foot planting and pelvis compensation (the inputs are set by the view each frame).</summary>
+        public readonly FootPlant Plant;
         public float Bank { get { return _bank; } }
         public float Pitch { get { return _pitch; } }
 
@@ -80,6 +82,7 @@ namespace PixFootball.Gameplay
                 _right.Upper = Bone(HumanBodyBones.RightUpperLeg); _right.Lower = Bone(HumanBodyBones.RightLowerLeg); _right.End = Bone(HumanBodyBones.RightFoot);
             }
             _armTime = -1f;
+            Plant = new FootPlant(_animator);
         }
 
         /// <summary>Called every frame with the simulated velocity (m/s) and the body forward.</summary>
@@ -102,7 +105,7 @@ namespace PixFootball.Gameplay
 
         public void UpdateStiffArmTarget(Vector3 point) { _armTarget = point; }
 
-        public void Cancel() { _trim = 1f; _slideErr = 0f; _sHave = false; _carry = Carriage.None; _carryW = 0f; _toeL = _toeR = 0f; _protect = false; _protectW = 0f; _armTime = -1f; _left.Locked = _right.Locked = false; _left.Weight = _right.Weight = 0f; _bank = _pitch = 0f; _haveVel = false; }
+        public void Cancel() { if (Plant != null) Plant.Cancel(); _trim = 1f; _slideErr = 0f; _sHave = false; _carry = Carriage.None; _carryW = 0f; _toeL = _toeR = 0f; _protect = false; _protectW = 0f; _armTime = -1f; _left.Locked = _right.Locked = false; _left.Weight = _right.Weight = 0f; _bank = _pitch = 0f; _haveVel = false; }
 
         /// <summary>LateUpdate, after the animation: lean, foot lock, stiff arm.</summary>
         public void Late(float dt)
@@ -133,15 +136,53 @@ namespace PixFootball.Gameplay
                 else ApplyArm(LeanMath.Envelope(_armTime, _armTotal, 0.09f, 0.14f));
             }
             // ---- protect ball
+            ApplyArmSwing(dt, w, Plant != null ? Plant.GaitLayer : 0f);
             ApplyProtect(dt, w);
             // ---- quarterback carriage (v0.7.0): ball high at the chest in the pocket, cocked by the ear on the run
             ApplyCarriage(dt, w);
             // ---- stride matching (v0.7.0): measure the raw animation before the foot lock moves anything
             TrackStride(dt, w);
             // ---- foot lock
-            if (FootLockEnabled) { LockFoot(_left, dt, w); LockFoot(_right, dt, w); }
+            if (FootLockEnabled)
+            {
+                if (FootPlant.Enabled && Plant != null && Plant.Ok) { if (!Plant.ActionClaim) { Plant.Late(dt, w > 0.5f); if (!Plant.Engaged) { LockFoot(_left, dt, w); LockFoot(_right, dt, w); } } }
+                else { LockFoot(_left, dt, w); LockFoot(_right, dt, w); }
+            }
             // ---- toe-out clamp (v0.7.0, A-001)
-            if (ToeClampEnabled) { ClampToes(_left, true, dt, w); ClampToes(_right, false, dt, w); }
+            if (ToeClampEnabled && !(Plant != null && Plant.PolishWeight > 0.5f)) { ClampToes(_left, true, dt, w); ClampToes(_right, false, dt, w); }     // round 3: FootPlant.FootFix owns the foot heading while the leg polish runs (the old clamp measured the toe against the facing and fought it)
+        }
+
+        // ------------------------------------------------------------------------------------------ v0.9.0 arm swing amplitude (LOCO-013)
+        /// <summary>The free arms swing wider the faster the runner goes (0.9 at a jog, 1.25 at a sprint): the swing of each upper arm about its own slow mean is scaled. Set by the view (false for ball carriers, whose arms are the carry pose).</summary>
+        public bool ArmSwingEnabled;
+        public static bool ArmSwingScaleOn = true;
+        float _armMeanL, _armMeanR; bool _armHave;
+        float _armAngL, _armAngR;
+        /// <summary>QA: swing angle (degrees, + = forward) of the left / right upper arm before the scaling this frame.</summary>
+        public float ArmAngleLeft { get { return _armAngL; } }
+        public float ArmAngleRight { get { return _armAngR; } }
+        /// <summary>The amplitude factor of the arm swing at a ground speed (pure, unit tested).</summary>
+        public static float ArmSwingFactor(float speed) { return 0.9f + 0.35f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(2.5f, 8.5f, speed)); }
+
+        void ApplyArmSwing(float dt, float w, float gait)
+        {
+            if (!ArmSwingScaleOn || !ArmSwingEnabled || w < 0.5f || gait < 0.5f || _speed < 1.5f) { _armHave = false; return; }
+            float f = ArmSwingFactor(_speed);
+            Vector3 fwd = new Vector3(_fwd.x, 0f, _fwd.z).normalized, right = Vector3.Cross(Vector3.up, fwd);
+            for (int side = 0; side < 2; side++)
+            {
+                var up = Bone(side == 0 ? HumanBodyBones.LeftUpperArm : HumanBodyBones.RightUpperArm); var lo = Bone(side == 0 ? HumanBodyBones.LeftLowerArm : HumanBodyBones.RightLowerArm);
+                if (up == null || lo == null) continue;
+                Vector3 v = lo.position - up.position;
+                float a = Mathf.Atan2(Vector3.Dot(v, fwd), -Vector3.Dot(v, Vector3.up)) * Mathf.Rad2Deg;
+                ref float mean = ref (side == 0 ? ref _armMeanL : ref _armMeanR);
+                if (!_armHave) mean = a;
+                mean += (a - mean) * (1f - Mathf.Exp(-dt / 0.35f));
+                if (side == 0) _armAngL = a; else _armAngR = a;
+                float delta = Mathf.Clamp((f - 1f) * (a - mean), -25f, 25f);
+                if (Mathf.Abs(delta) > 0.05f) up.rotation = Quaternion.AngleAxis(-delta, right) * up.rotation;      // + = more forward: about the body's right axis a positive angle swings the arm backwards
+            }
+            _armHave = true;
         }
 
         // ------------------------------------------------------------------------------------------ v0.7.0 stride matching (A-008)

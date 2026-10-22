@@ -48,9 +48,23 @@ namespace PixFootball.Sim
             return top;
         }
 
+        /// <summary>
+        /// v0.9.0 (E-134): the height of the ball when it is at the receiver's hands, not where it first enters his catch envelope. A steep arc (a 40 yd pass comes down at 40-50 degrees) is a
+        /// yard higher when it first touches the envelope than where it crosses the receiver, which used to turn good deep balls into 'too high' drops.
+        /// </summary>
+        public float HandZ(SimAgent a, BallSim ball)
+        {
+            Vec2 vh = ball.Vel.XY;
+            float sp = vh.Length;
+            if (sp < 1f) return ball.Pos.Z;
+            Vec2 toR = a.Pos - ball.Pos.XY;
+            float tcl = SimMath.Clamp(toR.Dot(vh * (1f / sp)) / sp, 0f, 0.18f);
+            return Math.Max(0.2f, ball.Pos.Z + ball.Vel.Z * tcl - 0.5f * SimMath.Gravity * tcl * tcl);
+        }
+
         public float ReachRadius(SimAgent a, Vec3 ball)
         {
-            float r = a.Body.Radius + 0.62f;
+            float r = a.Body.Radius + 0.50f;   // v0.9.0 (E-134): was 0.62 (a catch was awarded with the ball up to a yard from his hands)
             if (a.Body.Speed > 3f && ball.Z < 1.1f) r += 0.45f; // stretching / diving for low balls
             Vec2 toBall = ball.XY - a.Pos;
             if (toBall.LenSq() > 0.01f && a.Facing.Dot(toBall.Norm()) < -0.2f) r = a.Body.Radius + 0.30f; // ball behind the shoulders
@@ -69,7 +83,9 @@ namespace PixFootball.Sim
                 Vec3 p = new Vec3(prev.X + (cur.X - prev.X) * f, prev.Y + (cur.Y - prev.Y) * f, prev.Z + (cur.Z - prev.Z) * f);
                 float d = (p.XY - a.Pos).Length;
                 if (d < closest) closest = d;
-                if (p.Z < 0.12f || p.Z > top) continue;
+                float hz = p.Z;
+                if (p.Z > top && S.Ball.Vel.Z < 0f) { hz = HandZ(a, S.Ball); }
+                if (p.Z < 0.12f || hz > top) continue;
                 if (d <= ReachRadius(a, p)) hit = true;
             }
             return hit;
@@ -85,7 +101,48 @@ namespace PixFootball.Sim
         
         private bool _dpiChecked;
 
-        public void ResetPass() { _tried.Clear(); _lock.Clear(); _dpiChecked = false; }
+        /// <summary>Accumulates how long a defender has had his body on the intended receiver while the ball is in the air (E-204).</summary>
+        private void TrackContact()
+        {
+            if (S.TargetId < 0) return;
+            SimAgent R = S.Agents[S.TargetId];
+            for (int i = 11; i < 22; i++)
+            {
+                SimAgent a = S.Agents[i];
+                if (a.State == AgentState.Down || a.Assign is RushAssignment || a.Assign is BlitzAssignment) continue;
+                if ((a.Pos - R.Pos).Length < a.Body.Radius + R.Body.Radius + 0.25f) { _contactTime += PlaySimulation.Dt; return; }
+            }
+        }
+
+        public void ResetPass() { _tried.Clear(); _lock.Clear(); _dpiChecked = false; _pendCatch = null; _contactTime = 0f; }
+
+        // ---- v0.9.0 (E-134): the catch is made when the ball is in the hands. The envelope test (0.5 yd past the body) only starts the catch; the receiver then gets the ball over the next 2-6 ticks, so the
+        // view never has to hide a catch awarded up to a yard from the hands.
+        private SimAgent _pendCatch, _pendDef;
+        private bool _pendContested;
+        private float _pendT;
+        /// <summary>True while a catch has been decided and the ball is still travelling the last few inches to the receiver hands.</summary>
+        public bool CatchPending { get { return _pendCatch != null; } }
+
+        private bool StepPendingCatch()
+        {
+            if (_pendCatch == null) return false;
+            SimAgent r = _pendCatch;
+            BallSim ball = S.Ball;
+            _pendT += PlaySimulation.Dt;
+            Vec3 hand = new Vec3(r.Pos + r.Facing * 0.22f, SimMath.Clamp(ball.Pos.Z, 0.35f, S.Catches.ReachTop(r)));
+            float gap = (ball.Pos - hand).Length;
+            bool away = (ball.Pos.XY - r.Pos).Dot(ball.Vel.XY) > 0f && gap > 0.8f;   // it flew past him
+            if (gap < 0.45f || _pendT > 0.12f || away || ball.GroundContactThisStep)
+            {
+                bool contested = _pendContested; SimAgent d = _pendDef;
+                _pendCatch = null; _pendDef = null;
+                FinishCatch(r, contested, d);
+            }
+            return true;
+        }
+
+        private float _contactTime;
 
         /// <summary>
         /// Defensive pass interference: as a catchable ball arrives at the intended receiver, a defender who is right on him and not playing
@@ -101,19 +158,20 @@ namespace PixFootball.Sim
             if (dr > 2.4f) return;
             _dpiChecked = true;
             if (ball.Pos.Z > ReachTop(R) + 0.7f || ball.Pos.Z < 0.2f) return;   // uncatchable: no flag
+            // v0.9.0 (E-204): a flag needs CONTACT: a defender whose body has been within a hand (the radii plus 0.25 yd) of the receiver for at least 0.15 s, and who is not simply playing the ball
             SimAgent D = null; float bd = 2.1f;
             for (int i = 11; i < 22; i++)
             {
                 SimAgent a = S.Agents[i];
                 if (a.State == AgentState.Down || a.Body.FallenTime > 0.3f || a.Assign is RushAssignment || a.Assign is BlitzAssignment) continue;
                 float d = (a.Pos - R.Pos).Length;
-                if (d < bd) { bd = d; D = a; }
+                if (d < bd && d < a.Body.Radius + R.Body.Radius + 0.80f) { bd = d; D = a; }
             }
-            if (D == null) return;
+            if (D == null || _contactTime < 0.06f) return;
             float air = Math.Max(0f, ball.Pos.Y - S.PassThrowY);
             float aw = SimMath.Rating01(D.R.Awareness);
             float cov = SimMath.Rating01(D.Assign is CoverageAssignment && ((CoverageAssignment)D.Assign).IsMan ? D.R.ManCoverage : D.R.ZoneCoverage);
-            float p = 0.19f + 0.0155f * Math.Min(air, 34f);
+            float p = 0.30f + 0.0185f * Math.Min(air, 34f);
             p *= (1.6f - aw) / 0.85f * (1.5f - cov) / 0.75f;
             Vec2 toBall = ball.Pos.XY - D.Pos;
             bool looking = toBall.LenSq() > 0.01f && D.Facing.Dot(toBall.Norm()) > 0.3f;
@@ -122,7 +180,7 @@ namespace PixFootball.Sim
             p *= trailing ? 1.25f : 0.45f;
             p *= looking ? 0.6f : 1.35f;
             p *= SimMath.Clamp01((2.1f - bd) / 1.4f) * 0.8f + 0.2f;
-            p = Math.Min(p, 0.22f);
+            p = Math.Min(p * 1.9f, 0.19f);
             if (S.Rng.NextFloat() < p) { S.Flag(PenaltyType.DefensivePassInterference, D, ball.Pos.Y - S.LosY); return; }
             // the receiver pushes off the defender who is playing the ball
             if (!trailing && bd < 1.5f && S.Rng.NextFloat() < 0.05f * (1.4f - SimMath.Rating01(R.R.Awareness)))
@@ -156,6 +214,8 @@ namespace PixFootball.Sim
         {
             BallSim ball = S.Ball;
             if (ball.State != BallState.Pass) return;
+            if (StepPendingCatch()) return;
+            TrackContact();
             CheckInterference();
             _near.Clear();
             for (int i = 0; i < 22; i++)
@@ -175,6 +235,7 @@ namespace PixFootball.Sim
         public void CheckTipped()
         {
             BallSim ball = S.Ball;
+            if (StepPendingCatch()) return;
             _near.Clear();
             for (int i = 0; i < 22; i++)
             {
@@ -363,17 +424,18 @@ namespace PixFootball.Sim
             float off = (r.Pos - ball.Pos.XY).Length;
             difficulty += 0.22f * SimMath.Clamp01((off - 0.7f) / 1.0f);
             float top = ReachTop(r);
-            if (ball.Pos.Z > top * 0.82f) difficulty += 0.12f;
+            float bz = HandZ(r, ball);
+            if (bz > top * 0.82f) difficulty += 0.12f;
             {
                 // a ball up at the limit of what he can reach is a hard catch; the leaper and the tall receiver make it look easy
                 float stand = StandReach(r);
-                if (ball.Pos.Z > stand * 0.9f)
+                if (bz > stand * 0.9f)
                 {
-                    float over = SimMath.Clamp01((ball.Pos.Z - stand * 0.9f) / Math.Max(0.2f, top - stand * 0.9f));
+                    float over = SimMath.Clamp01((bz - stand * 0.9f) / Math.Max(0.2f, top - stand * 0.9f));
                     difficulty += 0.34f * over * (1.05f - 0.55f * SimMath.Rating01(r.R.Jumping));
                 }
             }
-            if (ball.Pos.Z < 0.5f) difficulty += 0.12f;
+            if (bz < 0.5f) difficulty += 0.12f;
             Vec2 toBall = ball.Pos.XY - r.Pos;
             if (toBall.LenSq() > 0.01f && r.Facing.Dot(toBall.Norm()) < 0f) difficulty += 0.14f;
             difficulty += 0.05f * SimMath.Clamp01(r.Speed / Math.Max(1f, r.Body.VMax));
@@ -401,6 +463,14 @@ namespace PixFootball.Sim
 
         private void Catch(SimAgent r, bool contested, SimAgent d)
         {
+            // the catch starts here; the ball is given to him when it reaches his hands (see StepPendingCatch)
+            _pendCatch = r; _pendContested = contested; _pendDef = d; _pendT = 0f;
+            StepPendingCatch();
+        }
+
+        private void FinishCatch(SimAgent r, bool contested, SimAgent d)
+        {
+            if (S.Phase != PlayPhase.Live) return;
             if (!InBoundsCatch(r))
             {
                 // feet down out of bounds: incomplete

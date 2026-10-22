@@ -77,12 +77,12 @@ namespace PixFootball.Tests
         public void ThrowStylesTradeSpeedForArc()
         {
             var from = new Vec3(26f, 30f, 1.95f);
-            var to = new Vec3(26f, 60f, 1.7f); // 30-yard throw
+            var to = new Vec3(26f, 50f, 1.7f); // v0.9.0: a 20-yard throw (a Bullet blends into the Touch arc from about 27 yd, so at 30 yd the two share one launch speed)
             float tBullet, tTouch, tLob, apexB, apexT, apexL;
             float Flight(ThrowStyle s, out float apex)
             {
                 bool high;
-                float v = OffenseAI.StyleSpeed(s, 30f, 85, out high);
+                float v = OffenseAI.StyleSpeed(s, 20f, 85, out high);
                 Vec3 vel; float tf;
                 BallPhysics.SolveLaunch(from, to, v, high, out vel, out tf);
                 apex = 0f;
@@ -111,9 +111,9 @@ namespace PixFootball.Tests
             Assert.Less(BallPhysics.MaxThrowSpeed(40), BallPhysics.MaxThrowSpeed(70));
             Assert.Less(BallPhysics.MaxThrowSpeed(70), BallPhysics.MaxThrowSpeed(99));
             var from = new Vec3(26f, 30f, 1.95f);
-            var far = new Vec3(26f, 100f, 1.7f); // a 70-yard bomb
+            var far = new Vec3(26f, 80f, 1.7f); // v0.9.0: a 50-yard bomb (the ball has real drag and the strongest arm is capped at 57 mph, so it tops out at about 54 yd; a weak arm at about 36)
             Vec3 vel; float tf;
-            Assert.IsTrue(BallPhysics.SolveLaunch(from, far, BallPhysics.MaxThrowSpeed(99), true, out vel, out tf), "a cannon arm reaches 70 yards");
+            Assert.IsTrue(BallPhysics.SolveLaunch(from, far, BallPhysics.MaxThrowSpeed(99), true, out vel, out tf), "a cannon arm reaches 50 yards");
             Assert.IsFalse(BallPhysics.SolveLaunch(from, far, BallPhysics.MaxThrowSpeed(30), true, out vel, out tf), "a weak arm cannot");
         }
 

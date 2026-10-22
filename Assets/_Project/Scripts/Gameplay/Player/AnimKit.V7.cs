@@ -57,6 +57,7 @@ namespace PixFootball.Gameplay
             else if (Mathf.Abs(h.ThrowAngle) > 75f) key = ArtKeys.PixQbThrowOff;
             else key = ArtKeys.PixQbThrowSet;
             int n = l.ClipVariantCount(key);
+            if (n == 0 && key == ArtKeys.PixQbThrowOff) { key = ArtKeys.PixQbThrowRun; n = l.ClipVariantCount(key); }      // v0.9.0 (E-106): no off-balance take in the library: the hurried, moving take is the nearest
             if (n == 0 && key != ArtKeys.PixQbThrowSet) { key = ArtKeys.PixQbThrowSet; n = l.ClipVariantCount(key); }
             if (n == 0) return default(ClipPlan);
             string want = key == ArtKeys.PixQbThrowSet ? (h.Lob || h.ThrowDistance > 30f ? "lob" : (h.ThrowDistance > 15f ? "bullet" : "touch")) : "";
@@ -71,12 +72,15 @@ namespace PixFootball.Gameplay
             if (best == null) return default(ClipPlan);
             float tr = be.t, ts = be.t2;
             float start = Mathf.Max(0f, ts - 0.10f), speed = 1f;
-            if (h.BallReleased) start = Mathf.Max(0f, tr - 0.14f);
+            if (h.BallReleased) start = Mathf.Max(0f, tr - 0.26f);      // v0.9.0 (E-114): the take is under way before the ball is gone (the fade-in floor is 0.22 s)
             else
             {
+                // v0.9.0 (E-105): the clip speed stays in 0.9 to 1.45 of the take (the lead is cut from the front instead of racing the whole wind-up)
                 float w = Mathf.Max(0.15f, h.WindupSeconds);
-                speed = Mathf.Clamp((tr - start) / w, 0.8f, 1.8f);
+                speed = Mathf.Clamp((tr - start) / w, 0.9f, 1.45f);
+                start = Mathf.Max(start, tr - speed * w);
             }
+            if (h.LeftHanded) { var mir = PixFootball.Art.ClipFacingTable.MirrorOf(best); if (mir != null) best = mir; }      // v0.9.0 (E-107): the mirror image for a left-handed passer (same key moments)
             var p = P(best, start, Mathf.Min(best.length, tr + 0.95f), speed, 0.14f, 0.3f);
             if (key == ArtKeys.PixQbThrowRun) p = Up(p);
             return p;

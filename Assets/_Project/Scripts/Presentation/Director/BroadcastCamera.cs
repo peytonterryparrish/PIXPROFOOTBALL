@@ -74,13 +74,12 @@ namespace PixFootball.Presentation
             ResetHistory();
         }
 
-        int _cutFrames; HDAdditionalCameraData.AntialiasingMode _aaMode; bool _aaSaved;
-        // TAA would smear the previous shot into the new one: for two frames after a cut the camera uses FXAA instead
+        // v0.9 (GFX-442): a cut resets the TAA history instead of switching to FXAA for 3 frames (the visible AA change after every broadcast cut)
         void ResetHistory()
         {
-            if (_hd == null) return;
-            if (!_aaSaved) { _aaMode = _hd.antialiasing; _aaSaved = true; }
-            _hd.antialiasing = HDAdditionalCameraData.AntialiasingMode.FastApproximateAntialiasing; _cutFrames = 3;
+            if (_cam == null) return;
+            var hc = UnityEngine.Rendering.HighDefinition.HDCamera.GetOrCreate(_cam);
+            if (hc != null) hc.Reset();
         }
 
         /// <summary>Sets where the camera is for this frame. focusDistance &lt;= 0 turns the depth of field off.</summary>
@@ -102,7 +101,6 @@ namespace PixFootball.Presentation
 
         void LateUpdate()
         {
-            if (_cutFrames > 0 && --_cutFrames == 0 && _hd != null && _aaSaved) { _hd.antialiasing = _aaMode; _aaSaved = false; }
             if (!Active || _cam == null) return;
             var t = _cam.transform;
             t.SetPositionAndRotation(_pos, _rot);

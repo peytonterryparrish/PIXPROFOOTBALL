@@ -95,12 +95,43 @@ namespace PixFootball.Gameplay
             }
         }
 
+        // ---- v0.9 (GFX-404 / 389 / 405): the level follows the PROJECTED height of the player on screen instead of the distance, so the Classic camera (19-30 m to the players around the ball) shows LOD0 there
+        /// <summary>Height of the player in pixels at a 1440 p screen above which each level is used (LOD0 / LOD1 / LOD2; below the last: LOD3). A 1.9 m player is about 3225 / distance px at the 46 degree Classic field of view (LOD0 inside about 11 m, LOD1 to 21 m, LOD2 to 118 m; High adds the 1.1 tier bias).</summary>
+        public static float Lod0Px = 400f, Lod1Px = 200f, Lod2Px = 30f;   // v0.9.0 release fallback (player measured 73 avg / 51.5 1 %-low at 300 / 170): LOD0 from 400 px, LOD1 from 200 px. Measured A/B (80 s of live play, 22 players, High, 1440 p, editor; old distance LODs 112 fps): 110 / 62 px = 77 fps, 190 / 115 = 87-94, 240 / 150 = 89-102, 300 / 170 = 106, 400 / 200 = 115. LOD1 for everybody inside 30-50 m is what costs. From 300 px (about 11 m at the Classic framing) every carrier seen by the follow camera and every close-up gets LOD0; from 170 px (about 21 m) the line of scrimmage and the quarterback get LOD1 (they were LOD2 beyond 22 m)
+        public const float PlayerHeightM = 1.9f;
+        /// <summary>true: projected size (default); false: the old distance thresholds (Near / Mid / Far, autotest A/B).</summary>
+        public static bool UseScreenSize = true;
+        /// <summary>Hysteresis band around each edge (20 percent of the size).</summary>
+        public const float Hysteresis = 0.20f;
+
+        /// <summary>Size of a player in 1440 p pixels for a camera distance (pure; the camera parts are arguments so tests and tools can call it).</summary>
+        public static float ScreenPixels(float distance, float verticalFovDegrees, float pixelHeight)
+        {
+            float d = Mathf.Max(0.5f, distance);
+            float tan = Mathf.Tan(Mathf.Clamp(verticalFovDegrees, 5f, 120f) * 0.5f * Mathf.Deg2Rad);
+            float frac = PlayerHeightM / (2f * d * tan);
+            return frac * 1440f * Mathf.Clamp(pixelHeight, 720f, 2160f) / 1440f * Mathf.Max(0.1f, Bias);
+        }
+
+        /// <summary>Level for a projected size with hysteresis relative to the level in use.</summary>
+        public static int LevelForPixels(float px, int current)
+        {
+            float[] edge = { Lod0Px, Lod1Px, Lod2Px };   // edge[i] separates level i (larger) from i+1
+            int lv = px >= edge[0] ? 0 : px >= edge[1] ? 1 : px >= edge[2] ? 2 : 3;
+            if (current < 0 || lv == current) return lv;
+            if (lv > current) { for (int i = current; i < lv; i++) if (px > edge[i] * (1f - Hysteresis)) return i; }     // shrinking: keep the finer level until 20 percent below the edge
+            else { for (int i = current - 1; i >= lv; i--) if (px < edge[i] * (1f + Hysteresis)) return i + 1; }  // growing: keep the coarser level until 20 percent above the edge
+            return lv;
+        }
+
         public void Update(Vector3 position)
         {
             var cam = ViewCamera;
             if (_photo == null && _groups.Count == 0 && _bodies.Count == 0) return;
             if (cam == null) { if (_level < 0) Apply(0); return; }   // free roam / before the director set the camera: never leave every helmet LOD active at once
-            Apply(LevelFor(Vector3.Distance(cam.transform.position, position), _level));
+            float dist = Vector3.Distance(cam.transform.position, position);
+            if (UseScreenSize) Apply(LevelForPixels(ScreenPixels(dist, cam.fieldOfView, cam.pixelHeight), _level));
+            else Apply(LevelFor(dist, _level));
         }
     }
 }

@@ -23,6 +23,7 @@ namespace PixFootball.Sim
         private bool _rolling;
         private bool _hotMode;
         private readonly float[] _zAt = new float[21];
+        private readonly bool[] _softSet = new bool[11];
 
         public OffenseAI(PlaySimulation s) { S = s; _carrierAI = new CarrierAI(s); }
 
@@ -80,15 +81,32 @@ namespace PixFootball.Sim
             ComputeDropPoint();
         }
 
+        private float _dropT0 = -1f, _dropDur;
+        private Vec2 _dropFrom;
+        /// <summary>Planned seconds from the quarterback having the ball to arriving at the drop point (0 = no drop). Animation can scrub the drop-back by it.</summary>
+        internal float DropDuration { get { return _dropDur; } }
+
         private void ComputeDropPoint()
         {
             float x0 = S.BallX0 + S.OffForm.Slots[0].X;
             float y0 = S.LosY + S.OffForm.Slots[0].Y;
             int steps = _qa.DropbackSteps;
+            float startDepth = Math.Max(0f, S.LosY - y0);
             float depthBelow; // yards behind the LOS
-            if (_shotgun) depthBelow = steps <= 3 ? 5.0f : (steps <= 5 ? 6.0f : 7.5f);
-            else depthBelow = steps <= 0 ? 1.5f : (steps <= 3 ? 4.2f : (steps <= 5 ? 6.4f : 8.6f));
-            if (_hotMode) depthBelow = Math.Min(depthBelow, _shotgun ? 5.0f : 4.4f); // the blitz is on: a short drop and a quick throw
+            _dropT0 = -1f;
+            if (_shotgun)
+            {
+                // v0.9.0 (E-087): the shotgun quarterback gathers and retreats 0.5 / 1 / 2 yd over 0.5 / 0.65 / 0.85 s (he used to be 'set' the tick he caught the snap)
+                depthBelow = startDepth + (steps <= 3 ? 0.5f : (steps <= 5 ? 1.0f : 2.0f));
+                _dropDur = steps <= 0 ? 0f : (steps <= 3 ? 0.50f : (steps <= 5 ? 0.65f : 0.85f));
+            }
+            else
+            {
+                // v0.9.0 (E-095): under-centre depths 4.7 / 7.0 / 9.3 yd (were 3.7 / 5.9 / 8.1) reached in 1.2 / 1.75 / 2.3 s from the catch (3 / 5 / 7 steps at 0.4 / 0.35 / 0.33 s)
+                depthBelow = steps <= 0 ? 1.5f : (steps <= 3 ? 4.7f : (steps <= 5 ? 7.0f : 9.3f));
+                _dropDur = steps <= 0 ? 0f : (steps <= 3 ? 1.20f : (steps <= 5 ? 1.75f : 2.30f));
+            }
+            if (_hotMode) { depthBelow = Math.Min(depthBelow, _shotgun ? Math.Max(startDepth, 5.0f) : 4.4f); _dropDur *= 0.75f; } // the blitz is on: a short drop and a quick throw
             _rolling = _qa.Action == QbAction.Rollout || _qa.Action == QbAction.Boot;
             float x = x0;
             if (_rolling)
@@ -96,7 +114,24 @@ namespace PixFootball.Sim
                 x = x0 + Math.Sign(_qa.RollDirection == 0 ? 1 : _qa.RollDirection) * 6.0f;
                 depthBelow = Math.Min(depthBelow, 4.5f);
             }
+            // v0.9.0: the drop is 7 / 9 yd deep, which is where a single back stands 6-7 yd behind the line directly behind the quarterback (he used to be stuck against the back for 1.3 s and set late). A drop to a spot in line with a back
+            // arcs a yard and a quarter to the side the back is not on (a real passer drifts off his running back, who then steps up to block)
+            if (!_shotgun && !_rolling)
+            {
+                for (int i = 1; i < 11; i++)
+                {
+                    SimAgent ba = S.Agents[i];
+                    if (ba.PlayPos != Position.RB && ba.PlayPos != Position.FB) continue;
+                    float bx = ba.StartPos.X, by = ba.StartPos.Y;
+                    if (Math.Abs(bx - x0) < 1.0f && by < y0 - 1.0f && by > S.LosY - depthBelow - 1.2f)
+                    {
+                        x = x0 + (bx >= x0 ? -1.25f : 1.25f);
+                        break;
+                    }
+                }
+            }
             _dropPoint = new Vec2(SimMath.Clamp(x, 3f, FieldGeometry.Width - 3f), S.LosY - depthBelow);
+            if (_rolling) _dropDur = Math.Max(0.9f, (_dropPoint - new Vec2(x0, y0)).Length / 5.2f);
         }
 
         // =====================================================================================
@@ -108,6 +143,16 @@ namespace PixFootball.Sim
             if (S.Kind == PlayKind.Kickoff || S.Kind == PlayKind.Punt || S.Kind == PlayKind.FieldGoal) return;
             SimAgent center = S.Snapper;
             _qb.QbClock = 0f;
+            // v0.9.0 (E-156): a jet sweep is a play with motion: the sweep runner is already moving (about 3 yd/s) at the snap, like the jet-motion man he is, so the pitch (no longer at 0.28 s) still finds him at the edge
+            if (_qa != null && _qa.Action == QbAction.Toss && _handoffTarget != null && _handoffTarget.Pos.Y < S.LosY - 0.5f)
+            {
+                var jca = _handoffTarget.Assign as CarryAssignment;
+                if (jca != null && jca.Style == CarryStyle.Sweep && jca.Path.Count > 0)
+                {
+                    Vec2 to0 = (S.Rel(jca.Path[0]) - _handoffTarget.Pos).Norm();
+                    if (to0.LenSq() > 0.25f && _handoffTarget.Pos.X != S.BallX0) _handoffTarget.Body.Vel = to0 * 6.0f;
+                }
+            }
             if (_qa == null)
             {
                 // a malformed play without a quarterback assignment: the ball goes to the first real ball carrier (or the quarterback) so the play cannot hang
@@ -151,9 +196,17 @@ namespace PixFootball.Sim
         // Per-tick update
         // =====================================================================================
 
+        /// <summary>v0.9.0 (E-234): a rusher touched the passer before the release without bringing him down.</summary>
+        internal void NoteHurry(SimAgent rusher)
+        {
+            _hurried = 0.9f;
+            S.LogEvent(SimEventType.QbHurry, rusher.Id, _qb.Id);
+        }
+
         public void Update()
         {
             if (S.Kind == PlayKind.Kickoff || S.Kind == PlayKind.Punt || S.Kind == PlayKind.FieldGoal) return;
+            if (_hurried > 0f) _hurried -= PlaySimulation.Dt;
             for (int i = 0; i < 11; i++)
             {
                 SimAgent a = S.Agents[i];
@@ -190,32 +243,77 @@ namespace PixFootball.Sim
             var ra = a.Assign as RouteAssignment;
             if (ra != null && a.Side == SimSide.Offense && !a.HasBall && !a.RouteDone && S.BallSide == SimSide.Offense)
             {
-                float v = Math.Max(a.Speed, a.Body.VMax * 0.7f);
-                v = Math.Min(v, a.Body.VMax * 0.98f);
-                float budget = v * t;
+                // v0.9.0 (E-112): predict with the same speed schedule RunRoute uses (the stem speed of the route, and the time a sharp plant costs), so the lead point is not
+                // 1.5-2.5 yd past a receiver who has slowed into his break
+                var wps = ra.Waypoints;
+                float timeLeft = t;
                 Vec2 p = a.Pos;
                 int idx = a.PathIdx;
-                var wps = ra.Waypoints;
-                while (idx < wps.Count && budget > 0f)
+                float v = RouteSegSpeed(a, ra, idx, Math.Max(0.5f, a.Speed));
+                while (idx < wps.Count && timeLeft > 0f)
                 {
                     Vec2 w = S.RouteRel(wps[idx].Point);
                     float seg = (w - p).Length;
-                    if (seg <= budget) { budget -= seg; p = w; idx++; }
-                    else { p = p + (w - p).Norm() * budget; budget = 0f; }
+                    v = RouteSegSpeed(a, ra, idx, v);
+                    float segT = seg / v;
+                    float plant = 0f;
+                    if (idx + 1 < wps.Count)
+                    {
+                        float ang = SimMath.AngleBetween((w - p).Norm(), (S.RouteRel(wps[idx + 1].Point) - w).Norm());
+                        if (ang > 0.6f) plant = 0.10f + 0.24f * SimMath.Clamp01((ang - 0.6f) / 1.6f);
+                    }
+                    if (segT + plant <= timeLeft) { timeLeft -= segT + plant; p = w; idx++; }
+                    else if (segT <= timeLeft) { p = w; timeLeft = 0f; }
+                    else { p = p + (w - p).Norm() * (v * timeLeft); timeLeft = 0f; }
                 }
-                if (budget > 0f && wps.Count > 0)
+                if (timeLeft > 0f && wps.Count > 0)
                 {
                     Vec2 last = S.RouteRel(wps[wps.Count - 1].Point);
                     Vec2 prev = wps.Count > 1 ? S.RouteRel(wps[wps.Count - 2].Point) : a.Pos;
                     Vec2 dir = (last - prev).Norm();
-                    if (!ContinuesDownfield(ra.Route)) budget *= 0.2f;
-                    p = p + dir * budget;
+                    float run = v * timeLeft;
+                    if (!ContinuesDownfield(ra.Route)) run *= 0.2f;
+                    p = p + dir * run;
+                    if (ContinuesDownfield(ra.Route) && p.Y > 107f) p = new Vec2(p.X, 107f);
                 }
                 return p;
             }
             Vec2 vel = a.Vel;
             float tt = Math.Min(t, 1.4f);
             return a.Pos + vel * tt * (a.HasBall ? 0.95f : 0.8f);
+        }
+
+        /// <summary>
+        /// v0.9.0 (E-326): the share of his top speed a receiver runs the stem of a route at. A hitch / curl / stick / flat is sold at 88 percent, an in / out / dig / slant / crosser at 93 percent,
+        /// a vertical at 98 percent (every stem used to be 98 percent of top speed whatever the route).
+        /// </summary>
+        public static float StemFrac(RouteKind k, int pathIdx)
+        {
+            switch (k)
+            {
+                case RouteKind.Go: case RouteKind.Fade: case RouteKind.Seam: case RouteKind.Wheel: case RouteKind.Corner2: return 0.98f;
+                case RouteKind.Post: case RouteKind.Corner: case RouteKind.OutAndUp: return pathIdx == 0 ? 0.96f : 0.95f;
+                case RouteKind.In: case RouteKind.Out: case RouteKind.Dig: case RouteKind.Slant: case RouteKind.Cross: case RouteKind.Drag: case RouteKind.Shallow: case RouteKind.Texas: return 0.93f;
+                default: return 0.88f;
+            }
+        }
+
+        /// <summary>
+        /// The speed (yd/s) a receiver runs segment <paramref name="idx"/> of his route at: the route timing (segment length over segment time, 1.32 x), capped at the stem fraction of his top speed.
+        /// Shared by <c>RunRouteCore</c> and the passer's prediction so the lead point matches what the receiver actually does. <paramref name="current"/> is his speed now (a stand-still start is not instantly at cruise).
+        /// </summary>
+        private float RouteSegSpeed(SimAgent a, RouteAssignment ra, int idx, float current)
+        {
+            var wps = ra.Waypoints;
+            if (idx >= wps.Count) return Math.Max(1f, current);
+            float vmax = a.Body.EffectiveVMax;
+            Vec2 prevPt = idx == 0 ? S.Rel(Vec2.Zero) + new Vec2(S.OffForm.Slots[a.Slot].X, S.OffForm.Slots[a.Slot].Y) : S.RouteRel(wps[idx - 1].Point);
+            Vec2 target = S.RouteRel(wps[idx].Point);
+            float segTime = wps[idx].Time - (idx > 0 ? wps[idx - 1].Time : 0f);
+            float segLen = (target - prevPt).Length;
+            float cruise = SimMath.Clamp(segLen / Math.Max(0.3f, segTime) * 1.32f, vmax * 0.55f, vmax * StemFrac(ra.Route, idx));
+            float start = Math.Max(current, cruise * 0.8f);
+            return Math.Min(cruise, start);
         }
 
         public static bool ContinuesDownfield(RouteKind k)
@@ -236,13 +334,25 @@ namespace PixFootball.Sim
         {
             var ra = (RouteAssignment)a.Assign;
             a.Intent = AgentAction.Route;
-            if (S.PassThrown && S.TargetId == a.Id && S.Ball.State == BallState.Pass) { TrackBall(a); return; }
+            bool look = false;
+            if (S.PassThrown && S.TargetId == a.Id && S.Ball.State == BallState.Pass)
+            {
+                if (TrackBall(a, ra)) return;
+                look = true;   // v0.9.0 (E-136): the ball is coming to a point on his route: he keeps running it and turns his head to the ball
+            }
+            RunRouteCore(a, ra);
+            // (the head turns to the ball through the animation hooks; the body keeps running the stem square to his run: a body that faces back at the ball loses speed)
+            if (look && S.Ball.Pos.XY.Y - a.Pos.Y < 3f && a.Speed < 3f) { Vec2 tb = S.Ball.Pos.XY - a.Pos; if (tb.LenSq() > 0.3f) { a.HasFace = true; a.FaceDir = tb.Norm(); } }
+        }
+
+        private void RunRouteCore(SimAgent a, RouteAssignment ra)
+        {
             if (S.Phase != PlayPhase.Live) return;
             var wps = ra.Waypoints;
             float vmax = a.Body.EffectiveVMax;
 
             // jammed at the line: the route keeps running (waypoints still advance) but at a third of the pace for the jam time
-            float jamScale = a.JamTime > 0f ? 0.38f : 1f;
+            float jamScale = a.JamTime > 0f ? 0.55f : 1f;   // v0.9.0 (E-199 / E-328): a jammed receiver weaves off the line at 55 percent of his speed (was 38 percent with a sideways velocity set)
             // the Hail Mary: the receivers converge on the landing zone in front of the goal line instead of running five parallel go routes
             if (_qa != null && _qa.Action == QbAction.HailMary && S.Time > 1.3f)
             {
@@ -282,6 +392,7 @@ namespace PixFootball.Sim
             }
             // real route runners plant AT the break depth: sharp breaks are reached to within a third of a yard, gentle bends round off
             float arrive = SimMath.Lerp(1.3f, 0.35f, SimMath.Clamp01((cornerAng - 0.5f) / 0.9f));
+            if (cornerAng > 0.9f || wps[a.PathIdx].Cut) arrive = 0.25f;   // v0.9.0 (E-319): a break is a plant at the stem's end (the Cut flag is honoured), not a rounded corner
             // vertical stems get a longer leash so fast receivers do not loop back
             if (dist < arrive)
             {
@@ -294,13 +405,13 @@ namespace PixFootball.Sim
 
             float segTime = wps[a.PathIdx].Time - (a.PathIdx > 0 ? wps[a.PathIdx - 1].Time : 0f);
             float segLen = (target - prevPt).Length;
-            float vRoute = SimMath.Clamp(segLen / Math.Max(0.3f, segTime) * 1.32f, vmax * 0.55f, vmax * 0.985f);
+            float vRoute = SimMath.Clamp(segLen / Math.Max(0.3f, segTime) * 1.32f, vmax * 0.55f, vmax * StemFrac(ra.Route, a.PathIdx));
 
             // brake into sharp cuts based on agility
             if (a.PathIdx < wps.Count - 1 && cornerAng > 0.6f)
             {
                 float sharp = SimMath.Clamp01((cornerAng - 0.6f) / 1.6f);
-                float entry = vmax * SimMath.Lerp(0.8f, 0.30f, sharp) * (0.85f + 0.15f * a.Body.Agility01 + (a.R.Awareness > 70 ? 0.03f : 0f));
+                float entry = vmax * SimMath.Lerp(0.8f, 0.46f, sharp) * (0.85f + 0.15f * a.Body.Agility01 + (a.R.Awareness > 70 ? 0.03f : 0f));   // v0.9.0 (E-319): through the plant at 45-55 percent of top speed
                 float decel = a.Body.DecelBase * 0.75f;
                 float allowed = (float)Math.Sqrt(entry * entry + 2f * decel * Math.Max(0f, dist - 0.5f));
                 vRoute = Math.Min(vRoute, allowed);
@@ -308,6 +419,7 @@ namespace PixFootball.Sim
             Vec2 dir = (target - a.Pos).Norm();
             // press release / defender contact: gentle weave around a trailing/leveraging defender is skipped; keep the stem
             a.Want = dir * (vRoute * jamScale);
+            if (a.JamTime > 0f) a.Want = a.Want + new Vec2(a.JamPush * 3.0f, 0f);   // the release move: swim / rip off the jam, 1.2 yd over its length
             a.RouteClock += PlaySimulation.Dt;
         }
 
@@ -324,7 +436,10 @@ namespace PixFootball.Sim
             {
                 Vec2 dir = (last - prev).Norm();
                 if (dir.LenSq() < 0.25f) dir = new Vec2(0f, 1f);
-                a.Want = dir * (vmax * 0.97f);
+                // v0.9.0 (E-351): a vertical runs to the back of the end zone and settles (it used to run past its last waypoint at full speed until the wall)
+                float room = 107f - a.Pos.Y;
+                a.Want = dir * (vmax * 0.97f) * SimMath.Clamp01(room / 6f);
+                if (room <= 0.3f) a.Want = Vec2.Zero;
                 return;
             }
             // find a soft spot / settle against the coverage and turn to the quarterback
@@ -341,7 +456,15 @@ namespace PixFootball.Sim
         {
             // only re-evaluate a few times a second; cache on the agent
             if (a.ReactionClock > 0f) { a.ReactionClock -= PlaySimulation.Dt; return a.Landmark; }
-            a.ReactionClock = 0.2f;
+            // v0.9.0 (E-329): once he has found his spot he stands there and faces the passer; he only looks for a new one when a defender is on top of him, and not more than every 0.6 s
+            if (a.Slot >= 0 && a.Slot < _softSet.Length && _softSet[a.Slot])
+            {
+                float nd = 99f;
+                for (int j = 11; j < 22; j++) { SimAgent d0 = S.Agents[j]; if (d0.State == AgentState.Down) continue; float dd0 = (d0.Pos - a.Pos).Length; if (dd0 < nd) nd = dd0; }
+                if (nd >= 2.5f) { a.ReactionClock = 0.25f; return a.Landmark; }
+            }
+            a.ReactionClock = 0.6f;
+            if (a.Slot >= 0 && a.Slot < _softSet.Length) _softSet[a.Slot] = true;
             Vec2 best = a.Pos; float bestScore = float.MinValue;
             for (int ix = -2; ix <= 2; ix++)
             {
@@ -391,7 +514,7 @@ namespace PixFootball.Sim
         // Tracking a thrown ball
         // =====================================================================================
 
-        private void TrackBall(SimAgent a)
+        private bool TrackBall(SimAgent a, RouteAssignment route = null)
         {
             BallSim ball = S.Ball;
             Vec3 at; float tt;
@@ -399,6 +522,12 @@ namespace PixFootball.Sim
             float catchZ = 1.6f;
             if (BallPhysics.PredictAtHeight(ball.Pos, ball.Vel, catchZ, out at, out tt)) pt = at.XY;
             else { pt = at.XY; tt = 0.3f; }
+            // v0.9.0 (E-136): a ball that is coming to a point on his own route (within a yard of where the route takes him) does not pull him off it
+            if (route != null && !a.RouteDone && a.PathIdx < route.Waypoints.Count && tt > 0.25f && !a.ControlledByUser)
+            {
+                Vec2 routeAt = PredictPos(a, tt);
+                if ((routeAt - pt).Length < 0.9f) return false;
+            }
             float vmax = a.Body.EffectiveVMax;
             float targetZ = catchZ;
             bool leap = false;
@@ -434,7 +563,12 @@ namespace PixFootball.Sim
             float dist2 = to.Length;
             float need2 = dist2 / Math.Max(0.2f, tt);
             float speed = Math.Min(vmax, Math.Max(need2 * 1.05f, 2.0f));
-            if (dist2 < 0.35f) speed = 0f;
+            if (dist2 < 0.35f)
+            {
+                // v0.9.0 (E-135): a catch above the knees is made in stride (he runs through the point at his own pace, never stops dead under the ball); only a low ball is gathered standing
+                if (targetZ < 1.0f) speed = 0f;
+                else { speed = Math.Min(vmax * 0.8f, a.Speed); if (a.Speed > 1f) to = a.Vel.Norm(); }
+            }
             a.Want = to.Norm() * speed;
             a.HasFace = true;
             // run to the spot with the shoulders square to the run; only turn to the ball once it is nearly there (looking back costs no speed)
@@ -444,6 +578,7 @@ namespace PixFootball.Sim
             a.Intent = AgentAction.Route;
             // leap for balls above standing reach, timed so the top of the jump meets the ball
             if (leap && tt < 0.36f && tt > 0.05f && dist2 < 2.4f) S.TryJump(a);
+            return true;
         }
 
         // =====================================================================================
@@ -457,8 +592,10 @@ namespace PixFootball.Sim
             float vmax = a.Body.EffectiveVMax;
             if (S.Time < ca.Delay)
             {
-                // draw/delay: look like pass protection
-                a.Want = Vec2.Zero;
+                // draw/delay: look like pass protection. v0.9.0 (E-161): a pass-pro slide toward the mesh spot at 2 yd/s, not a back standing still who then runs from zero
+                Vec2 firstWp = ca.Path.Count > 0 ? S.Rel(ca.Path[0]) : a.Pos;
+                float dxs = firstWp.X - a.Pos.X;
+                a.Want = new Vec2(Math.Sign(dxs) * Math.Min(2.0f, Math.Abs(dxs) * 3f), 0f);
                 a.HasFace = true; a.FaceDir = new Vec2(0f, 1f);
                 return;
             }
@@ -472,9 +609,9 @@ namespace PixFootball.Sim
             Vec2 wp = S.Rel(ca.Path[Math.Min(a.PathIdx, ca.Path.Count - 1)]);
             Vec2 to = wp - a.Pos;
             // before getting the ball keep the pace the mesh needs; a fake carries on at full speed
-            float v = ca.IsFake ? vmax * 0.95f : vmax * 0.82f;
+            float v = ca.IsFake ? vmax * 0.95f : vmax * (_qa != null && _qa.Action == QbAction.Toss ? 0.95f : 0.82f);   // (a sweep runner is at full speed when the pitch arrives)
             if (!ca.IsFake && _shotgun && !S.Blocks.HandedOff && (_qb.QbState == QbPhase.WaitSnap || _qb.QbState == QbPhase.Mesh) && (a.Pos - _qb.Pos).Length < 7.5f)
-                v = Math.Min(v, _qb.QbState == QbPhase.WaitSnap ? 1.6f : 3.4f);
+                v = Math.Min(v, _qb.QbState == QbPhase.WaitSnap ? 2.2f : 4.2f);   // v0.9.0 (E-141): the shotgun back arcs toward the mesh at 4 yd/s (was 1.6 / 3.4)
             if (!ca.IsFake && a.PathIdx >= ca.Path.Count - 1 && to.Length < 1.0f) { a.Want = Vec2.Zero; a.HasFace = true; a.FaceDir = new Vec2(0f, 1f); return; }   // he waits at the mesh point instead of walking into the quarterback
             a.Want = to.Norm() * Math.Min(v, Math.Max(2.5f, to.Length * 5f));
         }
@@ -491,7 +628,7 @@ namespace PixFootball.Sim
         public void UserReceiverInput(SimAgent a, ControlInput input)
         {
             if (input.Jump || input.Dive) S.TryJump(a);
-            if (S.PassThrown && S.Ball.State == BallState.Pass && input.Move.Length < 0.1f) TrackBall(a);
+            if (S.PassThrown && S.Ball.State == BallState.Pass && input.Move.Length < 0.1f) TrackBall(a, null);
         }
     }
 }

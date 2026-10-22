@@ -190,13 +190,14 @@ namespace PixFootball.Core
             Kind = kind; CenterX = cx; CenterY = cy; Width = w; Height = h;
         }
 
-        public static ZoneRegion FlatLeft() { return new ZoneRegion(ZoneKind.Flat, -17f, 4f, 12f, 7f); }
-        public static ZoneRegion FlatRight() { return new ZoneRegion(ZoneKind.Flat, 17f, 4f, 12f, 7f); }
-        public static ZoneRegion CurlLeft() { return new ZoneRegion(ZoneKind.Curl, -10f, 10f, 10f, 8f); }
-        public static ZoneRegion CurlRight() { return new ZoneRegion(ZoneKind.Curl, 10f, 10f, 10f, 8f); }
-        public static ZoneRegion HookLeft() { return new ZoneRegion(ZoneKind.Hook, -6f, 8f, 10f, 8f); }
-        public static ZoneRegion HookMiddle() { return new ZoneRegion(ZoneKind.Hook, 0f, 9f, 10f, 8f); }
-        public static ZoneRegion HookRight() { return new ZoneRegion(ZoneKind.Hook, 6f, 8f, 10f, 8f); }
+        // v0.9.0 (E-203): the hook sits at 10 yd and the curl at 11.5 (they were 8-9 and 10, shallow of the real 10-12 yd), the flat at 5
+        public static ZoneRegion FlatLeft() { return new ZoneRegion(ZoneKind.Flat, -17f, 5f, 12f, 7f); }
+        public static ZoneRegion FlatRight() { return new ZoneRegion(ZoneKind.Flat, 17f, 5f, 12f, 7f); }
+        public static ZoneRegion CurlLeft() { return new ZoneRegion(ZoneKind.Curl, -10f, 11.5f, 10f, 8f); }
+        public static ZoneRegion CurlRight() { return new ZoneRegion(ZoneKind.Curl, 10f, 11.5f, 10f, 8f); }
+        public static ZoneRegion HookLeft() { return new ZoneRegion(ZoneKind.Hook, -6f, 10f, 10f, 8f); }
+        public static ZoneRegion HookMiddle() { return new ZoneRegion(ZoneKind.Hook, 0f, 10.5f, 10f, 8f); }
+        public static ZoneRegion HookRight() { return new ZoneRegion(ZoneKind.Hook, 6f, 10f, 10f, 8f); }
         public static ZoneRegion DeepThirdLeft(float depth = 14f) { return new ZoneRegion(ZoneKind.DeepThird, -17.8f, depth, 17.8f, 30f); }
         public static ZoneRegion DeepThirdMiddle(float depth = 14f) { return new ZoneRegion(ZoneKind.DeepThird, 0f, depth, 17.8f, 30f); }
         public static ZoneRegion DeepThirdRight(float depth = 14f) { return new ZoneRegion(ZoneKind.DeepThird, 17.8f, depth, 17.8f, 30f); }
@@ -249,7 +250,9 @@ namespace PixFootball.Core
         public override AssignmentKind Kind { get { return AssignmentKind.Blitz; } }
     }
 
-    public enum KickKind { Deep, Squib, Onside, Punt, FieldGoal, ExtraPoint, DirectionalLeft, DirectionalRight, Rugby }
+    public enum KickKind { Deep, Squib, Onside, Punt, FieldGoal, ExtraPoint, DirectionalLeft, DirectionalRight, Rugby,
+        /// <summary>v0.9.0 (E-339): a short, high punt (flight 62 percent, hang 4.4 s) that the gunners can down inside the 10.</summary>
+        Pooch }
     public enum KickRole { Kicker, Holder, Snapper }
 
     public sealed class KickAssignment : Assignment
@@ -265,6 +268,8 @@ namespace PixFootball.Core
     {
         public int Lane;
         public bool Gunner;
+        /// <summary>v0.9.0 (E-341): a containment man (the two widest of a kickoff): he stays inside his sideline lane until the returner has crossed the 25, then closes.</summary>
+        public bool Contain;
         public List<Vec2> Path = new List<Vec2>();
         public override AssignmentKind Kind { get { return AssignmentKind.Lane; } }
     }

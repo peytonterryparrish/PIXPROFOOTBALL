@@ -29,6 +29,8 @@ namespace PixFootball.Core
         Pile,
         /// <summary>Beaten and pancaked by a blocker.</summary>
         Pancaked,
+        /// <summary>v0.9 (GFX-436): a kicker or punter plants the non-kicking foot: the cleats and the front of the pants pick up a little turf, no knees or seat.</summary>
+        KickPlant,
     }
 
     /// <summary>Per player kit dirt: how soiled each body region of the uniform is (0 clean .. 1 caked), plus the kind of dirt.</summary>
@@ -89,6 +91,7 @@ namespace PixFootball.Core
                 case DirtEvent.LineContact: knees = 0.01f; seat = 0f; front = 0.02f; back = 0.015f; scuff = 0.012f; break;
                 case DirtEvent.Pile: knees = 0.06f; seat = 0.05f; front = 0.05f; back = 0.05f; scuff = 0.03f; break;
                 case DirtEvent.Pancaked: knees = 0.03f; seat = 0.13f; front = 0.06f; back = 0.18f; scuff = 0.04f; break;
+                case DirtEvent.KickPlant: front = 0.012f; break;
             }
         }
 
@@ -175,6 +178,14 @@ namespace PixFootball.Core
 
         public void Set(int playerId, DirtState s) { _states[playerId] = s; }
         public void Clear() { _states.Clear(); }
+
+        /// <summary>v0.9 (GFX-436): a wipe-down (halftime, an injury timeout): every region loses this fraction of its dirt (grime and helmet scuffs stay).</summary>
+        public void Wipe(float fraction)
+        {
+            float keep = 1f - (fraction < 0f ? 0f : (fraction > 1f ? 1f : fraction));
+            var keys = new List<int>(_states.Keys);
+            foreach (int id in keys) { var s = _states[id]; s.Knees *= keep; s.Seat *= keep; s.Front *= keep; s.Back *= keep; s.Grime *= (0.5f + 0.5f * keep); _states[id] = s; }
+        }
 
         /// <summary>True when the player has any recorded dirt state.</summary>
         public bool Has(int playerId) { return _states.ContainsKey(playerId); }

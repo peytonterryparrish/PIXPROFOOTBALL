@@ -164,23 +164,23 @@ namespace PixFootball.Core
             p.Temperature = 8f; p.Tint = 0f; p.PostExposure = 0f; p.Contrast = 14f; p.Saturation = 10f; p.GreenBoost = 0.3f;
             p.ShadowTint = new Rgb(0.94f, 0.97f, 1.06f); p.MidtoneTint = new Rgb(1f, 1f, 1f); p.HighlightTint = new Rgb(1.02f, 1.0f, 0.96f); p.Chromatic = 0.0f; p.FloodVolumetric = 2.5f; p.FloodRimBias = 0.25f;
             p.Lift = new Rgb(0f, 0f, 0.01f); p.Gamma = new Rgb(0f, 0f, 0f); p.Gain = new Rgb(0.02f, 0.01f, 0f);
-            p.Bloom = 0.14f; p.Vignette = 0.2f; p.FilmGrain = 0.08f; p.ColorFilter = new Rgb(1f, 0.97f, 0.93f);
-            p.SunColor = new Rgb(1f, 0.96f, 0.9f); p.FloodlightScale = 1f; p.AmbientMultiplier = 1f; p.SkyMultiplier = 1f; p.SunAzimuth = 38f;
+            p.Bloom = 0.08f; p.Vignette = 0.12f; p.FilmGrain = 0f;   /* v0.9 (GFX-441): clean live grade; grain only in the drama volume */ p.ColorFilter = new Rgb(1f, 0.97f, 0.93f);
+            p.SunColor = new Rgb(1f, 0.96f, 0.9f); p.FloodlightScale = 1f; p.AmbientMultiplier = 1f; p.SkyMultiplier = 1f; p.SunAzimuth = 52f;
             p.FogMeanFreePath = 4000f; p.FogAlbedo = new Rgb(0.75f, 0.8f, 0.9f); p.FogAnisotropy = 0.4f; p.FogMaxHeight = 140f;
             switch (t)
             {
                 case TimeOfDay.Day:
-                    p.SunElevation = 58f; p.SunLux = 105000f; p.ExposureEV = 13.7f; p.PhysicallyBasedSky = true; p.FloodlightsOn = false; p.AmbientMultiplier = 1.5f;
+                    p.SunElevation = 42f; p.SunLux = 126000f; p.ExposureEV = 13.7f;   /* v0.9 (GFX-414): was a fixed 58 degree noon; lower sun = readable modelling and shadows under the players; lux raised to keep the same ground illuminance */ p.PhysicallyBasedSky = true; p.FloodlightsOn = false; p.AmbientMultiplier = 1.5f;
                     p.VolumetricFog = false; p.FogMeanFreePath = 6000f;
                     break;
                 case TimeOfDay.Dusk:
-                    p.SunElevation = 5.5f; p.SunLux = 52000f; p.SunColor = new Rgb(1f, 0.62f, 0.34f); p.ExposureEV = 12.5f; p.PhysicallyBasedSky = true; p.FloodlightsOn = true; p.FloodlightScale = 0.85f;
-                    p.Temperature = 16f; p.Saturation = 18f; p.Contrast = 19f; p.Bloom = 0.18f; p.Vignette = 0.24f; p.ShadowTint = new Rgb(0.93f, 0.94f, 1.08f); p.HighlightTint = new Rgb(1.07f, 1.0f, 0.91f); p.FogMeanFreePath = 900f; p.VolumetricFog = true; p.FogAlbedo = new Rgb(0.8f, 0.66f, 0.6f); p.FogAnisotropy = 0.6f;
+                    p.SunElevation = 14f; p.SunLux = 38000f; p.SunColor = new Rgb(1f, 0.62f, 0.34f); p.ExposureEV = 13.0f;   /* v0.9 (GFX-415): was 5.5 degrees (10x body length shadows); sinks to 60 percent over the game */ p.PhysicallyBasedSky = true; p.FloodlightsOn = true; p.FloodlightScale = 0.85f;
+                    p.Temperature = 16f; p.Saturation = 18f; p.Contrast = 19f; p.Bloom = 0.12f; p.Vignette = 0.16f; p.ShadowTint = new Rgb(0.93f, 0.94f, 1.08f); p.HighlightTint = new Rgb(1.07f, 1.0f, 0.91f); p.FogMeanFreePath = 900f; p.VolumetricFog = true; p.FogAlbedo = new Rgb(0.8f, 0.66f, 0.6f); p.FogAnisotropy = 0.6f;
                     break;
                 default:
-                    p.SunElevation = 52f; p.SunLux = 90f; p.SunColor = new Rgb(0.55f, 0.66f, 1f); p.ExposureEV = 6.4f; p.PhysicallyBasedSky = false; p.FloodlightsOn = true; p.AmbientMultiplier = 1.1f; p.Contrast = 19f; p.ShadowTint = new Rgb(0.94f, 0.97f, 1.05f); p.HighlightTint = new Rgb(1.02f, 1.0f, 0.96f); p.Vignette = 0.22f; p.FloodRimBias = 0.3f; p.Chromatic = 0.0f; p.PostExposure = -0.25f;
+                    p.SunElevation = 52f; p.SunLux = 260f;   /* v0.9 (GFX-410): was a 90 lux moon: players had no shadow at night */ p.SunColor = new Rgb(0.55f, 0.66f, 1f); p.ExposureEV = 6.4f; p.PhysicallyBasedSky = false; p.FloodlightsOn = true; p.AmbientMultiplier = 1.1f; p.Contrast = 19f; p.ShadowTint = new Rgb(0.94f, 0.97f, 1.05f); p.HighlightTint = new Rgb(1.02f, 1.0f, 0.96f); p.Vignette = 0.14f; p.FloodRimBias = 0.3f; p.Chromatic = 0.0f; p.PostExposure = -0.25f;
                     p.SkyTop = new Rgb(0.10f, 0.14f, 0.30f); p.SkyMiddle = new Rgb(0.08f, 0.10f, 0.20f); p.SkyBottom = new Rgb(0.04f, 0.045f, 0.07f); p.SkyMultiplier = 120f; p.SunAzimuth = -35f;
-                    p.VolumetricFog = true; p.FogMeanFreePath = 340f; p.FogAlbedo = new Rgb(0.62f, 0.7f, 0.85f); p.FogAnisotropy = 0.68f; p.Bloom = 0.2f;
+                    p.VolumetricFog = true; p.FogMeanFreePath = 340f; p.FogAlbedo = new Rgb(0.62f, 0.7f, 0.85f); p.FogAnisotropy = 0.68f; p.Bloom = 0.12f;
                     break;
             }
             return p;
@@ -208,7 +208,7 @@ namespace PixFootball.Core
                     p.Wetness = 1f; p.Puddles = 0.85f; p.RainIntensity = 1f; p.WindStrength = 0.4f; p.BallSlickness = 0.6f;
                     p.VolumetricFog = true; p.FogMeanFreePath = night ? 230f : 650f; p.FogAnisotropy = 0.6f; p.FogAlbedo = new Rgb(0.6f, 0.66f, 0.74f);
                     p.FloodlightsOn = true; p.FloodlightScale = night ? 1.15f : (dusk ? 0.95f : 0.6f);
-                    p.PhysicallyBasedSky = !night; p.SkyMultiplier = night ? p.SkyMultiplier * 0.55f : 0.5f; p.Bloom += 0.05f; p.FilmGrain += 0.02f;
+                    p.PhysicallyBasedSky = !night; p.SkyMultiplier = night ? p.SkyMultiplier * 0.55f : 0.5f; p.Bloom += 0.03f;
                     break;
                 case WeatherKind.Snow:
                     p.CloudCover = 0.95f; p.SunLux *= 0.3f; p.ExposureEV -= night ? 0f : 0.7f; p.Saturation -= 10f; p.Temperature -= 14f; p.Contrast += 2f; p.Tint = -4f; p.GreenBoost = 0.1f;

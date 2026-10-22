@@ -30,7 +30,7 @@ namespace PixFootball.Gameplay
         bool _inited;
         float _zoom = 1f;
         // v0.6 user camera (UserCameraMath): the director hands over what to look at, the rig smooths the pose
-        UserCameraInput _view; bool _hasView, _poseInit; Vector3 _sPos, _sLook; float _sFov = 40f, _viewYaw;
+        UserCameraInput _view; bool _hasView, _poseInit; Vector3 _sPos, _sLook; float _sFov = 40f, _viewYaw, _viewYawS;   // _viewYawS: v0.9.0 CONNECT E-392 smoothed view yaw
         public CameraStyle Style { get { return PixSettings.UserCameraStyle; } }
         /// <summary>Latest target pose of the user camera (tests and the camera gallery read it).</summary>
         public UserCameraPose LastPose { get; private set; }
@@ -51,6 +51,19 @@ namespace PixFootball.Gameplay
             Brain = Main.GetComponent<CinemachineBrain>();
             if (Brain == null) Brain = Main.gameObject.AddComponent<CinemachineBrain>();
             Brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.EaseInOut, 0.6f);
+            // v0.9.0 CONNECT E-400: pressing View between the sideline broadcast camera (44 m out) and a player camera (Classic / Madden / Wide / first person) is a straight cut, not a 0.6 s
+            // blend through the middle of the field; the player cameras blend among themselves as before.
+            var cut = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f);
+            var blends = ScriptableObject.CreateInstance<CinemachineBlenderSettings>();
+            blends.name = "PixViewCuts";
+            blends.CustomBlends = new[]
+            {
+                new CinemachineBlenderSettings.CustomBlend { From = "CM_Broadcast", To = "CM_Behind", Blend = cut },
+                new CinemachineBlenderSettings.CustomBlend { From = "CM_Behind", To = "CM_Broadcast", Blend = cut },
+                new CinemachineBlenderSettings.CustomBlend { From = "CM_Broadcast", To = "CM_FirstPerson", Blend = cut },
+                new CinemachineBlenderSettings.CustomBlend { From = "CM_FirstPerson", To = "CM_Broadcast", Blend = cut },
+            };
+            Brain.CustomBlends = blends;
             Brain.UpdateMethod = CinemachineBrain.UpdateMethods.LateUpdate;
             Brain.BlendUpdateMethod = CinemachineBrain.BrainUpdateMethods.LateUpdate;
 
@@ -192,10 +205,19 @@ namespace PixFootball.Gameplay
         void UpdateProxies(float dt, bool snap)
         {
             // ---- broadcast
-            _smoothFocus = snap ? _focus : Vector3.Lerp(_smoothFocus, _focus, 1f - Mathf.Exp(-dt * 7f));
+            // v0.9.0 CONNECT E-398: the broadcast camera stacked three smoothers (this lerp, the Cinemachine position damping and the composer's rotation damping); the lerp is gone, the
+            // Cinemachine damping (0.9 s on z, 0.5 / 0.6 s rotation) does the smoothing. The z clamp moves from 47 to 52 m and the lens widens a little past 47 m so the end zones stay in shot.
+            _smoothFocus = _focus;
             Vector3 lead = new Vector3(_focusVel.x, 0f, _focusVel.z) * 0.55f;
-            float z = Mathf.Clamp(_smoothFocus.z + lead.z, -47f, 47f);
+            float z = Mathf.Clamp(_smoothFocus.z + lead.z, -52f, 52f);
             _bcTarget.position = new Vector3(0f, 0f, z);
+            if (Broadcast != null)
+            {
+                float wantBcFov = 27f + 3f * Mathf.Clamp01((Mathf.Abs(z) - 47f) / 5f);
+                var bl = Broadcast.Lens;
+                bl.FieldOfView = snap ? wantBcFov : Mathf.Lerp(bl.FieldOfView, wantBcFov, UserCameraMath.Alpha(dt, 0.6f));
+                Broadcast.Lens = bl;
+            }
             _bcLook.position = new Vector3(Mathf.Clamp(_smoothFocus.x * 0.55f, -14f, 14f), 1.0f, _smoothFocus.z + lead.z * 0.85f);
 
             // ---- behind / first person
@@ -216,7 +238,10 @@ namespace PixFootball.Gameplay
                 Vector3 hp = head != null ? head.position : p + Vector3.up * 1.7f;
                 if (snap) _fpYaw = _behindYaw;
                 // look-to-ball assist: inside a wide cone the view leans toward the ball / carrier (more when the player is not sprinting), and tilts up for a pass in the air
-                float wantYaw = _behindYaw, wantPitch = 0f;
+                // v0.9.0 CONNECT E-401: the first-person yaw is driven from the intended heading (targetYaw: the stick / downfield) instead of the slow _behindYaw (40 to 100 deg/s), so after a sharp
+                // cut the view is no longer 0.5 to 1 s behind the body; a head-turn limit keeps it within 110 degrees of the body's own yaw, and the look assist below only leans toward the ball.
+                float fpBase = targetYaw;
+                float wantYaw = fpBase, wantPitch = 0f;
                 _assistWeightS = Mathf.MoveTowards(_assistWeightS, _assistWeight, dt * 1.6f);
                 if (_hasAssist && _assistWeightS > 0.01f)
                 {
@@ -224,14 +249,15 @@ namespace PixFootball.Gameplay
                     if (flat.sqrMagnitude > 2.25f)
                     {
                         float aYaw = Mathf.Atan2(flat.x, flat.z) * Mathf.Rad2Deg;
-                        float diff = Mathf.DeltaAngle(_behindYaw, aYaw);
+                        float diff = Mathf.DeltaAngle(fpBase, aYaw);
                         float cone = Mathf.Clamp01(1.25f - Mathf.Abs(diff) / 95f);
                         float w = _assistWeightS * cone * (1f - 0.35f * Mathf.Clamp01(speed / 8f));
-                        wantYaw = _behindYaw + diff * w;
+                        wantYaw = fpBase + diff * w;
                         wantPitch = Mathf.Clamp(-Mathf.Atan2(to.y, flat.magnitude) * Mathf.Rad2Deg * w, -26f, 14f);   // negative pitch looks up
                     }
                 }
-                _fpYaw = Mathf.MoveTowardsAngle(_fpYaw, wantYaw, 220f * dt);
+                wantYaw = _user.Yaw + Mathf.Clamp(Mathf.DeltaAngle(_user.Yaw, wantYaw), -110f, 110f);   // E-401: head-turn limit relative to the body
+                _fpYaw = Mathf.MoveTowardsAngle(_fpYaw, wantYaw, 330f * dt);
                 _fpPitch = snap ? wantPitch : Mathf.Lerp(_fpPitch, wantPitch, 1f - Mathf.Exp(-dt * 6f));
                 // stride head bob: the phase advances with the distance run (about 1.9 m per stride), tiny amplitude that grows with speed
                 float bobAmp = Mathf.Clamp01(speed / 6.5f);
@@ -250,22 +276,30 @@ namespace PixFootball.Gameplay
                 _prefsT -= dt;
                 if (_prefsT <= 0f || snap) { _prefsT = 0.5f; _preset = UserCameraPreset.Of(PixSettings.UserCameraStyle); _trimH = PixSettings.CameraHeightTrim; _trimD = PixSettings.CameraDistanceTrim; _trimF = PixSettings.CameraFovTrim; _zoomOut = PixSettings.CameraZoomOut; }
                 var preset = _preset;
-                var pose = UserCameraMath.Evaluate(_view, preset, _trimH, _trimD, _trimF, _zoomOut);
+                // v0.9.0 CONNECT E-392: the view direction turns toward its target at a limited rate (a turnover return flips it 180 degrees) instead of jumping; a new play (Cut) snaps it
+                var vin = _view;
+                float targetViewYaw = Mathf.Atan2(_view.ViewDir.x, _view.ViewDir.z) * Mathf.Rad2Deg;
+                if (snap || !_poseInit) _viewYawS = targetViewYaw;
+                else _viewYawS = Mathf.MoveTowardsAngle(_viewYawS, targetViewYaw, 190f * dt);
+                vin.ViewDir = Quaternion.Euler(0f, _viewYawS, 0f) * Vector3.forward;
+                var pose = UserCameraMath.Evaluate(vin, preset, _trimH, _trimD, _trimF, _zoomOut);
                 LastPose = pose;
-                _viewYaw = Mathf.Atan2(_view.ViewDir.x, _view.ViewDir.z) * Mathf.Rad2Deg;
+                _viewYaw = _viewYawS;
                 if (snap || !_poseInit) { _sPos = pose.Position; _sLook = pose.LookAt; _sFov = pose.Fov; _poseInit = true; }
                 else
                 {
                     float follow = _view.Follow ? 0.22f : 0.34f;
+                    // v0.9.0 CONNECT E-390: the camera height and look height follow a rising ball quickly (a 0.55 s lag lost the ball off the top of the frame)
+                    float vTau = _view.BallAirborne ? 0.28f : 0.55f;
                     // along the view direction the camera lags a little (smooth, weighty); sideways it tracks tighter
-                    Vector3 d = new Vector3(_view.ViewDir.x, 0f, _view.ViewDir.z).normalized, side = Vector3.Cross(Vector3.up, d);
+                    Vector3 d = new Vector3(vin.ViewDir.x, 0f, vin.ViewDir.z).normalized, side = Vector3.Cross(Vector3.up, d);
                     Vector3 dp = pose.Position - _sPos; dp.y = 0f;
                     float along = Vector3.Dot(dp, d), lat = Vector3.Dot(dp, side);
                     Vector3 step = d * (along * UserCameraMath.Alpha(dt, follow)) + side * (lat * UserCameraMath.Alpha(dt, follow * 0.7f));
-                    _sPos += step; _sPos.y = Mathf.Lerp(_sPos.y, pose.Position.y, UserCameraMath.Alpha(dt, 0.55f));
+                    _sPos += step; _sPos.y = Mathf.Lerp(_sPos.y, pose.Position.y, UserCameraMath.Alpha(dt, vTau));
                     Vector3 dl = pose.LookAt - _sLook; dl.y = 0f;
                     float la = Vector3.Dot(dl, d), ll = Vector3.Dot(dl, side);
-                    _sLook += d * (la * UserCameraMath.Alpha(dt, follow)) + side * (ll * UserCameraMath.Alpha(dt, follow * 0.7f)); _sLook.y = Mathf.Lerp(_sLook.y, pose.LookAt.y, UserCameraMath.Alpha(dt, 0.55f));
+                    _sLook += d * (la * UserCameraMath.Alpha(dt, follow)) + side * (ll * UserCameraMath.Alpha(dt, follow * 0.7f)); _sLook.y = Mathf.Lerp(_sLook.y, pose.LookAt.y, UserCameraMath.Alpha(dt, vTau));
                     _sFov = Mathf.Lerp(_sFov, pose.Fov, UserCameraMath.Alpha(dt, 0.6f));
                 }
                 Vector3 fwd = _sLook - _sPos;

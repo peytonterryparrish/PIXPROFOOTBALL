@@ -67,7 +67,7 @@ namespace PixFootball.Gameplay
                     {
                         if (ReceiverSlots(Sim.CanHotRoute).Count > 0) _ps = PsMode.HotPick; else PsToast("NO HOT ROUTES FROM THIS FORMATION");
                     }
-                    else if (inp.Down[(int)Btn.LB]) { if (Sim.FlipOffense()) { _offCall = Sim.OffPlay; Audio.Whistle(); PsToast("PLAY FLIPPED"); PlayRebuilt(); } }
+                    else if (inp.Down[(int)Btn.LB]) { if (Sim.FlipOffense()) { _offCall = Sim.OffPlay; Audio.CallCue(); /* v0.9.0 CONNECT E-379: not the referee whistle */ PsToast("PLAY FLIPPED"); PlayRebuilt(); } }
                     else if (inp.Down[(int)Btn.RB]) { if (ReceiverSlots(Sim.CanMotion).Count > 0) { _ps = PsMode.Motion; _motionCursor = -1; } else PsToast("NO MOTION FROM THIS FORMATION"); }
                     else if (inp.DPadLeft) SlideProtect(-1);
                     else if (inp.DPadRight) SlideProtect(1);
@@ -81,7 +81,7 @@ namespace PixFootball.Gameplay
                         Btn b = AudibleButtons[k];
                         if (!inp.Down[(int)b]) continue;
                         Play p = Flow.Audibles.Get(Sim.OffPlay, k);
-                        if (p != null && Sim.ChangeOffensePlay(p)) { _offCall = Sim.OffPlay; PsToast("AUDIBLE: " + p.Name.ToUpperInvariant()); Audio.Whistle(); _ps = PsMode.None; PlayRebuilt(); }
+                        if (p != null && Sim.ChangeOffensePlay(p)) { _offCall = Sim.OffPlay; PsToast("AUDIBLE: " + p.Name.ToUpperInvariant()); Audio.CallCue(); /* v0.9.0 CONNECT E-379 */ _ps = PsMode.None; PlayRebuilt(); }
                     }
                     break;
                 case PsMode.HotPick:
@@ -187,7 +187,7 @@ namespace PixFootball.Gameplay
                 else if (inp.DPadRight) { _adj.Blitz = _adj.Blitz == BlitzShow.BackOff ? BlitzShow.None : BlitzShow.BackOff; changed = true; PsToast(_adj.Blitz == BlitzShow.BackOff ? "BACK OFF" : "BACK OFF CANCELLED"); }
                 else if (inp.DPadUp && Ui != null && !Autopilot) recall = true;
                 else if (inp.DPadDown) TryUserTimeout();
-                else if (inp.Down[(int)Btn.B]) { _defUser = CycleDefender(_defUser); Audio.Whistle(); }
+                else if (inp.Down[(int)Btn.B]) { _defUser = CycleDefender(_defUser); Audio.CallCue(); /* v0.9.0 CONNECT E-379 */ }
             }
             if (changed && Sim.SetDefenseAdjust(_adj)) { _defCall = Sim.DefPlay; }
             return false;

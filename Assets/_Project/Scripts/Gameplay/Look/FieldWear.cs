@@ -14,11 +14,13 @@ namespace PixFootball.Gameplay
     {
         public const float OriginX = -40f, OriginZ = -70f, SizeX = 80f, SizeZ = 140f;
         public const int Width = 2048, Height = 4096;
-        public const int MaxStampsPerFrame = 96;
+        /// <summary>v0.9 (GFX-434): 96 on Low and Medium, 160 on High and Ultra (22 players with per-foot footsteps).</summary>
+        public static int MaxStampsPerFrame { get { return QualityTiers.Current >= 2 ? 160 : 96; } }
+        const int QueueLimit = 512;
 
         public static FieldWear Instance { get; private set; }
 
-        struct Stamp { public float X, Z, Radius; public Color Channels; }
+        struct Stamp { public float X, Z, Radius; public Color Channels; public bool Footstep; }
         readonly List<Stamp> _queue = new List<Stamp>(256);
         RenderTexture _rt;
         ComputeShader _cs;
@@ -77,7 +79,7 @@ namespace PixFootball.Gameplay
         /// <summary>A tackle / pile scuff on the grass: soil in R (and mud in G in the wet), radius in metres.</summary>
         public void Divot(Vector3 world, float radius, float strength, float mud)
         {
-            Queue(world.x, world.z, radius, new Color(strength, mud * strength, 0f, strength * 0.7f));
+            Queue(world.x, world.z, radius, new Color(strength, mud * strength, 0f, strength * 0.7f), false);
             Divots++;
         }
 
@@ -85,13 +87,22 @@ namespace PixFootball.Gameplay
         public void Footstep(Vector3 world, float radius, float wear, float mud, float snowPrint)
         {
             if (wear <= 0f && mud <= 0f && snowPrint <= 0f) return;
-            Queue(world.x, world.z, radius, new Color(wear, mud, snowPrint, wear * 0.8f));
+            Queue(world.x, world.z, radius, new Color(wear, mud, snowPrint, wear * 0.8f), true);
         }
 
-        void Queue(float x, float z, float r, Color c)
+        /// <summary>v0.9 (GFX-434): a full queue drops the OLDEST footstep to make room; a divot (tackle, pile) is never dropped (stamps used to be silently discarded when the queue was full).</summary>
+        void Queue(float x, float z, float r, Color c, bool footstep)
         {
-            if (_rt == null || _queue.Count >= 512) return;
-            _queue.Add(new Stamp { X = x, Z = z, Radius = r, Channels = c });
+            if (_rt == null) return;
+            if (_queue.Count >= QueueLimit)
+            {
+                int drop = -1;
+                for (int i = 0; i < _queue.Count; i++) if (_queue[i].Footstep) { drop = i; break; }
+                if (drop >= 0) _queue.RemoveAt(drop);
+                else if (!footstep) _queue.RemoveAt(0);   // only divots are queued: the oldest makes way for the new one
+                else return;
+            }
+            _queue.Add(new Stamp { X = x, Z = z, Radius = r, Channels = c, Footstep = footstep });
         }
 
         void LateUpdate() { Flush(); }

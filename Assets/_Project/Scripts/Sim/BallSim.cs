@@ -8,7 +8,12 @@ namespace PixFootball.Sim
     /// <summary>Stateless ballistic helpers (gravity + quadratic drag) shared by the live ball and by trajectory prediction.</summary>
     public static class BallPhysics
     {
-        public const float DragCoeff = 0.0045f;
+        public const float DragCoeff = 0.0060f;   // v0.9.0 (E-118): a real football is about 60 percent more draggy than 0.0045; deep lofts no longer hold their speed
+        /// <summary>Drag of a KICKED ball (punts, kickoffs, field goals): the calibrated kicking game keeps the v0.8 value; only the passing game moved to the draggier football.</summary>
+        public const float KickDragCoeff = 0.0045f;
+        [ThreadStatic] private static bool _kickDrag;
+        /// <summary>True while a kick play is simulated: the ball then flies with <see cref="KickDragCoeff"/>. Set by the simulation step.</summary>
+        public static bool KickDrag { get { return _kickDrag; } set { _kickDrag = value; } }
         public const float BallRadius = 0.13f;
         public const float Dt = 1f / 60f;
 
@@ -32,10 +37,11 @@ namespace PixFootball.Sim
 
         public static void Advance(ref Vec3 pos, ref Vec3 vel, float dt)
         {
+            float k = _kickDrag ? KickDragCoeff : DragCoeff;
             if (_windX == 0f && _windY == 0f)
             {
                 float sp0 = vel.Length;
-                Vec3 acc0 = new Vec3(-DragCoeff * sp0 * vel.X, -DragCoeff * sp0 * vel.Y, -SimMath.Gravity - DragCoeff * sp0 * vel.Z);
+                Vec3 acc0 = new Vec3(-k * sp0 * vel.X, -k * sp0 * vel.Y, -SimMath.Gravity - k * sp0 * vel.Z);
                 vel = vel + acc0 * dt;
                 pos = pos + vel * dt;
                 return;
@@ -43,7 +49,7 @@ namespace PixFootball.Sim
             float wg = WindGain * (1f + _windScaleDelta);
             float rx = vel.X - _windX * wg, ry = vel.Y - _windY * wg;
             float sp = (float)Math.Sqrt(rx * rx + ry * ry + vel.Z * vel.Z);
-            Vec3 acc = new Vec3(-DragCoeff * sp * rx, -DragCoeff * sp * ry, -SimMath.Gravity - DragCoeff * sp * vel.Z);
+            Vec3 acc = new Vec3(-k * sp * rx, -k * sp * ry, -SimMath.Gravity - k * sp * vel.Z);
             vel = vel + acc * dt;
             pos = pos + vel * dt;
         }
@@ -164,7 +170,7 @@ namespace PixFootball.Sim
         }
 
         /// <summary>Max throwing speed (yd/s) for a ThrowPower rating.</summary>
-        public static float MaxThrowSpeed(int throwPower) { return 22f + 12f * SimMath.Rating01(throwPower); }
+        public static float MaxThrowSpeed(int throwPower) { return 19f + 9f * SimMath.Rating01(throwPower); }   // v0.9.0 (E-111): rating 75 = 52 mph, 99 = 57 mph (was 63 / 69); Rocket Arm is the only way past 58
     }
 
     /// <summary>

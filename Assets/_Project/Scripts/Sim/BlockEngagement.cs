@@ -20,6 +20,8 @@ namespace PixFootball.Sim
         public bool RunMode;
         public float Age;
         public RushMove Move;
+        /// <summary>The previous pass-rush move of this lock-up (set up the counter, E-175).</summary>
+        public RushMove LastMove;
         public float MoveTime;
         public float MoveCooldown;
         public bool IsShedding;
@@ -176,12 +178,19 @@ namespace PixFootball.Sim
                     if (S.Tackles.InTackleLock(b, d)) continue;
                     Vec2 rel = d.Pos - b.Pos;
                     float dist = rel.Length;
-                    float contact = b.Body.Radius + d.Body.Radius + 0.34f;
+                    float contact = b.Body.Radius + d.Body.Radius + (S.Kind == PlayKind.Scrimmage ? 0.14f : 0.34f);   // v0.9.0 (E-166): the hands meet at 0.14 yd past the bodies (was 0.34), so the get-off closes a real gap first
                     if (dist > contact) continue;
                     // must be roughly in front of the blocker (or his assigned man), unless pass blocking
                     bool assigned = b.BlockTargetId == d.Id;
                     float facing = b.Facing.Dot(rel.Norm());
                     if (!assigned && facing < -0.25f && !PassMode) continue;
+                    // v0.9.0 (E-182): a free blocker joins an engaged defender only when his own man is gone (no target, down, locked with someone else, beaten) and the defender is next to him
+                    if (d.Engagement != null && !assigned)
+                    {
+                        SimAgent bt = b.BlockTargetId >= 0 ? S.Agents[b.BlockTargetId] : null;
+                        bool mineGone = bt == null || bt.State == AgentState.Down || bt.Body.FallenTime > 0.3f || (bt.Engagement != null && !bt.Engagement.Blockers.Contains(b)) || b.BeatenTime > 0f;
+                        if (!mineGone || Math.Abs(d.Pos.X - b.Pos.X) > 2.2f) continue;
+                    }
                     // an engaged defender may be doubled only by an adjacent free lineman or his assigned blocker
                     float score = dist - (assigned ? 0.6f : 0f);
                     if (d.Engagement != null) score += 0.3f;
@@ -213,7 +222,7 @@ namespace PixFootball.Sim
             if (e == null)
             {
                 e = new BlockEngagement { Defender = d, RunMode = !PassMode };
-                e.MoveCooldown = PassMode ? 0.46f + S.Rng.NextFloat() * 0.55f : 0.25f + S.Rng.NextFloat() * 0.45f;
+                e.MoveCooldown = PassMode ? 0.70f + S.Rng.NextFloat() * 0.70f : 0.25f + S.Rng.NextFloat() * 0.45f;   // v0.9.0 (E-385): the first rush move comes 0.7-1.4 s after contact (was 0.46-1.0)
                 if (!PassMode) e.Lev = SimMath.Clamp(S.Rng.Gaussian(0.10f, 0.34f), -0.9f, 0.9f); // the first step decides a lot against the run
                 else if (S.Kind == PlayKind.Scrimmage) e.Lev = SimMath.Clamp(S.Rng.Gaussian(0.03f, 0.12f), -0.2f, 0.4f); // the set: the blocker is square and balanced for the first beat
                 d.Engagement = e;
@@ -242,7 +251,7 @@ namespace PixFootball.Sim
             if (b.PlayPos == Position.WR || b.PlayPos == Position.CB || b.PlayPos == Position.FS || b.PlayPos == Position.SS) skill = Math.Max(skill, 35f);
             else if (b.PlayPos == Position.TE || b.PlayPos == Position.FB || b.PlayPos == Position.RB) skill = Math.Max(skill, 42f);   // tight ends and backs block better than receivers do
             if (!PositionGroup.IsOffensiveLine(b.PlayPos) && (S.Kind != PlayKind.Scrimmage || b.Side == SimSide.Defense)) skill = Math.Max(skill, 45f);
-            return 0.46f * skill + 0.30f * b.R.Strength + 0.09f * b.R.Awareness + 0.15f * MassScore(b);
+            return 0.46f * skill + 0.30f * b.R.Strength + 0.09f * b.R.Awareness + 0.15f * MassScore(b) - 8f * (1f - b.Body.Energy);   // v0.9.0 (E-355): a gassed blocker loses up to 8 points
         }
 
         private float DefenderScore(SimAgent d)
@@ -250,7 +259,7 @@ namespace PixFootball.Sim
             float shed = d.R.BlockShedding;
             // skill players (gunners, corners, safeties) get off blocks with speed and quickness rather than technique
             if (!d.IsDefensiveLineman && !PositionGroup.IsLinebacker(d.PlayPos)) shed = Math.Max(shed, 0.75f * (d.R.Agility + d.R.Speed) * 0.5f);
-            return 0.46f * shed + 0.30f * d.R.Strength + 0.09f * d.R.Awareness + 0.15f * MassScore(d);
+            return 0.46f * shed + 0.30f * d.R.Strength + 0.09f * d.R.Awareness + 0.15f * MassScore(d) - 8f * (1f - d.Body.Energy);
         }
 
         private void UpdateEngagement(BlockEngagement e)
@@ -293,8 +302,17 @@ namespace PixFootball.Sim
             float closing = (e.Blockers[0].Vel - d.Vel).Dot(n0);
             float momentum = SimMath.Clamp(-closing * 0.012f, -0.05f, 0.05f) * (e.Age < 0.35f ? 1f : 0f);
 
-            float bias = run ? 0.30f : -0.18f;
-            if (run && !d.IsDefensiveLineman && b0Side(e) == SimSide.Offense) bias += 0.22f; // climbing blockers get angle and leverage on linebackers who are already moving downhill
+            // v0.9.0 (E-178): the run bias was 0.30 (+0.22 against linebackers), an equilibrium Lev of +1.12 for equal ratings: an even matchup was a pancake in about 3 s. 0.14 / +0.10 keeps the run game honest.
+            float bias = run ? 0.20f : -0.22f;
+            if (run && !d.IsDefensiveLineman && b0Side(e) == SimSide.Offense) bias += 0.12f; // climbing blockers get angle and leverage on linebackers who are already moving downhill
+            // v0.9.0 (E-180): the contest has geometry: a blocker whose man has gotten a shoulder past him (reached / hooked) loses ground, a blocker square in front of his man gains it
+            if (run)
+            {
+                Vec2 drv = BlockDriveDir(e.Blockers[0], d);
+                float sep = Math.Max(0.3f, e.Blockers[0].Body.Radius + d.Body.Radius);
+                float geo = SimMath.Clamp((d.Pos - e.Blockers[0].Pos).Dot(drv) / sep, -1f, 1f);
+                bias += 0.16f * (geo - 0.75f);
+            }
             if (e.Age < 1.0f && !run) bias += 0.04f; // initial set favors the blocker
             float noise = S.Rng.Gaussian(0f, 1f) * 0.62f * (float)Math.Sqrt(dt);
             float kGain = run ? 1.05f : 1.55f;
@@ -303,6 +321,9 @@ namespace PixFootball.Sim
             // the coverage unit sheds the wall once the kick is away: gunners and lane runners beat their blockers and run to the ball
             if (S.Kind != PlayKind.Scrimmage && S.Specials.KickAway && d.Side == SimSide.Offense && d.Assign is LaneAssignment && ((LaneAssignment)d.Assign).Gunner) drift -= 0.2f * dt;
             if (S.Kind == PlayKind.Kickoff && S.Specials.KickAway && d.Side == SimSide.Offense) drift -= 0.30f * dt;
+            // v0.9.0: a receiver's or back's stalk block on a defensive back or linebacker is a 2-3 s job, not a lock for the rest of the run: after 2 s the defender works free (the safeties used to stay locked 30 yd upfield and a run that beat the front went 65 yd)
+            if (run && d.Side == SimSide.Defense && e.Age > 1.6f && e.Blockers.Count > 0 && !PositionGroup.IsOffensiveLine(e.Blockers[0].PlayPos) && !d.IsDefensiveLineman && S.Kind == PlayKind.Scrimmage)
+                drift -= (1.1f + 0.5f * SimMath.Rating01(d.R.BlockShedding)) * dt;
             e.Lev += drift + noise;
 
             // ---- defender moves ----
@@ -313,7 +334,7 @@ namespace PixFootball.Sim
             }
             e.Lev = SimMath.Clamp(e.Lev, -1.05f, 1.05f);
             // v0.7 commit window: a lock-up lasts at least GamePace.MinEngageSeconds before it can be won or lost, so the engage animation always plays out
-            if (e.Age < GamePace.MinEngageSeconds) e.Lev = SimMath.Clamp(e.Lev, -0.92f, 0.92f);
+            if (e.Age < (run ? GamePace.MinEngageSeconds : GamePace.MinEngagePassSeconds)) e.Lev = SimMath.Clamp(e.Lev, -0.92f, 0.92f);
             // a blocker who is losing his man grabs him
             if (!e.IsShedding && e.Lev < -0.45f && e.Blockers.Count > 0) MaybeHolding(e, e.Blockers[0], 0.0085f * (-e.Lev));
 
@@ -336,7 +357,8 @@ namespace PixFootball.Sim
             if (e.Lev >= (run ? 1f : 0.85f))
             {
                 e.HighLevTime += dt;
-                bool pancake = run ? e.HighLevTime > 0.18f : (e.HighLevTime > 0.9f && S.Rng.NextFloat() < 0.03f);
+                // v0.9.0 (E-178 / E-179): a run pancake needs the lead for 0.5 s; the pass-mode pancake was 84 percent per second once the lead held (0.03 per tick), now about 3.5 percent per second
+                bool pancake = run ? e.HighLevTime > 0.3f && gap > 0.10f : (e.HighLevTime > 0.9f && S.Rng.NextFloat() < 0.0006f);
                 if (pancake)
                 {
                     SimAgent b0 = e.Blockers[0];
@@ -352,7 +374,8 @@ namespace PixFootball.Sim
             else e.HighLevTime = 0f;
 
             // combo blocks: once the double team has the man controlled, one blocker climbs to the second level
-            if (e.Blockers.Count == 2 && run && e.Lev > -0.1f && e.Age > 0.25f)
+            // v0.9.0 (E-181): the double team holds for 0.8 s; one man peels only when a linebacker is really coming (within 2.5 yd)
+            if (e.Blockers.Count == 2 && run && e.Lev > -0.1f && e.Age > 0.8f)
             {
                 SimAgent peel = PickPeel(e);
                 if (peel != null)
@@ -373,7 +396,7 @@ namespace PixFootball.Sim
         private SimAgent PickPeel(BlockEngagement e)
         {
             // the blocker closest to an uncovered linebacker/safety climbs to him
-            SimAgent best = null; float bd = 9f;
+            SimAgent best = null; float bd = 2.5f;
             for (int i = 0; i < e.Blockers.Count; i++)
             {
                 SimAgent b = e.Blockers[i];
@@ -449,11 +472,21 @@ namespace PixFootball.Sim
             }
             // pass rush: choose a move that fits the rusher's tools
             float str = d.R.Strength, agi = d.R.Agility, spd = d.R.Speed;
-            float wBull = 0.7f + Math.Max(0f, (str - agi) / 40f) + (e.Lev > 0.2f ? 0.4f : 0f);
-            float wSwim = 1.0f + Math.Max(0f, (agi - 60f) / 40f);
+            // v0.9.0 (E-175): the move comes from the man and the matchup: a 300 lb tackle leans on the bull rush and rarely spins, an edge man wins with speed from the outside shoulder, and a move that failed is followed by its counter
+            float massF = SimMath.Clamp01((d.Body.Mass - 100f) / 55f);
+            bool edge = (d.Assign is RushAssignment && ((RushAssignment)d.Assign).Contain) || (d.Assign is BlitzAssignment && ((BlitzAssignment)d.Assign).Edge);
+            float wBull = (0.7f + Math.Max(0f, (str - agi) / 40f) + (e.Lev > 0.2f ? 0.4f : 0f)) * (1f + 0.7f * massF);
+            float wSwim = (1.0f + Math.Max(0f, (agi - 60f) / 40f)) * (1f - 0.35f * massF);
             float wRip = 0.9f + Math.Max(0f, (str - 60f) / 50f);
-            float wSpin = 0.4f + Math.Max(0f, (agi - 75f) / 30f);
-            float wSpeed = (d.Assign is RushAssignment && ((RushAssignment)d.Assign).Contain) || (d.Assign is BlitzAssignment && ((BlitzAssignment)d.Assign).Edge) ? 0.9f + Math.Max(0f, (spd - 70f) / 25f) : 0.1f;
+            float wSpin = (0.4f + Math.Max(0f, (agi - 75f) / 30f)) * (1f - 0.85f * massF);
+            float wSpeed = edge ? 0.9f + Math.Max(0f, (spd - 70f) / 25f) : 0.05f;
+            switch (e.LastMove)
+            {
+                case RushMove.Bull: wRip *= 1.8f; wSwim *= 1.3f; break;        // power set up the finesse counter
+                case RushMove.Speed: wSpin *= 2.4f; wRip *= 1.4f; break;       // the speed rush turns inside
+                case RushMove.Swim: case RushMove.Rip: wBull *= 1.5f; break;   // finesse set up the bull
+                case RushMove.Spin: wSpeed *= 1.5f; break;
+            }
             float total = wBull + wSwim + wRip + wSpin + wSpeed;
             float roll = S.Rng.NextFloat() * total;
             RushMove m;
@@ -462,6 +495,7 @@ namespace PixFootball.Sim
             else if ((roll -= wRip) < 0f) m = RushMove.Rip;
             else if ((roll -= wSpin) < 0f) m = RushMove.Spin;
             else m = RushMove.Speed;
+            e.LastMove = m;
             ApplyMove(e, m, 0, false);
         }
 
@@ -496,7 +530,7 @@ namespace PixFootball.Sim
                     counter = 0.4f * b.R.Agility + 0.3f * b.R.PassBlocking + 0.3f * b.R.Speed;
                     win = 0.38f; lose = 0.08f; break;
             }
-            counter += 6f; // technique, help from the quarterback side, and the set of the pocket
+            counter += 14f; // technique, help from the quarterback side, and the set of the pocket
             if (e.Blockers.Count > 1) counter += 14f;
             if (d.Fx != null && !e.RunMode && S.OffAI.PocketPressure(S.Qb) >= 0.3f) skill += d.FxOnly(SimHook.PassRush, PlaySimulation.CtxUnderPressure);   // v0.8.0 Bull Rusher: once the pocket is collapsing his moves hit harder
             float p = Sigmoid((skill - counter) / 11f);

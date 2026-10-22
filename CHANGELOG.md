@@ -4,7 +4,48 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-Nothing yet. Next: **v0.9.0 "College Network"** - a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools.
+Next: **College Network** returns (paused in 0.9.0): a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools. Its logic is in main (`League/Career/College*`); its screens live on the local branch `wip/v0.9-college-ui`.
+
+## [0.9.0] - 2026-10-22 - "Match Engine"
+
+The match-engine release, answering the v0.8.0 playtest notes (`Docs/QA/v090/PLAYTEST_v080.md`). A 448-row audit (`Docs/QA/v090/ENGINE_AUDIT.md`, `ENGINE_AUDIT_issues.csv`, status of every row in `ENGINE_AUDIT_STATUS.md`) was worked by five tracks: LOCO (locomotion), QBSTANCE (stances, quarterback, kickers), CONNECT (animation connections), SIM (engine realism and pace), GFX (graphics in play). Track logs: `locomotion.md`, `qbstance.md`, `connect.md`, `sim.md`, `gfx.md`. Final audit status: 361 fixed, 54 partial, 14 handed over, 14 wontfix, 5 open. College Network UI is paused (its logic commit stays in main).
+
+### Added
+- **Gait system** (`Gameplay/Player/Loco/*`, `SimAgentView.Loco.cs`): `PixLocoCycles` library of 20 measured speed-banded mocap cycles, `GaitPlayer` playables mixer on one shared gait phase, `FootPlant` (stride warp, per-foot world-space plant, sole pressed to the turf, pelvis compensation, two-bone IK, knee / foot / ankle polish: leg twist limits, toe-out, roll), learned per-cycle speed factors, action ground pass so kicks and dives keep a foot on the turf. `-pixLocoOff` plays the v0.8 locomotion.
+- **Stance solver** (`StancePose`, `StanceIK`, `StanceRules.Qb`, `PlayStage.Stance`): authored pose per stance kind solved by IK over the clip (down hand planted on the turf, heel raise, toe-out, head look, shoulder turn), stance tells, 5 new kinds (kicker, punter, long snapper, kickoff runner, returner), press / off / edge / goal-line variants from the play context, cadence window (`MatchDirector.Cadence`).
+- **Quarterback** (`SimAgentView.Qb`, `AnimKit.Qb`, `ProcGait`, `OffenseAI.QbMotion`): footfall planner (a foot lifts only while the other is planted), under-center snap received at the centre's rear, 3 / 5 / 7 step drops with plant, shotgun gather, pocket, throws per style, pump fake, throw-away, scramble / roll-out / kneel / spike / toss poses; mirrored clip twins for left-handed passers, right-footed kickers and the holder side (`QbMirrorBuilder`).
+- **Connection layer** (`AnimKit.Connect`, `SimAgentView.Connect`, `PlayStage.Connect`, `PlaySimulation.Connect`): render interpolation between 60 Hz sim steps, pelvis / chest pop filter, ActionAnimator mask and fade rules, walked shifts / flips / huddle break, snap gating, matched block pairs and run-block footwork, momentum-aware contact takes, gang tackles, ragdoll hand-over, reach IK catches, hand-off exchange, post-whistle help-up and pile-on, QB-hit reaction.
+- **Sim realism** (`Sim/*`): time-parametrised QB drop and release floors per drop type, fitted NFL ball-flight curve with drag, throw styles that trade speed for arc, loft over underneath defenders, per-position reaction time, position-specific pace (`GamePace`), body acceleration / cutting / braking limits, get-up after a fall (`AgentAction.GetUp`), fatigue on acceleration, special-teams penalties (roughing / running into the kicker, kick-catch interference), onside kick rate 3 % -> 11 %, kick meter period 1.45 s, `PlaySimOptions.Cadence`, `PlayEvent.Vel`.
+- **Graphics** (`FootShadow`, `BallFollower.Gfx`, `BallSpinHint`, `PlayerLod`, `QualityTiers`, `UpscalerControl`): size-based player LOD with a shadow proxy, PCSS 4-cascade shadows, foot blobs, DLSS Quality / FSR Auto, anisotropic 16x, turf blade detail, cloud layer, grade pass, ball spin per play kind, officials staying with the spot, larger numerals.
+- **Tools:** `EngineAudit` (real plays through PlayStage, bone-level metrics and strips), `ConnectAudit`, `LocoCycleBuilder` / `LocoCycleScan` / `LocoShots`, `LegProbe`, `QbStanceProbe` / `QbStanceTools`; autotest flags `-pixAutotestMeasure` (80 s of live play for frame rates), `-pixAutotestQuick`, `-pixAblate`, `-pixLodPx`.
+- 1,164 EditMode tests in the `!Slow` release run, all green (new: `LocomotionGaitTests`, `QbStanceTests`, `QbStanceSimTests`, `ConnectTests`, `GfxTests`).
+
+### Changed
+- **Game pace:** run plays last 4.2 s on average (was 3.3), passes 4.8 s (was 4.0); `GamePace` skill 0.85, TE / QB 0.89, DB 0.87, LB 0.86, edge 0.91, DT 0.835, OL 0.805 (linemen were not slowed at all before).
+- Quarterback release 1.9 s (shotgun 3-step) to 3.7 s (7-step); throw speed capped at 57 mph; pass flight 20-50 yd no longer 20-30 % too fast.
+- Kicking: every kicker right-footed and aligned left of the ball (kickoff 3.3 m, field goal 1.65 m), the punt uses the right foot (it was left).
+- Player LOD edges: LOD0 from 400 px, LOD1 from 200 px of on-screen height (release fallback after the player measurement, see Performance).
+- Calibration bands retuned to the new engine (sacks per team 0.9-3.8, pass flight times, throw range, shuffle speed, `Penalty.All` 19).
+
+### Fixed
+- Floating sprints (feet in the air 72 % of a sprint cycle -> 42-53 %), sliding planted feet (contact slide 1.0-2.9 m/s -> 0.17-0.55), cadence about 2 steps / s at a sprint -> 4.3-4.9, feet turned out 25-40 degrees and knees splaying, cleats rolled onto their edges, ankle jitter.
+- Linemen stood with their hands on their knees; QB hovered during the drop (51-63 % flight frames -> 0); the quarterback sat stuck behind his own back and inflated under-centre sacks to 13 %.
+- Pre-snap flip / shift teleports (32 m -> 0.09 m largest frame), the carrier stopping dead at the tackle, the ball popping from hand to hand on a hand-off (1.06 m -> 0.27 m), contested catch restarting the catch animation, broken tackles that never put the carrier down.
+- A defender running into the kicker or a receiver colliding into a catch were not penalised.
+- All the other rows in `Docs/QA/v090/ENGINE_AUDIT_STATUS.md`.
+
+### Performance
+Built player, 2560x1440 High (windowed, RTX 5090 laptop, 80 s of live play in an exhibition match, `-pixAutotest -pixAutotestMeasure`): 75.3 FPS average, 52.4 1 %-low, 34.8 minimum (CPU 12.5 ms, GPU 12.5 ms per frame); free roam 113 average. The first player measurement with the GFX edges (LOD0 from 300 px, LOD1 from 170 px) gave 73.3 / 51.5; the release fallback (LOD0 from 400 px, LOD1 from 200 px) gave 75.3 / 52.4. This is below v0.8.0 on the same machine (109 average, 69 1 %-low, 2364x1330) and **below the 60 FPS 1 %-low target**; the extra cost is the look pass (shadows, LOD0 near the camera, SSAO / contact shadows, depth of field) plus the connection layer. Levers left: depth of field off, lower shadow cascades, TAA quality medium (see `Docs/QA/v090/gfx.md`).
+
+### Known Issues
+- Sprint cycles still have both feet off the ground 42-53 % of the cycle (mocap property); hard cuts at a sprint toe out by 17 degrees on average (p95 45).
+- Back-pedal cadence 1.4-2.0 steps / s, back-pedal pops when a defender turns, shuffles and crossovers on the old tree, no start / stop / cut clips, pole flips of the knee below 3 m/s.
+- Catch frame: ball still 0.58 m from the hand at the simulated catch frame (pulled in over 0.2 s); clip changes per second went up for OL / DL / WR / CB; residual hip snaps at the start of get-off clips.
+- OL / DL hips 0.68-0.72 m with a hand on the turf (CSV target 0.80-0.90); left-handed carriage not tuned; no off-balance / jump throws.
+- Crowd not animated, LOD not cross-faded, clouds do not scroll, numeral outline not thicker, lit field markers cast no shadows.
+- Sim: sack rate 3.3 % of dropbacks (NFL about 6.5 %), Read Option 2.4-3.2 yd per carry, zero-blitz breakaways about 1 in 5 beaten runs, punt average 49.1, pass snap-to-dead about 5.8 s with the director tail.
+- Huddle break, call-screen tick and post-whistle walk not tested with a controller; the legacy "V3" part of `-pixAutotest` still looks for the pre-0.7 call screen and reports FAIL lines (pre-existing, the match, broadcast and career autotests are clean).
+- 14 audit rows handed over and 5 left open (see `ENGINE_AUDIT_STATUS.md`).
 
 ## [0.8.0] - 2026-10-22 - "Franchise"
 
@@ -312,7 +353,8 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Some head models and logo source files still carry real-person / real-school names internally; to be replaced before any public release.
 
 
-[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.5.0...v0.6.0

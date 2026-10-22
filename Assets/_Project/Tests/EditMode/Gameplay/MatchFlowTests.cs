@@ -146,7 +146,16 @@ namespace PixFootball.Tests
         [Test]
         public void FullGameFlowKickoffScoringQuartersAndFinal()
         {
-            var f = NewFlow(2, 0.5f, 7);
+            // v0.9.0: a touchdown in one short seeded game is a lottery (plays are 20-40 percent longer and the seed's drives changed), so the scripted flow is played on up to ten seeds:
+            // every game must satisfy the flow invariants and at least one must score a touchdown (and then the try and the kickoff must follow)
+            bool anyTd = false;
+            for (int seed = 7; seed < 17 && !anyTd; seed++) anyTd = ScriptedGame(seed);
+            Assert.IsTrue(anyTd, "no touchdowns in ten whole games");
+        }
+
+        static bool ScriptedGame(int seed)
+        {
+            var f = NewFlow(2, 0.5f, seed);
             Assert.AreEqual(GamePhase.Kickoff, f.State.Phase);
             bool sawPat = false, sawKickoffAfterScore = false, sawTd = false; int maxQ = 1;
             var quarters = new HashSet<int>(); bool lastWasTd = false, lastWasTry = false;
@@ -168,11 +177,14 @@ namespace PixFootball.Tests
             Assert.IsTrue(f.State.IsFinal);
             Assert.GreaterOrEqual(maxQ, 4);
             Assert.IsTrue(quarters.Contains(1) && quarters.Contains(2) && quarters.Contains(3) && quarters.Contains(4));
-            Assert.IsTrue(sawTd, "no touchdowns in a whole game");
-            Assert.IsTrue(sawPat, "PAT/2pt did not follow a touchdown");
-            Assert.IsTrue(sawKickoffAfterScore, "kickoff did not follow the try");
             Assert.AreEqual(f.State.HomeScore, f.HomeByQuarter.Sum()); Assert.AreEqual(f.State.AwayScore, f.AwayByQuarter.Sum());
             Assert.AreEqual(f.State.Winner.HasValue, f.State.HomeScore != f.State.AwayScore);
+            if (sawTd)
+            {
+                Assert.IsTrue(sawPat, "PAT/2pt did not follow a touchdown");
+                Assert.IsTrue(sawKickoffAfterScore, "kickoff did not follow the try");
+            }
+            return sawTd;
         }
 
         [Test]

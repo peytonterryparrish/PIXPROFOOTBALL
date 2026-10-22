@@ -40,7 +40,8 @@ namespace PixFootball.Tests
                 Assert.Greater(b.Tau, baseBody.Tau, "he winds up to speed a little more slowly");
             }
             Assert.That(GamePace.AnimationRate, Is.EqualTo(GamePace.Scale));
-            Assert.Greater(GamePace.For(Position.LT), GamePace.For(Position.WR), "linemen give up less speed than the skill players");
+            Assert.Less(GamePace.For(Position.LT), GamePace.For(Position.WR), "v0.9.0 (E-005 / E-316): linemen are clearly slower than receivers and backs (tackles 0.805, ends 0.91, receivers 0.85), no longer the other way round");
+            Assert.Less(GamePace.For(Position.DT), GamePace.For(Position.LE), "tackles are slower than ends");
         }
 
         [Test]
@@ -339,7 +340,8 @@ namespace PixFootball.Tests
                 if (sim.Touchdown) td++;
             }
             TestContext.WriteLine("QB sneak from the 1: " + td + "/" + n);
-            Assert.That(td / (float)n, Is.InRange(0.2f, 0.85f));
+            // v0.9.0: the quarterback no longer dives at the snap from 1.9 yd (the lunge ended 0.6 yd short behind his own line: 0 of 120); he pushes the pile and dives only inside 1.35 yd. Sneaks now score about nine times in ten (the NFL tush push is 80-93 percent).
+            Assert.That(td / (float)n, Is.InRange(0.2f, 0.97f));
         }
 
         private static void WithTechniques(Action body)
@@ -350,9 +352,10 @@ namespace PixFootball.Tests
         }
 
         [Test]
-        public void TechniqueAlignmentShipsOffAndTheBaseFrontsAreUnchanged()
+        public void TechniqueAlignmentShipsOnAndTheBaseFrontsAreUnchanged()
         {
-            Assert.IsFalse(DefenseAlignment.UseTechniques);
+            // v0.9.0 (B-013): the technique alignment now ships ON (the blocking schemes were recalibrated for it)
+            Assert.IsTrue(DefenseAlignment.UseTechniques);
         }
 
         [Test]

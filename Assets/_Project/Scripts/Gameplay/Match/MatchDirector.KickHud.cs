@@ -12,7 +12,7 @@ namespace PixFootball.Gameplay
     /// </summary>
     public sealed partial class MatchDirector
     {
-        const float KickCursorPeriod = 1.15f;
+        const float KickCursorPeriod = KickMeter.CursorPeriodSeconds;   // v0.9.0 (E-312): 1.45 s, eased near the sweet spot
         float _kickT, _kickFreeze, _kickTiming = 0.5f, _kickAim = 0.5f, _windWorldDeg = -1f, _windMph, _lastWindShown = float.NaN;
         float _kickStickX;
         bool _kickShown, _kickLocked, _kickPrePressed;
@@ -120,7 +120,7 @@ namespace PixFootball.Gameplay
             if (running)
             {
                 _kickFreeze = 0f; _kickT += dt;
-                _kickTiming = KickMeter.PingPong(_kickT, KickCursorPeriod);   // 0.5 = the sweet spot
+                _kickTiming = KickMeter.PingPongEased(_kickT, KickCursorPeriod);   // 0.5 = the sweet spot (v0.9.0 E-312: the cursor slows there)
             }
             else _kickFreeze += dt;
             if (_kickFreeze > 1.8f) { if (_kickShown) { Ui.SetKickMeter(false, 0.5f, "", 0.5f, ""); _kickShown = false; } return; }

@@ -15,7 +15,7 @@ namespace PixFootball.Sim
         Tackling
     }
 
-    public enum CarrierMove { None, JukeLeft, JukeRight, Spin, StiffArm, Truck, Hurdle, Dive }
+    public enum CarrierMove { None, JukeLeft, JukeRight, Spin, StiffArm, Truck, Hurdle, Dive, Slide }
 
     public enum QbPhase { PreSnap, WaitSnap, Dropback, Mesh, Fake, Set, Windup, Scramble, Done, Kneel, Spike }
 
@@ -79,6 +79,25 @@ namespace PixFootball.Sim
         /// <summary>Reaction cache of the ball carrier AI (separate from the receiver and defender clocks).</summary>
         public float CarrierClock;
         public bool Protecting;
+        /// <summary>v0.9.0 (E-198): the off-man cushion a corner is currently playing (yards); it follows the receiver vertical speed.</summary>
+        public float Cushion;
+        /// <summary>v0.9.0 (E-199): side (+1 / -1) the press jam steers this receiver toward while his JamTime runs.</summary>
+        public float JamPush;
+        /// <summary>v0.9.0 (E-160): which arm carries the ball relative to his heading (-1 = left side, +1 = right side, 0 = front-centre); the AI carrier switches it to the arm away from the nearest defender. Animation can read it.</summary>
+        public int BallSide;
+        /// <summary>v0.9.0 (E-361): until this simulation time the agent is still reacting to the snap (he holds his stance, then moves): linemen fire off the ball in 0.15-0.25 s, receivers 0.10-0.18 s, defensive backs 0.18-0.30 s.</summary>
+        public float ReactUntil;
+        /// <summary>v0.9.0 (E-151): the defender a carrier last decided a move against (one decision per threat).</summary>
+        public int MoveThreatId = -1;
+        /// <summary>v0.9.0 (E-208): a contact impulse in progress (tackle, hit): the velocity the body is being brought to and how long the transfer lasts (seconds).</summary>
+        public Vec2 ImpactVel;
+        public float ImpactTime;
+        /// <summary>v0.9.0 (E-275): seconds of get-up after a fall (the body is on its hands and knees, then rises) during which he cannot sprint or tackle.</summary>
+        public float GetUpTime;
+        /// <summary>v0.9.0 (E-320): how long the human quarterback has held the stick away from the set point.</summary>
+        public float StickHeld;
+        /// <summary>v0.9.0 (E-152 / E-239): the speed of the move in progress (the sideways steering speed of a juke or spin, the speed a tackler dived at).</summary>
+        public float MoveSpeed;
         public int IgnoreAgent = -1;
         public float IgnoreUntil;
         public float DragMass;

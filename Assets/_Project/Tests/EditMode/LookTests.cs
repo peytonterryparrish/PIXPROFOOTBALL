@@ -330,7 +330,7 @@ namespace PixFootball.Tests
             Assert.IsTrue(WeatherPresets.Get(WeatherKind.Clear, TimeOfDay.Night).FloodlightsOn);
             var day = WeatherPresets.Get(WeatherKind.Clear, TimeOfDay.Day);
             var dusk = WeatherPresets.Get(WeatherKind.Clear, TimeOfDay.Dusk);
-            Assert.Less(dusk.SunElevation, day.SunElevation / 4f, "dusk sun is low");
+            Assert.Less(dusk.SunElevation, day.SunElevation / 2f, "dusk sun is low (v0.9: 14 degrees, not 5.5: no 10x body-length shadows)");
             Assert.Greater(dusk.Temperature, day.Temperature, "dusk grade is warmer");
             Assert.IsFalse(WeatherPresets.Get(WeatherKind.Clear, TimeOfDay.Night).PhysicallyBasedSky, "night uses the gradient sky");
         }

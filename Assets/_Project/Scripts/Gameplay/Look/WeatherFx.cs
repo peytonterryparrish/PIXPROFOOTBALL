@@ -41,7 +41,7 @@ namespace PixFootball.Gameplay
             var ps = go.AddComponent<ParticleSystem>();
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = ps.main;
-            main.playOnAwake = false; main.loop = true; main.simulationSpace = ParticleSystemSimulationSpace.World; main.maxParticles = max; main.prewarm = false; main.useUnscaledTime = true;
+            main.playOnAwake = false; main.loop = true; main.simulationSpace = ParticleSystemSimulationSpace.World; main.maxParticles = max; main.prewarm = false; main.useUnscaledTime = false;   // v0.9 (GFX-438): scaled time, a slow-motion replay keeps the rain slow and a pause stops it
             var r = go.GetComponent<ParticleSystemRenderer>();
             r.sharedMaterial = mat; r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
             r.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
@@ -53,7 +53,7 @@ namespace PixFootball.Gameplay
             // ---- rain: stretched streaks falling fast, a box around the camera
             _rain = Make("Rain", _rainMat, 26000);
             {
-                var m = _rain.main; m.startLifetime = new ParticleSystem.MinMaxCurve(0.9f, 1.25f); m.startSpeed = 0f; m.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.034f);
+                var m = _rain.main; m.startLifetime = new ParticleSystem.MinMaxCurve(1.0f, 1.2f); m.startSpeed = 0f; m.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.034f);   // v0.9 (GFX-413): spawned at 18 m falling 19 m/s for 1.0-1.2 s reaches the ground (it used to die 3.6 m above the grass)
                 m.startColor = new Color(0.78f, 0.84f, 0.95f, 0.42f);
                 var sh = _rain.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Box; sh.scale = new Vector3(40f, 0.5f, 40f);
                 _rainVel = _rain.velocityOverLifetime; _rainVel.enabled = true; _rainVel.space = ParticleSystemSimulationSpace.World;
@@ -101,7 +101,9 @@ namespace PixFootball.Gameplay
         /// <summary>Brightness of the unlit particle colours for the lighting of the preset (streaks and flakes must read in the day and not glow at night).</summary>
         static float Brightness(WeatherPreset p)
         {
-            switch (p.Time) { case TimeOfDay.Day: return 1.0f; case TimeOfDay.Dusk: return 0.85f; default: return 0.8f; }
+            // v0.9 (GFX-438): follows the light on the field (day 1.0, dusk about 0.86, night about 0.72, overcast a little less) instead of three fixed numbers
+            float ill = Mathf.Max(200f, p.FieldIlluminance);
+            return Mathf.Lerp(0.65f, 1f, Mathf.Clamp01((Mathf.Log10(ill) - 3.0f) / 1.7f));
         }
 
         public void Configure(WeatherPreset p)
@@ -155,7 +157,7 @@ namespace PixFootball.Gameplay
                 float fx = QualityTiers.FxScale;
                 _rainEm.rateOverTime = 5200f * p.RainIntensity * fx * k; _snowEm.rateOverTime = 2600f * p.SnowfallIntensity * fx * Mathf.Sqrt(k); _splashEm.rateOverTime = 420f * p.RainIntensity * fx * k;
             }
-            _rain.transform.position = new Vector3(center.x, 24f, center.z);
+            _rain.transform.position = new Vector3(center.x, 18f, center.z);
             _snow.transform.position = new Vector3(center.x, 16f, center.z);
             _splash.transform.position = new Vector3(center.x, 0.03f, center.z);
         }

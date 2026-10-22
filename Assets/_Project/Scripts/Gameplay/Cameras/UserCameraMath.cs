@@ -60,6 +60,10 @@ namespace PixFootball.Gameplay
         public float SnapTime;
         /// <summary>When the user plays defense: the camera sits behind the defense, so the focus is the offense's backfield and the "back" side is the defense's.</summary>
         public bool Defense;
+        /// <summary>v0.9 (GFX-395): 0 none, 1 kickoff, 2 field goal, 3 punt (the user kicks): the dedicated kick framings of <see cref="UserCameraMath.KickFraming"/> replace the scrimmage preset.</summary>
+        public int KickKind;
+        /// <summary>v0.9.0 CONNECT E-390: the focus is a ball in the air (pass, punt, kick); <c>Focus.y</c> is then its height in metres and the follow camera frames it in 3D instead of aiming at the turf under it.</summary>
+        public bool BallAirborne;
     }
 
     public struct UserCameraPose
@@ -73,7 +77,8 @@ namespace PixFootball.Gameplay
     /// <summary>Pure camera math for the behind-the-offense user camera (EditMode tested): target pose for a focus, preset and trims.</summary>
     public static class UserCameraMath
     {
-        public const float MaxLateral = 15.5f, MinZ = -62f, MaxZ = 62f, MaxCamZ = 63f;
+        // v0.9.0 CONNECT E-393: MaxLateral 15.5 -> 20 m (the sideline is 24.4 m from the centre). E-396: MaxCamZ 63 -> end line (54.9 m) + 4 m so the camera never sits in the goalposts / stadium behind the end zone.
+        public const float MaxLateral = 20f, MinZ = -62f, MaxZ = 62f, MaxCamZ = 58.9f, EndLineZ = 54.9f;
 
         /// <summary>Smooth 0..1 ramp used for the snap pull-back.</summary>
         public static float Ease(float t) { t = Mathf.Clamp01(t); return t * t * (3f - 2f * t); }
@@ -83,7 +88,7 @@ namespace PixFootball.Gameplay
             Vector3 d = c.ViewDir; d.y = 0f;
             d = d.sqrMagnitude < 1e-6f ? Vector3.forward : d.normalized;
             float zoom = c.PreSnap ? 0f : Ease(c.SnapTime / Mathf.Max(0.05f, p.ZoomTime)) * Mathf.Clamp01(zoomOut);
-            Vector3 focus; float back, height, ahead, fov;
+            Vector3 focus; float back, height, ahead, fov, airH = 0f;
             if (c.Follow && !c.PreSnap)
             {
                 float speed = new Vector3(c.FocusVelocity.x, 0f, c.FocusVelocity.z).magnitude;
@@ -92,6 +97,13 @@ namespace PixFootball.Gameplay
                 back = p.CarrierBack + 1.4f * run + distanceTrim * 0.75f;
                 height = p.CarrierHeight + 0.5f * run + heightTrim * 0.75f;
                 ahead = p.CarrierLookAhead; fov = p.CarrierFov + 2f * run + fovTrim;
+                // v0.9.0 CONNECT E-390: a ball in the air (deep pass, punt, kick) climbs 10 to 20 m, far above the old fixed 0.5 m look height. Raise and pull back with its height and aim
+                // at its 3D position so it stays inside the frame (the ground under it drops out of the bottom edge on the highest balls; the ball is the story).
+                if (c.BallAirborne)
+                {
+                    airH = Mathf.Clamp(c.Focus.y, 0f, 30f);
+                    height += Mathf.Min(airH * 0.5f, 7f); back += Mathf.Min(airH * 0.4f, 6f); fov += Mathf.Min(airH * 0.3f, 4f);
+                }
             }
             else if (c.PreSnap)
             {
@@ -105,12 +117,33 @@ namespace PixFootball.Gameplay
                 back = p.Back + distanceTrim + p.SnapBack * zoom; height = p.Height + heightTrim + p.SnapHeight * zoom; ahead = p.LookAhead; fov = p.Fov + fovTrim + p.SnapFov * zoom;
             }
             // the camera line: the focus slides along the view direction, the lateral position follows the focus (clamped to the width of the pitch)
+            // v0.9.0 CONNECT E-393: the lens widens by up to 6 degrees as the focus nears the sideline (|x| 12 -> 24 m) so the carrier stays inside the middle of the frame
+            fov += 6f * Ease((Mathf.Abs(focus.x) - 12f) / 12f);
             focus.x = Mathf.Clamp(focus.x, -MaxLateral, MaxLateral);
+            if (c.KickKind != 0 && !(c.Follow && !c.PreSnap)) KickFraming(c.KickKind, ref back, ref height, ref ahead, ref fov);
             if (c.Defense) { back *= 1.10f; height *= 1.08f; ahead += 3f; }   // behind the defense: a little deeper and higher so the line and the backfield read
             Vector3 pos = focus - d * back; pos.y = height;
-            Vector3 look = focus + d * ahead; look.y = p.LookHeight;
-            pos.z = Mathf.Clamp(pos.z, -MaxCamZ, MaxCamZ);   // never behind the stadium wall when the ball is in the red zone
+            Vector3 look = focus + d * ahead; look.y = c.BallAirborne && c.Follow && !c.PreSnap ? Mathf.Max(p.LookHeight, airH * 0.62f) : p.LookHeight;   // E-390: aim at the ball's height
+            // v0.9.0 CONNECT E-396: the camera stays 4 m behind the end line at most; the metres lost behind the end zone come back as height (steeper, shorter shot, same framing), and
+            // behind the end line it slides off the goalposts' uprights (x = +/-2.8 m) so the sticks never cut the frame.
+            float zRaw = pos.z;
+            pos.z = Mathf.Clamp(pos.z, -MaxCamZ, MaxCamZ);
+            float lost = Mathf.Abs(zRaw) - Mathf.Abs(pos.z);
+            if (lost > 0f) pos.y += Mathf.Min(lost * 0.5f, 3f);
+            float behindEnd = Ease((Mathf.Abs(pos.z) - (EndLineZ - 2f)) / 3f);
+            if (behindEnd > 0f && Mathf.Abs(pos.x) < 4.8f) pos.x = Mathf.Lerp(pos.x, (pos.x < 0f ? -4.8f : 4.8f), behindEnd);
             return new UserCameraPose { Position = pos, LookAt = look, Fov = fov };
+        }
+
+        /// <summary>v0.9 (GFX-395): kick framings behind the kicker: kickoff low and wide behind the tee, field goal low behind the kicker framing the posts, punt high behind the punter (metres / degrees).</summary>
+        public static void KickFraming(int kind, ref float back, ref float height, ref float ahead, ref float fov)
+        {
+            switch (kind)
+            {
+                case 1: back = 11f; height = 3.5f; ahead = 16f; fov = 48f; break;
+                case 2: back = 8f; height = 2.4f; ahead = 24f; fov = 38f; break;
+                case 3: back = 13f; height = 6.0f; ahead = 14f; fov = 44f; break;
+            }
         }
 
         /// <summary>Exponential smoothing factor for a time constant.</summary>

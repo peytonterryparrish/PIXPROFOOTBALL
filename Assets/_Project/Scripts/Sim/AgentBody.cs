@@ -11,12 +11,14 @@ namespace PixFootball.Sim
         /// <summary>Game-speed factor on every body's top speed: the 40-yard table is a combine-in-shorts time; in pads on turf the same player is about 4.5 percent slower (elite peak about 22 mph, never 26).</summary>
         public const float PadsFactor = 0.955f;
         /// <summary>Hard ceiling on any body's speed relative to its own top speed (dive lunges and collision knocks can only briefly exceed it).</summary>
-        public const float OverspeedCap = 1.05f;
+        public const float OverspeedCap = 1.02f;   // v0.9.0 (E-043): was 1.05, a 93 CB showed 21 mph after a hit
         public const float Dt = 1f / 60f;
 
         /// <summary>Acceleration-derived time constant (seconds): rating 99 -> 0.80, 40 -> 1.50.</summary>
         public static float TauFor(int accel) { return RefTau + (1f - SimMath.Rating01(Math.Max(20, accel))) * 0.95f; }
         public static float AccelCapFor(int accel) { return 8.5f + 4f * SimMath.Rating01(Math.Max(20, accel)); }
+        /// <summary>v0.9.0 (E-029): the cap a BODY accelerates with (rating 99 = 10.5 yd/s2, not 12.5: more than an elite sprinter in pads). The 40-yard calibration table above keeps the old reference so top speeds do not move.</summary>
+        public static float BodyAccelCapFor(int accel) { return 7.5f + 3f * SimMath.Rating01(Math.Max(20, accel)); }
 
         private static readonly object _vmaxLock = new object();
         private static float[] _vmaxTable;
@@ -87,6 +89,13 @@ namespace PixFootball.Sim
         public float Energy = 1f;
         public float StumbleTime;
         public float FallenTime;
+        /// <summary>
+        /// v0.9.0 (E-275): after a fall the body gets up over 0.4 s (hands and knees, then rising): top speed is capped at 40 percent and the wind-up is 1.4 times longer, and the view plays
+        /// <see cref="AgentAction.GetUp"/>. He used to be at full steering and acceleration the tick the fall ended.
+        /// </summary>
+        public float GetUpTime;
+        /// <summary>Multiplier on lateral grip (juke / spin steering raise it for the length of the move); 1 = normal.</summary>
+        public float LatBoost = 1f;
         /// <summary>External speed multiplier (ball security, jog, injuries, etc.).</summary>
         public float SpeedMultiplier = 1f;
         /// <summary>v0.8.0 ability multipliers (1 = no ability): top speed, acceleration time constant (below 1 = quicker), the speed lost in a plant-and-cut and the energy drained while running. Set per tick by the simulation from the player's abilities; a player without any keeps 1.</summary>
@@ -112,13 +121,16 @@ namespace PixFootball.Sim
             float acc01 = SimMath.Rating01(Math.Max(20, r.Acceleration));
             VMax = Physique.VMaxForSpeed(r.Speed) * Physique.PadsFactor;
             Tau = Physique.TauFor(r.Acceleration);
-            AccelCap = Physique.AccelCapFor(r.Acceleration);
+            AccelCap = Physique.BodyAccelCapFor(r.Acceleration);
             float massN = SimMath.Clamp((Mass - 90f) / 50f, -0.5f, 1f);
-            LatBase = (8.5f + 5.5f * Agility01) * (1f - 0.16f * massN);
-            DecelBase = (9f + 4.5f * Agility01) * (1f - 0.08f * massN);
-            TurnRate = (5.0f + 4.5f * Agility01) * (1f - 0.2f * massN);
-            BackpedalFactor = 0.46f + 0.10f * Agility01;   // about 5-6 yd/s backward
-            ShuffleFactor = 0.60f + 0.11f * Agility01;      // about 6-7 yd/s sideways
+            // v0.9.0 (E-005/-029/-030/-031/-032): heavier cutting and braking limits, slower hips, a real shuffle. Lateral grip is higher at low speed (a planted foot cuts),
+            // braking is bounded by a human limit (about 1 g for a light back, less for a 315 lb lineman) and the hips turn at 300-380 deg/s standing, a third of that at full speed.
+            LatBase = (11.5f + 5.5f * Agility01) * (1f - 0.18f * massN);
+            DecelBase = (7.8f + 3.5f * Agility01) * (1f - 0.12f * massN);
+            TurnRate = (4.2f + 3.2f * Agility01) * (1f - 0.2f * massN);
+            BackpedalFactor = 0.44f + 0.09f * Agility01;   // about 4.5-5.5 yd/s backward
+            ShuffleFactor = 0.47f + 0.10f * Agility01;      // about 4.5-5.5 yd/s sideways for a corner, 3.5-4.5 for a lineman (real: 8-10 mph shuffle, 3.5-4.5 yd/s kick-slide)
+            Tau *= 1f + SimMath.Clamp((Mass - 95f) / 400f, -0.04f, 0.10f);   // E-028: mass-scaled wind-up (a 315 lb lineman needs longer to reach his top speed)
             if (pace != 1f)
             {
                 // v0.7 game pace: slower top speed, a lower burst, and slower cutting / braking / turning, so the body reads heavier rather than just time-stretched
@@ -131,6 +143,8 @@ namespace PixFootball.Sim
         public float Speed { get { return Vel.Length; } }
         public bool IsDown { get { return FallenTime > 0f; } }
         public float Fatigue { get { return 0.88f + 0.12f * Energy; } }
+        /// <summary>v0.9.0 (E-355): a tired body also accelerates worse (up to 12 percent lower burst and a 12 percent longer wind-up when gassed).</summary>
+        public float FatigueDrive { get { return 0.88f + 0.12f * Energy; } }
 
         public float EffectiveVMax
         {
@@ -169,7 +183,7 @@ namespace PixFootball.Sim
         /// <summary>Instant ceiling applied after every impulse (tackles, dives, collisions): 1.08 x this body's own top speed, so no player is ever clocked above about 24 mph.</summary>
         public void LimitSpeed()
         {
-            float cap = VMax * Fatigue * SpeedMultiplier * AbilityVMax * (Mass > 105f ? 1.03f : 1.08f);   // v0.7: big men (linemen) never exceed 1.03 x their top speed, shed bursts and lunges included
+            float cap = VMax * Fatigue * SpeedMultiplier * AbilityVMax * (Mass > 105f ? 1.0f : 1.04f);   // v0.9.0 (E-043): big men (linemen) never exceed their top speed, everyone else 1.04 x (was 1.03 / 1.08)
             float sp = Vel.Length;
             if (sp > cap) Vel = Vel * (cap / sp);
         }
@@ -195,11 +209,14 @@ namespace PixFootball.Sim
                 }
                 Pos = Pos + Vel * dt;
                 Energy = Math.Min(1f, Energy + dt / 90f);
+                if (FallenTime <= 0f) GetUpTime = 0.4f;
                 return;
             }
+            if (GetUpTime > 0f) GetUpTime = Math.Max(0f, GetUpTime - dt);
             if (StumbleTime > 0f) StumbleTime = Math.Max(0f, StumbleTime - dt);
 
             float vEff = EffectiveVMax;
+            if (GetUpTime > 0f) vEff *= 0.4f;
             float speed = Vel.Length;
             float stumbleF = StumbleTime > 0f ? 0.5f : 1f;
 
@@ -211,7 +228,7 @@ namespace PixFootball.Sim
             else if (wantSpd > 0.4f) faceTarget = wantDir;
             else if (speed > 1.0f) faceTarget = Vel.Norm();
             else faceTarget = Facing;
-            float turn = TurnRate * (1f - 0.45f * SimMath.Clamp01(speed / Math.Max(1f, VMax))) * stumbleF;
+            float turn = TurnRate * (1f - 0.55f * SimMath.Clamp01(speed / Math.Max(1f, VMax))) * stumbleF;
             Facing = SimMath.RotateToward(Facing, faceTarget, turn * dt);
 
             // ---- direction-dependent speed cap ----
@@ -231,9 +248,10 @@ namespace PixFootball.Sim
             float at = dv.Dot(h) / dt;
             float al = dv.Dot(hp) / dt;
 
-            float fwdCap = Math.Min(AccelCap * (StumbleTime > 0f ? 0.6f : 1f), Math.Max(0f, (vEff - speed) / (Tau * AbilityTau)));
+            float driveF = FatigueDrive;
+            float fwdCap = Math.Min(AccelCap * driveF * (StumbleTime > 0f ? 0.6f : 1f), Math.Max(0f, (vEff - speed) / (Tau * AbilityTau * (GetUpTime > 0f ? 1.4f : 1f) / driveF)));
             float decelCap = DecelBase * (StumbleTime > 0f ? 0.7f : 1f);
-            float latCap = LatBase * (1f - 0.40f * SimMath.Clamp01(speed / Math.Max(1f, VMax))) * stumbleF;
+            float latCap = LatBase * (1f - 0.30f * SimMath.Clamp01(speed / Math.Max(1f, VMax))) * stumbleF * LatBoost;
             if (speed < 2.5f) latCap = Math.Max(latCap, AccelCap);
 
             if (at > fwdCap) at = fwdCap;
@@ -254,7 +272,7 @@ namespace PixFootball.Sim
             }
 
             // overall traction limit
-            float tractionLimit = (AccelCap + 1.5f + 2f * Agility01) * (StumbleTime > 0f ? 0.7f : 1f);
+            float tractionLimit = (AccelCap * 1.15f + 2.5f + 2f * Agility01) * (StumbleTime > 0f ? 0.7f : 1f) * (0.5f + 0.5f * LatBoost);   // v0.9.0 (E-030): was AccelCap + 1.5 + 2 x agility
             float mag = (float)Math.Sqrt(at * at + al * al);
             if (mag > tractionLimit)
             {
@@ -273,7 +291,7 @@ namespace PixFootball.Sim
                 newSpeed = ns;
             }
             // nobody exceeds his own top speed by more than a few percent (dive lunges and knocks used to reach 28 mph)
-            float hardCap = vEff * (Mass > 105f ? 1.03f : Physique.OverspeedCap);
+            float hardCap = vEff * (Mass > 105f ? 1.0f : Physique.OverspeedCap);
             if (newSpeed > hardCap)
             {
                 float ns2 = Math.Max(hardCap, newSpeed - 30f * dt);

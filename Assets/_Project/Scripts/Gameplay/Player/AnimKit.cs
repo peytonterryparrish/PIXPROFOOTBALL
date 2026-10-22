@@ -65,7 +65,7 @@ namespace PixFootball.Gameplay
     }
 
     /// <summary>Situational facts the Unity layer derives from the simulation for picking animations.</summary>
-    public struct AnimHints
+    public partial struct AnimHints
     {
         public int Seed;
         public float ThrowDistance, ThrowAngle;      // yards, degrees (+ = to the passer's right)
@@ -97,7 +97,26 @@ namespace PixFootball.Gameplay
         public float Speed;                          // simulated ground speed, m/s
         public bool Pressure;                        // a rusher is close to the quarterback
         public bool Whistled;                        // the play is over (the player is walking / standing after the whistle)
+        // ---- v0.9.0 CONNECT: pairs, blocks, catches ----
+        public int PairSeed;                         // identical for both actors of a pair (engagement, tackle, hand-off): they pick the same take
+        public bool Live;                            // the ball is live (the snap happened)
+        public BlockStyle Block;                     // what kind of block a Block / Engaged action is
+        public float Lev;                            // engagement leverage -1 (defender) .. +1 (blockers), from the blocker's point of view
+        public bool Winning;                         // this actor is winning the leverage contest
+        public bool Dropped;                         // the receiver dropped the catch
+        public bool Contested;                       // a defender is within a yard of the catch point
+        public bool Diving;                          // the catch is at full stretch: dive / one hand
+        public bool NearSideline;                    // the catch is within a metre and a half of the line: toe tap
+        public bool ReturnCatch;                     // a kick / punt returner catching a kick
+        public bool FairCatch;                       // the returner signals for a fair catch
+        public float HeadingDeg;                     // heading of the first move relative to the facing, signed degrees (+ = to the right)
+        public float Closing;                        // closing speed of the tackler on the carrier, m/s
+        public float CarrierSpeed;                   // carrier ground speed at the tackle, m/s
+        public bool Strip;                           // the tackle is a strip attempt (fumble)
     }
+
+    /// <summary>v0.9.0 CONNECT E-163 / E-164: what a Block / Engaged action means for the animation (pass-set footwork, run-block drive, pull, stalk, chip, cut ...).</summary>
+    public enum BlockStyle { None, PassSet, RunBlock, Pull, Stalk, Chip, Cut, Double, Kickout }
 
     public struct ClipPlan
     {
@@ -108,6 +127,8 @@ namespace PixFootball.Gameplay
         public bool UpperBody;
         /// <summary>Initial offset into the window for a looping clip (staggers a line of identical stances without moving the loop point).</summary>
         public float Phase;
+        /// <summary>v0.9.0 CONNECT E-286: fade floor of this clip (0 = the default <see cref="ActionAnimator.MinFade"/>); impact takes (tackle, catch, hand-off) ask for a short one so they are fully in at the contact frame.</summary>
+        public float FadeFloor;
         public bool Valid { get { return Clip != null; } }
     }
 
@@ -214,6 +235,7 @@ namespace PixFootball.Gameplay
 
         public static ClipPlan Throw(AnimHints h)
         {
+            if (h.Snapper) { var sn = LongSnapPlan(h); if (sn.Valid) return sn; }      // v0.9.0 (E-254): the long snapper does not throw like a quarterback
             if (h.IsQb && !h.Pitch) { var qp = QbThrow(h); if (qp.Valid) return qp; }     // v0.7.0: the derived takes with a measured release
             string key; AnimationClip c;
             float d = h.ThrowDistance;
@@ -238,7 +260,8 @@ namespace PixFootball.Gameplay
             if (!TryPair("handoff", h.Seed, 6f, out a, out b)) { a = V("handoff", h.Seed); b = null; if (a == null) return default(ClipPlan); }
             var c = h.Partner && b != null ? b : a;
             float t = ClipTimingTable.Moment(c, 0.4f);
-            return Up(P(c, Mathf.Max(0f, t - Lead(h.EventEta, 0.15f)), Mathf.Min(c.length, t + 0.7f), 1f, 0.14f, 0.3f));
+            float rate = GamePace.AnimationRate;      // v0.9.0 CONNECT E-363: the exchange plays at the pace of the game, started early enough that its frame still lands on the simulated exchange
+            return Floor(Up(P(c, Mathf.Max(0f, t - Lead(h.EventEta, 0.15f) * rate), Mathf.Min(c.length, t + 0.7f), rate, 0.14f, 0.3f)), ImpactFloor);
         }
 
         public static ClipPlan Catch(AnimHints h)
@@ -268,7 +291,8 @@ namespace PixFootball.Gameplay
             }
             if (c == null) return default(ClipPlan);
             float t = ClipTimingTable.Moment(c, 0.35f);
-            return Up(P(c, Mathf.Max(0f, t - Lead(h.EventEta, 0.1f)), Mathf.Min(c.length, t + 0.85f), 1f, 0.12f, 0.3f));
+            float rate = GamePace.AnimationRate;      // v0.9.0 CONNECT E-363
+            return Up(P(c, Mathf.Max(0f, t - Lead(h.EventEta, 0.1f) * rate), Mathf.Min(c.length, t + 0.85f), rate, 0.12f, 0.3f));
         }
 
         static readonly System.Collections.Generic.List<MoveTakeTable.Take> _spinTakes = new System.Collections.Generic.List<MoveTakeTable.Take>();

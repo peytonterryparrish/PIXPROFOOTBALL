@@ -35,6 +35,42 @@ namespace PixFootball.Gameplay
             return Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
         }
 
+        // ---- v0.9 (GFX-419): the facing loop measured 12 bones for 22 players every frame; the result is cached per animator (bone transforms resolved once) and refreshed at most every 1/30 s
+        sealed class Cache { public Transform Lul, Rul, Lua, Rua, Hips, Head, Lf, Rf, Lh, Rh; public float At = -1f; public BodyPose Pose; public Animator A; }
+        static readonly System.Collections.Generic.Dictionary<Animator, Cache> _cache = new System.Collections.Generic.Dictionary<Animator, Cache>();
+        public const float RefreshSeconds = 1f / 30f;
+
+        public static BodyPose MeasureThrottled(Animator a)
+        {
+            if (a == null || !a.isHuman) return new BodyPose();
+            Cache c;
+            if (!_cache.TryGetValue(a, out c))
+            {
+                c = new Cache { A = a, Lul = a.GetBoneTransform(HumanBodyBones.LeftUpperLeg), Rul = a.GetBoneTransform(HumanBodyBones.RightUpperLeg), Lua = a.GetBoneTransform(HumanBodyBones.LeftUpperArm), Rua = a.GetBoneTransform(HumanBodyBones.RightUpperArm),
+                    Hips = a.GetBoneTransform(HumanBodyBones.Hips), Head = a.GetBoneTransform(HumanBodyBones.Head), Lf = a.GetBoneTransform(HumanBodyBones.LeftFoot), Rf = a.GetBoneTransform(HumanBodyBones.RightFoot), Lh = a.GetBoneTransform(HumanBodyBones.LeftHand), Rh = a.GetBoneTransform(HumanBodyBones.RightHand) };
+                _cache[a] = c;
+            }
+            float now = Time.unscaledTime;
+            if (c.At >= 0f && now - c.At < RefreshSeconds && now >= c.At) return c.Pose;
+            c.At = now;
+            var p = new BodyPose();
+            if (c.Lul == null || c.Rul == null || c.Lua == null || c.Rua == null) { c.Pose = p; return p; }
+            p.HipsYaw = YawOfAcross(c.Rul.position - c.Lul.position);
+            p.ShouldersYaw = YawOfAcross(c.Rua.position - c.Lua.position);
+            float yaw = p.Yaw * Mathf.Deg2Rad;
+            Vector3 fwd = new Vector3(Mathf.Sin(yaw), 0f, Mathf.Cos(yaw));
+            float gy = a.transform.position.y;
+            if (c.Hips != null) p.HipsHeight = c.Hips.position.y - gy;
+            if (c.Head != null) p.HeadHeight = c.Head.position.y - gy;
+            if (c.Lf != null) p.LeftFootFwd = Vector3.Dot(c.Lf.position, fwd);
+            if (c.Rf != null) p.RightFootFwd = Vector3.Dot(c.Rf.position, fwd);
+            if (c.Lh != null) p.LeftHandY = c.Lh.position.y - gy;
+            if (c.Rh != null) p.RightHandY = c.Rh.position.y - gy;
+            if (c.Lh != null && c.Rh != null) { Vector3 d = c.Lh.position - c.Rh.position; d.y = 0f; p.HandSpan = d.magnitude; }
+            p.Valid = true; c.Pose = p;
+            return p;
+        }
+
         public static BodyPose Measure(Animator a)
         {
             var p = new BodyPose();

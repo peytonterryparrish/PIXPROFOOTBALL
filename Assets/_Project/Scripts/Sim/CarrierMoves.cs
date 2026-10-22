@@ -46,7 +46,22 @@ namespace PixFootball.Sim
                 // v0.7: a dive is a committed lunge. The knock used to be braked away by the body in a few ticks (the lunge travelled under a yard, a sneak from the 1 scored 3 to 30 percent);
                 // now the intent holds the lunge speed for the whole move, so the diver really covers ground
                 if (a.Move == CarrierMove.Dive && a.MoveTime > 0f && a.State == AgentState.Normal && a.Body.FallenTime <= 0f)
-                    a.Want = a.MoveDir * (a.HasBall ? DiveCarrierSpeed : DiveTacklerSpeed);
+                {
+                    // v0.9.0 (E-239): a tackler's lunge is at least 85 percent of the speed he dived at (and never under 5.2 yd/s), then slides down at 5 yd/s2, so a defender who dives at 9 yd/s no longer decelerates in mid-air
+                    float lunge = a.HasBall ? DiveCarrierSpeed : Math.Max(DiveTacklerSpeed, 0.85f * a.MoveSpeed);
+                    float elapsed = a.MoveTotal - a.MoveTime;
+                    if (!a.HasBall) lunge = Math.Max(DiveTacklerSpeed * 0.7f, lunge - 5f * elapsed);
+                    a.Want = a.MoveDir * lunge;
+                }
+                // v0.9.0 (E-152): a juke or spin is a steering target for the length of the move (a sideways component that builds and fades) with extra lateral grip, not a velocity impulse that bypassed the friction circle
+                if ((a.Move == CarrierMove.JukeLeft || a.Move == CarrierMove.JukeRight || a.Move == CarrierMove.Spin) && a.MoveTime > 0f)
+                {
+                    float prog = 1f - a.MoveTime / Math.Max(0.05f, a.MoveTotal);
+                    float lat = (float)Math.Sin(prog * Math.PI);
+                    a.Want = a.Want * 0.92f + a.MoveDir * (a.MoveSpeed * lat);
+                    a.Body.LatBoost = 1.45f;
+                }
+                else if (a.Body.LatBoost != 1f) a.Body.LatBoost = 1f;
                 // the contest is decided when a defender actually reaches the move (60% of the old range), not the instant the button is pressed
                 float r, f, w;
                 if (!a.MoveResolved && a.MoveTime > 0f && ContestParams(a.Move, out r, out f, out w)) Contest(a, r * 0.62f, f, w, a.Move);
@@ -60,6 +75,21 @@ namespace PixFootball.Sim
             bool wasted = !a.MoveResolved && m != CarrierMove.Dive && m != CarrierMove.None;
             a.Move = CarrierMove.None;
             a.MoveTime = 0f;
+            a.Body.LatBoost = 1f;
+            if (m == CarrierMove.Slide)
+            {
+                // v0.9.0 (E-083 / E-093): the quarterback slid and nobody got there: he is down where he stops (feet first, no contact)
+                a.Body.Fall(0.8f);
+                if (a.HasBall && S.Phase == PlayPhase.Live)
+                {
+                    a.State = AgentState.Down;
+                    S.TacklerId = -1; S.LastTackleType = TackleType.None;
+                    S.LogEvent(SimEventType.Tackle, -1, a.Id, new Vec3(a.Pos, 0f), TackleType.None, 0f, "slide");
+                    S.EndPlayAfter(EndReason.Tackle, 0.35f);
+                }
+                a.Body.SpeedMultiplier = 1f;
+                return;
+            }
             // a move thrown at nobody costs him a step and delays the next one
             if (wasted) { a.Body.Vel = a.Body.Vel * 0.88f; a.MoveCooldown += 0.35f; }
             if (m == CarrierMove.Dive)
@@ -106,8 +136,8 @@ namespace PixFootball.Sim
                     c.MoveTotal = c.MoveTime = 0.32f;
                     c.MoveCooldown = 0.7f;
                     float jukeV = 2.2f + 2.6f * SimMath.Rating01(c.R.Elusiveness) * 0.6f + 1.8f * c.Body.Agility01;
-                    c.Body.Knock(side * jukeV);
-                    c.Body.Vel = c.Body.Vel * 0.93f;
+                    c.MoveSpeed = jukeV * 1.15f;   // (E-152) the sideways steering speed at the middle of the move; the cut itself comes through the body model
+                    c.Body.Vel = c.Body.Vel * 0.95f;
                     break;
                 }
                 case CarrierMove.Spin:
@@ -119,7 +149,7 @@ namespace PixFootball.Sim
                     float spinSgn = S.Rng.NextFloat() < 0.5f ? 1f : -1f;
                     { SimAgent nt = null; float nd = 4f; for (int q = 0; q < 22; q++) { SimAgent o = S.Agents[q]; if (o.Side == c.Side || o.State == AgentState.Down) continue; float dd = (o.Pos - c.Pos).Length; if (dd < nd) { nd = dd; nt = o; } } if (nt != null) spinSgn = (nt.Pos - c.Pos).Dot(heading.Perp()) > 0f ? -1f : 1f; }
                     Vec2 side = heading.Perp() * spinSgn;
-                    c.Body.Knock(side * 1.2f);
+                    c.MoveDir = side; c.MoveSpeed = 2.0f;   // (E-152) a spin is steered the same way as a juke
                     break;
                 }
                 case CarrierMove.StiffArm:
@@ -142,8 +172,17 @@ namespace PixFootball.Sim
                     c.Body.SpeedMultiplier = 0.95f;
                     break;
                 }
+                case CarrierMove.Slide:
+                {
+                    // v0.9.0 (E-083 / E-093): a quarterback gives himself up, feet first: 0.55 s of slide, no hit, no fumble
+                    c.MoveTotal = c.MoveTime = 0.55f;
+                    c.MoveCooldown = 3f;
+                    c.Body.SpeedMultiplier = 0.55f;
+                    break;
+                }
                 case CarrierMove.Dive:
                 {
+                    c.MoveSpeed = c.Speed;
                     c.MoveTotal = c.MoveTime = c.HasBall ? 0.40f : 0.46f;
                     c.MoveCooldown = 2f;
                     Vec2 dd = heading;
@@ -270,6 +309,7 @@ namespace PixFootball.Sim
             else if (input.Truck) TryMove(c, CarrierMove.Truck);
             else if (input.Hurdle) TryMove(c, CarrierMove.Hurdle);
             else if (input.Dive) TryMove(c, CarrierMove.Dive);
+            else if (input.Tackle && c.Slot == 0 && c.Side == SimSide.Offense && S.Kind == PlayKind.Scrimmage) TryMove(c, CarrierMove.Slide);   // v0.9.0 (E-083): the quarterback slides on the tackle button
         }
 
         // =====================================================================================
@@ -296,13 +336,34 @@ namespace PixFootball.Sim
             }
             // goal-line dive
             float toGoal = dirY > 0 ? 100f - c.Pos.Y : c.Pos.Y;
-            if (toGoal < 2.3f && toGoal > 0.6f && threat != null && td < 2.6f && c.Move == CarrierMove.None)
+            if (toGoal < (c.Slot == 0 ? 1.35f : 2.3f) && toGoal > 0.6f && threat != null && td < 2.6f && c.Move == CarrierMove.None)
             {
                 TryMove(c, CarrierMove.Dive);
                 return;
             }
+            // v0.9.0 (E-153): a runner a yard short of the sticks with a tackler on him dives for the line to gain
+            if (S.Kind == PlayKind.Scrimmage && c.Side == SimSide.Offense && S.BallSide == SimSide.Offense && threat != null && td < 2.6f && c.Slot != 0 && !S.FirstDownCrossed)
+            {
+                float toSticks = S.LineToGainY - c.Pos.Y;
+                if (toSticks > 0.4f && toSticks < 1.5f && S.LineToGainY < 100f && c.Move == CarrierMove.None) { TryMove(c, CarrierMove.Dive); return; }
+            }
+            // v0.9.0 (E-083 / E-093): a quarterback who has run past the line slides before the hit (unless the touchdown or the sticks are inside two yards)
+            if (c.Slot == 0 && c.Side == SimSide.Offense && S.Kind == PlayKind.Scrimmage && threat != null && td < 2.3f && c.Pos.Y > S.LosY + 0.5f && toGoal > 4f
+                && !(S.LineToGainY - c.Pos.Y > 0.2f && S.LineToGainY - c.Pos.Y < 2f) && c.Move == CarrierMove.None)
+            {
+                Vec2 rel0 = threat.Pos - c.Pos;
+                if ((c.Vel - threat.Vel).Dot(rel0.Norm()) > 2.0f) { TryMove(c, CarrierMove.Slide); return; }
+            }
             if (threat == null) return;
-            if (S.Rng.NextFloat() > 0.045f) return;
+            // v0.9.0 (E-151): a move is decided once per threat, on the defender's commit (closing at over 3 yd/s, 0.20-0.45 s from contact), not on a 4.5 percent roll per tick at any distance
+            {
+                Vec2 relT = threat.Pos - c.Pos;
+                float closeSp = (c.Vel - threat.Vel).Dot(relT.Norm());
+                float ttc = Math.Max(0f, td - (c.Body.Radius + threat.Body.Radius + 0.35f)) / Math.Max(0.5f, closeSp);
+                if (closeSp < 3.0f || ttc < 0.17f || ttc > 0.50f || c.MoveThreatId == threat.Id) return;
+                c.MoveThreatId = threat.Id;
+                if (S.Rng.NextFloat() > 0.75f) return;
+            }
 
             float elu = (c.R.Elusiveness + c.R.Agility) * 0.5f / 99f;
             float pow = (c.R.Strength + c.R.BreakTackle) * 0.5f / 99f;
@@ -311,7 +372,7 @@ namespace PixFootball.Sim
             float side = Math.Abs(rel2.Norm().Dot(heading.Perp()));
             float ahead = rel2.Norm().Dot(heading);
             float wJuke = dist2 > 1.3f && ahead > 0.4f ? elu * 1.2f : 0f;
-            float wSpin = dist2 < 2.2f && dist2 > 1.0f ? (c.R.Elusiveness / 99f) * 0.8f : 0f;
+            float wSpin = dist2 < 2.4f && dist2 > 0.9f ? (c.R.Elusiveness / 99f) * 0.8f : 0f;
             float wStiff = dist2 < 2.1f && side > 0.35f ? pow * 1.0f : 0f;
             float wTruck = dist2 < 1.9f && ahead > 0.5f ? pow * 0.9f * SimMath.Clamp01((c.Body.Mass - threat.Body.Mass + 25f) / 50f) : 0f;
             bool low = threat.Body.FallenTime > 0f || threat.Move == CarrierMove.Dive;

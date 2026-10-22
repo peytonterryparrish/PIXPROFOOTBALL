@@ -130,6 +130,7 @@ namespace PixFootball.Gameplay
             Stage.Init();
             Look = LookDirector.Create(transform, Stage);
             Stage.Warm(8, 8, 9);
+            if (PixSettings.PhotoPlayers) Stage.WarmAllBodies(2);      // v0.9.0 CONNECT E-227 / E-269: every roster body (size x base) with its ragdoll is built behind the loading screen
             Cams = MatchCameraRig.Create(transform, MainCamera);
             if (Config.CpuVsCpu) Cams.SetMode(CameraMode.Broadcast, true);   // v0.6: the broadcast camera is for simulated games; the user plays from behind the offense / defense
             Feel = CollisionFeel.Create(MainCamera);
@@ -268,6 +269,8 @@ namespace PixFootball.Gameplay
                 if (failed)
                 {
                     _loopFailures++;
+                    // v0.9.0 CONNECT E-291: the 22 views stay on the field for a frame (a developer sees the state), the fade covers the rebuild
+                    yield return Fade(1f, 0.15f);
                     if (Stage != null) Stage.End();
                     Sim = null; _recall = false;
                     if (_loopFailures >= 5) { Debug.LogError("[PIX] too many failures in the game loop: back to the menu"); _quit = true; GameSession.QuitToMenu(); }
@@ -290,6 +293,7 @@ namespace PixFootball.Gameplay
                 _userIsOffense = !Config.CpuVsCpu && offTeam == Config.UserTeam;
                 _frame = PlayFrame.For(state);
                 if (state.Quarter != _lastQuarter) _lastQuarter = state.Quarter;
+                if (WeatherSystem.Instance != null) WeatherSystem.Instance.SetGameProgress(state.Quarter);   // v0.9 (GFX-414): the sun sinks over the game
 
                 // ---- calls ----
                 _playClockCarry = Mathf.Max(8f, state.PlayClock);
@@ -300,7 +304,9 @@ namespace PixFootball.Gameplay
                 while (true)
                 {
                     _recall = false;
-                    BeginPlay();
+                    // v0.9.0 CONNECT E-268: the preview built for the call screen is kept when the call did not change (the field was built twice per snap)
+                    if (_previewSim != null && ReferenceEquals(_previewSim, Sim) && ReferenceEquals(_previewOff, _offCall) && ReferenceEquals(_previewDef, _defCall) && Sim.Phase == PlayPhase.PreSnap) { _previewSim = null; _previewKeep = true; }
+                    else { _previewSim = null; if (Stage != null) Stage.NextBeginHuddle = _huddleOn && !Autopilot; BeginPlay(); }
                     yield return Safe(PreSnap(), "pre-snap");
                     if (_quit) yield break;
                     if (!_recall) break;
@@ -338,7 +344,7 @@ namespace PixFootball.Gameplay
             if (model == null) { if (!userOff) _defCall = Flow.DefenseAnswer(cpuOff); yield break; }
             // ---- the full play-call screen over a preview of the field; the play clock keeps ticking while the user chooses ----
             PreviewField();
-            if (_fade > 0.01f) StartCoroutine(Fade(0f, 0.25f));
+            if (_fade > 0.01f) StartCoroutine(Fade(0f, 0.12f));      // v0.9.0 CONNECT E-270: a quick dip, the huddle and the walk-in carry the cut
             float startClock = Mathf.Max(8f, _playClockCarry > 0f ? _playClockCarry : Flow.Rules.PlayClockDead);
             _playClock = startClock;
             CallModel = model;
@@ -367,6 +373,14 @@ namespace PixFootball.Gameplay
                     if (_playClock <= 0f && model.Chosen == null) model.Expire();
                 }
                 Ui.ShowPlayCall(model, _playClock);
+                // v0.9.0 CONNECT E-293: the field behind the call screen lives (idles breathe, the huddle breaks to the line, the crew walks)
+                if (Sim != null && Stage != null && !Paused)
+                {
+                    float dtp = Mathf.Min(Time.deltaTime, 0.05f);
+                    Sim.Tick(dtp, default(ControlInput), -1);
+                    Stage.Present(dtp);
+                    if (Officials != null) Officials.Tick(dtp, Sim, false);
+                }
                 yield return null;
             }
             Ui.HidePlayCall(); CallModel = null;
@@ -453,11 +467,18 @@ namespace PixFootball.Gameplay
         }
 
         // ---------------------------------------------------------------------------------------- field preview while calling
+        Play _previewOff, _previewDef; PlaySimulation _previewSim; bool _previewKeep;
+        /// <summary>v0.9.0 CONNECT E-252: the offense huddles and breaks to the line, the defense jogs up (QA: off with PixSettings / a test).</summary>
+        public static bool HuddleBreak = true;
+        bool _huddleOn { get { return HuddleBreak && Flow != null && Flow.State.Phase == GamePhase.Scrimmage; } }
+
         void PreviewField()
         {
             var state = Flow.State;
             // show the spot with a throwaway sim of the called formation (so the field is not empty behind the menu)
+            if (Stage != null) Stage.NextBeginHuddle = _huddleOn && !Autopilot;
             BeginPlay(_offCall, _defCall);
+            _previewSim = Sim; _previewOff = _offCall; _previewDef = _defCall;
         }
 
         // ---------------------------------------------------------------------------------------- build the play
@@ -521,7 +542,7 @@ namespace PixFootball.Gameplay
             bool hurry = Flow.CpuHurryUp;
             float cpuDelay = hurry ? 0.9f + (float)_autoRng.NextDouble() * 0.8f : 2.6f + (float)_autoRng.NextDouble() * 1.6f;
             bool snap = false, cpuTimeoutChecked = false, delayFoul = false;
-            if (_fade > 0.01f) StartCoroutine(Fade(0f, 0.3f));
+            if (_fade > 0.01f) StartCoroutine(Fade(0f, 0.14f));
             float playClock = _playClockCarry > 0f ? _playClockCarry : Flow.Rules.PlayClockDead;
             _playClockCarry = 0f;
             _prevLT = true;
@@ -573,6 +594,7 @@ namespace PixFootball.Gameplay
                     if (t > cpuDelay && _ps == PsMode.None) snap = true;
                 }
                 if (Autopilot && t > AutopilotSnapDelay) snap = true;
+                if (snap && Stage != null && Stage.BreakInProgress && Sim.Kind == PlayKind.Scrimmage && playClock > 2f) snap = false;      // v0.9.0 CONNECT E-252: nobody snaps the ball while the team is still breaking to the line
                 if (playClock <= 0f && !snap)
                 {
                     // delay of game: the user's offense let the clock run out
@@ -598,6 +620,7 @@ namespace PixFootball.Gameplay
             if (_quit || _recall) yield break;
 
             // snap: burn the runoff; the period may end first
+            yield return CadenceWindow();      // v0.9.0 QBSTANCE: the quarterback calls the cadence before the ball is snapped
             var pc = Flow.PrepareSnap();
             if (pc.Changed)
             {
@@ -700,7 +723,20 @@ namespace PixFootball.Gameplay
             }
             else CheckTwoMinute();
             // fade out, clear, fade in is handled by the next BeginPlay (cut hidden by the banner / fade)
-            yield return Fade(1f, 0.22f);
+            // v0.9.0 CONNECT E-216: the last tackled player gets up before the cut (budget 3.1 s over the whistle window)
+            if (!_quit && Stage != null && Sim != null)
+            {
+                float extra = 0f;
+                while (!_quit && extra < 3.1f && Stage.PostPlayBusy)
+                {
+                    if (Paused) { PauseFrame(); yield return null; continue; }
+                    float dtx = Mathf.Min(Time.deltaTime, 0.05f); extra += dtx;
+                    sim.Tick(dtx, default(ControlInput), -1); Stage.Present(dtx); HandleEvents(); PresentFrame(dtx, 0f, 0f);
+                    if (Broadcast != null) Broadcast.OnPlayFrame(dtx, false);
+                    yield return null;
+                }
+            }
+            yield return Fade(1f, 0.1f);      // v0.9.0 CONNECT E-270 (was 0.22 s)
             Stage.End(); Sim = null;
             yield return null;
             _fadeTarget = 0f;
@@ -709,7 +745,7 @@ namespace PixFootball.Gameplay
         // ---------------------------------------------------------------------------------------- penalties
         IEnumerator PenaltyFlow(PlaySimulation sim, PenaltyChoice c, Action<PenaltyDecision> done)
         {
-            Audio.Whistle();
+            Audio.Whistle(); _penaltyWhistled = true;   // v0.9.0 CONNECT E-383: this is the play's whistle; React() must not blow a second one
             bool userDecides = Flow.UserDecides(c) && !Autopilot && Ui != null;
             int yards = Math.Abs(c.Yards);
             var data = new PenaltyPanelData
@@ -1061,9 +1097,11 @@ namespace PixFootball.Gameplay
             }
         }
 
+        bool _penaltyWhistled;   // v0.9.0 CONNECT E-383
         void React(PlayOutcome o)
         {
-            Audio.Whistle();
+            if (!_penaltyWhistled) Audio.Whistle();   // v0.9.0 CONNECT E-383: one whistle per play (the penalty flag already blew it)
+            _penaltyWhistled = false;
             if (PlayEndReasonShown != null && o.EndReason != null) PlayEndReasonShown(o.EndReason, o);
             Color col = UiColorsLite.Blue; float secs = 2.4f;
             CoreTeam user = Config.UserTeam;
@@ -1101,6 +1139,7 @@ namespace PixFootball.Gameplay
                 else if (o.Headline == Headline.Incomplete) Officials.Signal(OfficialSignal.Incomplete);
                 else if (o.Headline == Headline.Safety) Officials.Signal(OfficialSignal.Safety);
                 else if (o.Headline == Headline.FieldGoal || o.Headline == Headline.ExtraPoint) Officials.CoachCheer(o.ScoringTeam == CoreTeam.Home ? 0 : 1);
+                else if (o.Headline != Headline.Kickoff && o.Headline != Headline.Penalty) Officials.Signal(OfficialSignal.DeadBall);   // v0.9 (GFX-427): every other whistle gets the dead-ball signal and the whistle arm
             }
             if (o.PenaltyCall != null && !o.PenaltyAccepted) Banner("NO PENALTY", UiColorsLite.Blue, 1.4f, "");
             if (o.Headline == Headline.Kickoff && o.Result != null && o.Result.Touchback) Banner("TOUCHBACK", UiColorsLite.Blue, 1.8f, "");

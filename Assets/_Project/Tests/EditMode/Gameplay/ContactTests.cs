@@ -109,7 +109,7 @@ namespace PixFootball.Tests
             }
             Vector2 simA = new Vector2(5f, 8f), simB = new Vector2(5f, 6.6f);
             var s = ContactSession.Create(p, ContactKind.Wrap, 1, 16, simA, simB, 0f, 0f, new Vector2(0f, 3f));
-            Assert.AreEqual(0.32f, s.Start, 0.02f, "the take starts a lead-in before the contact");
+            Assert.AreEqual(0.14f, s.Start, 0.02f, "the take starts a lead-in (0.36 s: the pre-roll of v0.9.0) before the contact");
             ContactActorPose a, b;
             s.Evaluate(simA, 0f, simB, 0f, out a, out b);
             Assert.AreEqual(0f, a.Warp, Eps, "no warp yet: the view is the simulation");
@@ -221,9 +221,9 @@ namespace PixFootball.Tests
         {
             var big = new RagdollStateMachine(); big.Trigger(1f);
             var small = new RagdollStateMachine(); small.Trigger(0f);
-            Assert.AreEqual(1.2f, big.ActiveBudget, 1e-4f); Assert.AreEqual(0.4f, small.ActiveBudget, 1e-4f);
+            Assert.AreEqual(2.0f, big.ActiveBudget, 1e-4f); Assert.AreEqual(0.4f, small.ActiveBudget, 1e-4f);      // v0.9.0 CONNECT E-230: the budget is 2.0 s
             float tBig = ActiveTime(big, 9f, false), tSmall = ActiveTime(small, 9f, false);
-            Assert.AreEqual(1.2f, tBig, 0.03f); Assert.AreEqual(0.4f, tSmall, 0.03f);
+            Assert.AreEqual(2.6f, tBig, 0.03f, "a body still tumbling at the end of its budget is given 0.6 s more (speed gate)"); Assert.AreEqual(1.0f, tSmall, 0.03f);
         }
 
         static float ActiveTime(RagdollStateMachine m, float speed, bool grounded)
@@ -245,7 +245,7 @@ namespace PixFootball.Tests
             float t = ActiveTime(m, 0.1f, true);
             Assert.AreEqual(0.4f, t, 0.03f, "settles as soon as the minimum time is up");
             var air = new RagdollStateMachine(); air.Trigger(1f);
-            Assert.AreEqual(1.2f, ActiveTime(air, 0.1f, false), 0.03f, "a body in the air keeps simulating");
+            Assert.AreEqual(2.0f, ActiveTime(air, 0.1f, false), 0.03f, "a body in the air keeps simulating until the budget is up");
         }
 
         [Test]

@@ -106,7 +106,8 @@ namespace PixFootball.Tests
             Assert.AreEqual(StanceKind.LinebackerTwoPoint, StanceRules.For(Position.MLB, SimSide.Defense, PlayKind.Scrimmage, "4-3", 0f, 4.5f, false, false).Kind);
             Assert.AreEqual(StanceKind.SafetyDeep, StanceRules.For(Position.FS, SimSide.Defense, PlayKind.Scrimmage, "4-3", -5f, 12f, false, false).Kind);
             Assert.AreEqual(StanceKind.CornerOff, StanceRules.For(Position.CB, SimSide.Defense, PlayKind.Scrimmage, "4-3", -17f, 7f, false, false).Kind);
-            Assert.AreEqual(StanceKind.CornerPress, StanceRules.For(Position.CB, SimSide.Defense, PlayKind.Scrimmage, "4-3", -17f, 1.5f, false, false).Kind);
+            Assert.AreEqual(StanceKind.CornerPress, StanceRules.For(Position.CB, SimSide.Defense, PlayKind.Scrimmage, "4-3", -17f, 1.0f, false, false).Kind);      // v0.9.0 (E-190): press only within about 1.2 yd
+            Assert.AreEqual(StanceKind.CornerOff, StanceRules.For(Position.CB, SimSide.Defense, PlayKind.Scrimmage, "4-3", -17f, 2.0f, false, false).Kind);
             Assert.AreEqual(StanceKind.ReceiverSplit, StanceRules.For(Position.WR, SimSide.Offense, PlayKind.Scrimmage, "11", -17.5f, 0f, false, false).Kind);
             Assert.AreEqual(StanceKind.ReceiverSlot, StanceRules.For(Position.WR, SimSide.Offense, PlayKind.Scrimmage, "11", -8f, -1f, false, false).Kind);
             Assert.AreEqual(StanceKind.ThreePoint, StanceRules.For(Position.TE, SimSide.Offense, PlayKind.Scrimmage, "11", 4.5f, 0f, false, false).Kind);
@@ -249,7 +250,7 @@ namespace PixFootball.Tests
             foreach (var f in Book.Formations.Where(f => f.Side == PlaySide.Defense))
             {
                 var dl = f.Slots.Where(s => PositionGroup.IsDefensiveLine(s.Position)).ToArray();
-                foreach (var s in dl) Assert.LessOrEqual(s.Y, 1.1f, f.Name + " DL nose to nose");
+                foreach (var s in dl) Assert.LessOrEqual(s.Y, 1.5f, f.Name + " DL nose to nose");   // v0.9.0 (E-166 / B-013): 1.1 -> 1.5: the line sits 1.45 yd ahead of the ball (the offensive line is at -0.15) so the bodies are a hand apart (0.7 yd) at the snap instead of overlapping
             }
         }
     }

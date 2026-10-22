@@ -48,6 +48,7 @@ namespace PixFootball.Presentation
             var plan = _activeShot.Value;
             _shotAge += dt;
             float u = Mathf.Clamp01(_shotAge / Mathf.Max(0.1f, plan.Duration));
+            _ctx.Dt = dt;   // v0.9.0 CONNECT E-394: the tight shots smooth their subject / facing with it
             var pose = ShotLibrary.Evaluate(plan.Kind, u, _ctx);
             _cam.Set(pose.Pos, pose.Look, pose.Fov, pose.Focus, pose.Aperture > 0f ? pose.Aperture : 2f);
             _dir.Ui?.SetHint(""); if (_dir.Markers != null) _dir.Markers.SetRing(null);   // the cinematic shots carry no controller prompts or player ring
@@ -187,7 +188,10 @@ namespace PixFootball.Presentation
                 Cinematics = PixSettings.Cinematics, UserPlaying = !_dir.Config.CpuVsCpu && !_dir.Autopilot, Headline = o.Headline, Touchdown = o.Headline == Headline.Touchdown, Turnover = turnover,
                 Score = o.ScoringTeam.HasValue, BigPlay = score >= HighlightScorer.FullThreshold, HomeBenefits = benefit == CoreTeam.Home,
                 CarrierKnown = o.Headline != Headline.Incomplete && o.Headline != Headline.Kickoff && o.Headline != Headline.Punt && o.Headline != Headline.Penalty && o.Headline != Headline.Kneel && o.Headline != Headline.Spike && sim.Kind == PlayKind.Scrimmage,
-                PlaysSinceCrowd = _playsSinceCrowd
+                PlaysSinceCrowd = _playsSinceCrowd,
+                // v0.9.0 CONNECT E-380/E-381: fit the plan into the match director's wind-down (same numbers as MatchDirector's `wind`) so no shot outlives it
+                WindSeconds = ShotRules.WindFor(o.Headline == Headline.Touchdown, sim.Kind == PlayKind.Scrimmage && sim.Result != null && sim.Result.Type == PlayType.Penalty),
+                FirstShotDelay = o.Headline == Headline.Touchdown ? 0.75f : 0.5f
             };
             var plan = ShotRules.PostPlay(ctx);
             _coachTeam = TeamIdxOf(benefit);

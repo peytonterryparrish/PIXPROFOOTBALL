@@ -13,13 +13,13 @@ namespace PixFootball.Sim
     public sealed class FatigueTracker
     {
         /// <summary>Multiplier from the energy a body burned during the play to the energy the player loses.</summary>
-        public const float DrainScale = 1.5f;
+        public const float DrainScale = 1.25f;
         /// <summary>Extra energy per second spent locked in a block or shedding one (linemen get tired without sprinting).</summary>
         public const float EngagedDrainPerSecond = 0.006f;
         /// <summary>Energy regained per second on the bench or while the other unit is on the field.</summary>
         public const float BenchRecoveryPerSecond = 1f / 75f;
         /// <summary>Energy regained per second between snaps for players who stay on the field.</summary>
-        public const float HuddleRecoveryPerSecond = 1f / 600f;
+        public const float HuddleRecoveryPerSecond = 1f / 900f;   // v0.9.0 (E-355): was 1/600 (a drive barely tired anyone)
 
         private readonly Dictionary<int, float> _energy = new Dictionary<int, float>();
 

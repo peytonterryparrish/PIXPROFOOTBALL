@@ -44,7 +44,7 @@ namespace PixFootball.Core
                 St(Position.ROLB, -15f, 48f), St(Position.CB, -5f, 48f), St(Position.CB, 5f, 48f), St(Position.FS, 15f, 48f) }));
 
             list.Add(new Formation(PuntF, PlaySide.Special, "Punt", new[] {
-                St(Position.P, 0f, -14f, "P"), St(Position.C, 0f, 0f, "C"), St(Position.LG, -1.5f, 0f), St(Position.RG, 1.5f, 0f),
+                St(Position.P, -0.45f, -14f, "P"), St(Position.C, 0f, 0f, "C"), St(Position.LG, -1.5f, 0f), St(Position.RG, 1.5f, 0f),
                 St(Position.LT, -3f, 0f), St(Position.RT, 3f, 0f), St(Position.TE, -4.5f, 0f), St(Position.TE, 4.5f, 0f),
                 St(Position.WR, -20f, 0f, "G1"), St(Position.WR, 20f, 0f, "G2"), St(Position.FB, 0f, -4f, "PP") }));
 
@@ -54,7 +54,7 @@ namespace PixFootball.Core
                 St(Position.CB, -20f, 3f), St(Position.CB, 20f, 3f), St(Position.FS, -8f, 20f), St(Position.SS, 8f, 20f) }));
 
             list.Add(new Formation(FieldGoalF, PlaySide.Special, "FieldGoal", new[] {
-                St(Position.K, 1.5f, -8.5f, "K"), St(Position.QB, 0f, -7f, "H"), St(Position.C, 0f, 0f, "C"), St(Position.LG, -1.5f, 0f), St(Position.RG, 1.5f, 0f),
+                St(Position.K, -1.5f, -9.0f, "K"), St(Position.QB, 0f, -7f, "H"), St(Position.C, 0f, 0f, "C"), St(Position.LG, -1.5f, 0f), St(Position.RG, 1.5f, 0f),
                 St(Position.LT, -3f, 0f), St(Position.RT, 3f, 0f), St(Position.TE, -4.5f, 0f), St(Position.TE, 4.5f, 0f),
                 St(Position.WR, -6f, -1f), St(Position.WR, 6f, -1f) }));
 
@@ -75,10 +75,19 @@ namespace PixFootball.Core
             };
         }
 
-        private static LaneAssignment Lane(Formation f, int slot, int lane, float depth, bool gunner = false)
+        private static LaneAssignment Lane(Formation f, int slot, int lane, float depth, bool gunner = false, bool fan = false)
         {
             var l = new LaneAssignment { Lane = lane, Gunner = gunner };
             SlotSpec s = f.Slots[slot];
+            if (fan && depth > 25f)
+            {
+                // v0.9.0 (E-342): a kickoff coverage lane fans out (x scaled 1.15 toward the sideline by depth 20) instead of two vertical segments: the line spreads as it comes down the field
+                float fx = Math.Max(-24f, Math.Min(24f, s.X * 1.15f));
+                l.Path.Add(new Vec2(s.X, 10f));
+                l.Path.Add(new Vec2(fx, 22f));
+                l.Path.Add(new Vec2(fx, depth));
+                return l;
+            }
             l.Path.Add(new Vec2(s.X, depth * 0.5f));
             l.Path.Add(new Vec2(s.X, depth));
             return l;
@@ -99,7 +108,7 @@ namespace PixFootball.Core
             {
                 var a = new Assignment[11];
                 a[0] = new KickAssignment { KickType = kind, Role = KickRole.Kicker, AimX = aim };
-                for (int i = 1; i < 11; i++) a[i] = Lane(ko, i, i, kind == KickKind.Squib ? 30f : 55f, i == 1 || i == 10);
+                for (int i = 1; i < 11; i++) { var ln = Lane(ko, i, i, kind == KickKind.Squib ? 30f : 55f, false, true); ln.Contain = i == 1 || i == 10; a[i] = ln; }   // v0.9.0 (E-341): the widest two contain (they were gunners that converged on the ball spot)
                 AddPlay(pb, SpecialPlay(ko, name, PlayCategory.Kickoff, a, "kickoff"));
             };
             kickoff("Kickoff Deep Middle", KickKind.Deep, 0f);
@@ -127,7 +136,14 @@ namespace PixFootball.Core
                 r1.Path.Add(new Vec2(lane, 50f)); r1.Path.Add(new Vec2(lane, 20f));
                 a[0] = r1;
                 a[1] = new ReturnerAssignment { FairCatchAllowed = true, ReturnLaneX = 0f };
-                for (int i = 2; i < 11; i++) a[i] = Blk(kind, BlockTarget.NearestDefender);
+                // v0.9.0 (E-343): the blockers have different jobs. A wedge return builds a four-man wedge in front of the returner, three wall men and two trailers; a left / right return is a five-man wall,
+                // two wedge men and two cross blocks (all nine used to get the same kind and target)
+                bool wedge = kind == BlockKind.Wedge;
+                for (int i = 2; i < 11; i++)
+                {
+                    if (wedge) a[i] = i <= 5 ? Blk(BlockKind.Wedge, BlockTarget.NearestDefender) : (i <= 8 ? Blk(BlockKind.Wall, BlockTarget.Playside) : Blk(BlockKind.Man, BlockTarget.NearestDefender));
+                    else a[i] = i <= 6 ? Blk(BlockKind.Wall, BlockTarget.Playside) : (i <= 8 ? Blk(BlockKind.Wedge, BlockTarget.NearestDefender) : Blk(BlockKind.Man, BlockTarget.Linebacker));
+                }
                 AddPlay(pb, SpecialPlay(kr, name, PlayCategory.KickReturn, a, "return"));
             };
             kickReturn("Kick Return Middle Wedge", BlockKind.Wedge, 0f);
@@ -151,6 +167,7 @@ namespace PixFootball.Core
             punt("Punt Directional Left", KickKind.DirectionalLeft, -15f);
             punt("Punt Directional Right", KickKind.DirectionalRight, 15f);
             punt("Rugby Punt", KickKind.Rugby, 8f);
+            punt("Pooch Punt", KickKind.Pooch, 0f);   // v0.9.0 (E-339)
 
             // Punt returns / blocks
             Formation pr = pb.FindFormation(PuntReturnF);

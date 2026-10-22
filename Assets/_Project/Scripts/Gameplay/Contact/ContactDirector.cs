@@ -9,6 +9,9 @@ namespace PixFootball.Gameplay
     /// v0.4 "Contact": physics-blended tackles. Turns the simulation's tackle / sack / broken tackle / truck / pancake events into authored two-actor takes aligned to the simulated
     /// bodies (see <see cref="ContactSession"/>), drives both views through the take with the animation root motion warped on and off the simulation, attaches gang tacklers and drags,
     /// hands big hits to the active ragdoll and picks the get-up take (face up / face down) when a ragdoll settles. Falls back to the v0.3 in-place clips when the contact table is absent.
+    /// v0.9.0 CONNECT: momentum-preserving takes, takes at the pace of the game, the carrier released when HIS take ends, a broken take ended by the next tackler, struggling drags instead of
+    /// frozen statues, gang tacklers matched in time and place, impacts at the contact moment, contested catches and jams as short pairs, pancake finish, stagger before the ragdoll, QB hit
+    /// flinch, fumble recovery, classified get-ups and a catch-up walk instead of a glide.
     /// </summary>
     public sealed class ContactDirector
     {
@@ -16,6 +19,10 @@ namespace PixFootball.Gameplay
         readonly List<ContactSession> _sessions = new List<ContactSession>();
         readonly List<Joiner> _joiners = new List<Joiner>();
         readonly Dictionary<int, SoloTake> _solo = new Dictionary<int, SoloTake>();
+        readonly List<OneShot> _oneShots = new List<OneShot>();
+        readonly List<PendingKnock> _knocks = new List<PendingKnock>();
+        readonly List<PendingImpact> _impacts = new List<PendingImpact>();
+        readonly List<string> _recent = new List<string>();
         readonly List<ContactTable.Pair> _scratch = new List<ContactTable.Pair>();
         ContactTable _table;
         readonly List<GetUp> _getUps = new List<GetUp>();
@@ -23,17 +30,41 @@ namespace PixFootball.Gameplay
 
         public bool Enabled { get { return _table != null && _table.pairs.Count > 0; } }
         public int ActiveSessions { get { return _sessions.Count; } }
+        /// <summary>A take, a joiner, a get-up, a one-shot or a ragdoll is still running (the post-play window waits for it: E-216).</summary>
+        public bool Busy
+        {
+            get
+            {
+                if (_sessions.Count > 0 || _solo.Count > 0 || _joiners.Count > 0 || _oneShots.Count > 0 || _knocks.Count > 0) return true;
+                for (int i = 0; i < 22; i++) { var v = View(i); if (v != null && v.Ragdoll != null && v.Ragdoll.Active) return true; }
+                return false;
+            }
+        }
         /// <summary>Raised when a big hit lands (carrier, tackler, impact 0..1): camera shake, rumble and hit sounds hook in here.</summary>
         public System.Action<ContactImpact> Impact;
         /// <summary>A player was handed to the active ragdoll (agent, intensity): the look layer dirties his kit.</summary>
         public System.Action<int, float> Knocked;
-        void Fire(Vector3 pos, float k, bool big, int a, int b, bool sack = false) { if (Impact != null) Impact(new ContactImpact { Position = pos, Intensity = k, Big = big, AgentA = a, AgentB = b, Sack = sack }); }
+        void FireNow(Vector3 pos, float k, bool big, int a, int b, int hitter, int victim, bool sack = false)
+        {
+            if (Impact != null) Impact(new ContactImpact { Position = pos, Intensity = k, Big = big, AgentA = a, AgentB = b, Sack = sack, Hitter = hitter, Victim = victim, HasRoles = true });
+        }
+        /// <summary>Fires the impact now, or at the contact moment of the session that carries it (E-378).</summary>
+        void Fire(Vector3 pos, float k, bool big, int a, int b, bool sack = false, ContactSession at = null)
+        {
+            // a = carrier / blocker / receiver, b = tackler / loser / defender
+            if (at != null && !at.PassedContact) { _impacts.Add(new PendingImpact { S = at, Pos = pos, K = k, Big = big, A = a, B = b, Sack = sack }); return; }
+            FireNow(pos, k, big, a, b, b, a, sack);
+        }
         public static bool RagdollEnabled = true;
+        static float Rate { get { return GamePace.AnimationRate; } }
 
         /// <summary>Last chosen take, for the autotest log.</summary>
         public string LastTake = "";
 
         struct GetUp { public ContactTable.Pair Pair; public bool ActorA; public float FaceUp; public float Start; }
+        sealed class PendingImpact { public ContactSession S; public Vector3 Pos; public float K; public bool Big, Sack; public int A, B; }
+        sealed class PendingKnock { public int Agent; public Vector3 Impulse; public float Intensity, At; }
+        sealed class OneShot { public int Agent; public float End, T; }
 
         sealed class Joiner
         {
@@ -43,6 +74,8 @@ namespace PixFootball.Gameplay
             public float Start, Time;
             public bool Held; public float HoldAt;
             public float StartYaw;
+            public bool Playing; public float YawOffset;
+            public AnimationClip Clip;
         }
 
         /// <summary>A single actor playing a take on his own: the get-up after a ragdoll.</summary>
@@ -76,18 +109,27 @@ namespace PixFootball.Gameplay
             foreach (var s in _sessions) Release(s.Carrier, s.Tackler);
             foreach (var j in _joiners) Release(j.Agent, -1);
             foreach (var kv in _solo) Release(kv.Key, -1);
-            _sessions.Clear(); _joiners.Clear(); _solo.Clear(); _stiff.Clear();
+            foreach (var o in _oneShots) Release(o.Agent, -1);
+            _sessions.Clear(); _joiners.Clear(); _solo.Clear(); _stiff.Clear(); _oneShots.Clear(); _knocks.Clear(); _impacts.Clear();
         }
 
         void Release(int a, int b)
         {
-            var va = View(a); if (va != null) { va.ContactDriven = false; }
-            var vb = View(b); if (vb != null) { vb.ContactDriven = false; }
+            var va = View(a); if (va != null) { va.ContactDriven = false; if (va.Rig != null) va.Rig.SetScrub(false); }
+            var vb = View(b); if (vb != null) { vb.ContactDriven = false; if (vb.Rig != null) vb.Rig.SetScrub(false); }
         }
 
         SimAgentView View(int id) { return id >= 0 && id < 22 ? _stage.Views[id] : null; }
         ContactSession SessionOf(int carrier) { foreach (var s in _sessions) if (s.Carrier == carrier) return s; return null; }
-        bool InSession(int agent) { foreach (var s in _sessions) if (s.Carrier == agent || s.Tackler == agent) return true; foreach (var j in _joiners) if (j.Agent == agent) return true; return _solo.ContainsKey(agent); }
+        bool InSession(int agent)
+        {
+            foreach (var s in _sessions) if ((s.Carrier == agent && !s.ReleasedA) || (s.Tackler == agent && !s.ReleasedB)) return true;
+            foreach (var j in _joiners) if (j.Agent == agent) return true;
+            foreach (var o in _oneShots) if (o.Agent == agent) return true;
+            return _solo.ContainsKey(agent);
+        }
+
+        static float RadiusOf(SimAgentView v) { return v == null ? 0.29f : (v.Size == PlayerSize.Large ? 0.33f : (v.Size == PlayerSize.Small ? 0.26f : 0.29f)); }
 
         // ============================================================================================================ events
         /// <summary>Feeds one simulation event; returns true when the director took over the animation of the agents involved.</summary>
@@ -102,15 +144,26 @@ namespace PixFootball.Gameplay
                 case SimEventType.BrokenTackle:
                     if (e.AgentA >= 0 && e.AgentB >= 0) OnBroken(e);
                     break;
-                case SimEventType.Catch:
-                    if (e.AgentA >= 0 && e.AgentA < 22) OnCatch(e);
-                    break;
                 case SimEventType.Pancake:
                     if (e.AgentA >= 0 && e.AgentB >= 0) OnPancake(e);
                     break;
                 case SimEventType.CarrierMove:
                     if (e.AgentA >= 0 && e.AgentB >= 0 && e.Value > 0.5f && e.Note == "Truck") OnTruck(e);
                     else if (e.AgentA >= 0 && e.AgentB >= 0 && e.Note == "StiffArm") OnStiffArm(e);
+                    break;
+                case SimEventType.Jam:
+                    if (e.AgentA >= 0 && e.AgentB >= 0 && e.AgentA < 22 && e.AgentB < 22) OnJam(e);
+                    break;
+                case SimEventType.QbHit:
+                    if (e.AgentB >= 0 && e.AgentB < 22) OnQbHit(e);
+                    break;
+                case SimEventType.Recovery:
+                    if (e.AgentA >= 0 && e.AgentA < 22) OnRecovery(e);
+                    break;
+                case SimEventType.Deflection:
+                case SimEventType.Interception:
+                    // E-130: the receiver who lost the ball reacts (a flinch for a tip, the frustration take for a pick); the defender's own reach was started ahead by the stage
+                    if (e.AgentB >= 0 && e.AgentB < 22 && !InSession(e.AgentB)) OnLostBall(e);
                     break;
             }
         }
@@ -136,14 +189,20 @@ namespace PixFootball.Gameplay
             if (vc == null || vt == null) return;
             var existing = SessionOf(carrier);
             bool drag = e.Tackle == TackleType.Drag;
+            if (existing != null && existing.CarrierRunsOn && !existing.ReleasedA)
+            {
+                // E-206: a second tackler on a carrier who is still in a broken take brings him down: the broken take ends (blended into the wrap) and a real tackle starts
+                EndSession(existing, false);
+                existing = null;
+            }
             if (existing != null)
             {
                 if (existing.Tackler == tackler || !drag)
                 {
                     // the drag ends: the same take plays on from where it was held (or a new gang member goes in)
-                    if (existing.Held) { existing.Hold(false); existing.HoldAt = 0f; var rc = vc.Rig; if (rc != null) rc.SetFrozen(false); var rt = vt.Rig; if (rt != null) rt.SetFrozen(false); }
+                    if (existing.Held) ReleaseHold(existing);
                     if (existing.Tackler != tackler && !InSession(tackler)) AddJoiner(tackler, carrier, existing, false);
-                    if (e.Tackle == TackleType.BigHit) Fire(vc.transform.position, ImpactOf(e), true, carrier, tackler);
+                    if (e.Tackle == TackleType.BigHit) FireNow(vc.transform.position, ImpactOf(e), true, carrier, tackler, tackler, carrier);
                     return;
                 }
                 if (!InSession(tackler)) AddJoiner(tackler, carrier, existing, true);
@@ -156,29 +215,43 @@ namespace PixFootball.Gameplay
             StartSession(kind, tackler, carrier, e, drag);
         }
 
+        void ReleaseHold(ContactSession s)
+        {
+            if (!s.Held) return;
+            var vc = View(s.Carrier); var vt = View(s.Tackler);
+            s.Hold(false); s.HoldAt = 0f;
+            // the take plays on from where the struggle left it
+            if (vc != null && vc.Rig != null) { vc.Rig.Scrub(s.Time); vc.Rig.SetScrub(false); }
+            if (vt != null && vt.Rig != null) { vt.Rig.Scrub(s.Time); vt.Rig.SetScrub(false); }
+        }
+
         void OnBroken(in PlayEvent e)
         {
             int tackler = e.AgentA, carrier = e.AgentB;
             if (tackler >= 22 || carrier >= 22) return;
             var existing = SessionOf(carrier);
-            if (existing != null && existing.Held) EndSession(existing);   // a dragger the carrier shook off
+            if (existing != null && existing.Held) EndSession(existing, false);   // a dragger the carrier shook off: the take blends straight into the broken take (E-241)
             if (InSession(tackler) || InSession(carrier)) return;
-            StartSession(ContactKind.Broken, tackler, carrier, e, false);
+            var sim = _stage.Sim;
+            bool qb = carrier == 0 && sim.Kind == PlayKind.Scrimmage && !sim.PassIsThrown;
+            StartSession(qb ? ContactKind.SackBroken : ContactKind.Broken, tackler, carrier, e, false);
         }
 
         void OnTruck(in PlayEvent e)
         {
             int carrier = e.AgentA, defender = e.AgentB;
             if (defender >= 22 || carrier >= 22) return;
+            // E-220: the Truck event plays a Truck pair (the carrier runs through the defender); the ragdoll is the fallback when no pair fits
+            if (!InSession(carrier) && !InSession(defender) && StartSession(ContactKind.Truck, defender, carrier, e, false)) return;
             Vector3 dir = WorldPos(defender) - WorldPos(carrier); dir.y = 0f;
             if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
             Knock(defender, dir.normalized * 4.2f + Vector3.up * 1.2f, 0.75f);
-            Fire(WorldPos(defender), 0.85f, true, carrier, defender);
+            FireNow(WorldPos(defender), 0.85f, true, carrier, defender, carrier, defender);
         }
 
         readonly Dictionary<int, int> _stiff = new Dictionary<int, int>();
 
-        /// <summary>The carrier's stiff arm reaches for the defender's chest (IK over the stiff-arm clip); a won stiff arm shoves the defender off balance with a light ragdoll.</summary>
+        /// <summary>The carrier's stiff arm reaches for the defender's chest (IK over the stiff-arm clip). E-147: a won stiff arm only stumbles the defender in the simulation, so he staggers (the Stumble take), he is not ragdolled to the ground.</summary>
         void OnStiffArm(in PlayEvent e)
         {
             int carrier = e.AgentA, defender = e.AgentB;
@@ -187,13 +260,7 @@ namespace PixFootball.Gameplay
             if (vc == null || vd == null || vc.Motion == null) return;
             vc.Motion.StiffArmAt(ChestPoint(vd), 0.55f);
             _stiff[carrier] = defender;
-            if (e.Value > 0.5f)
-            {
-                Vector3 dir = vd.transform.position - vc.transform.position; dir.y = 0f;
-                if (dir.sqrMagnitude < 1e-4f) dir = vc.Forward;
-                Knock(defender, dir.normalized * 2.6f + Vector3.up * 0.3f, 0.2f);
-                Fire(vd.transform.position, 0.3f, false, carrier, defender);
-            }
+            if (e.Value > 0.5f) FireNow(vd.transform.position, 0.3f, false, carrier, defender, carrier, defender);
         }
 
         static Vector3 ChestPoint(SimAgentView v)
@@ -202,13 +269,26 @@ namespace PixFootball.Gameplay
             return c != null ? c.position : v.transform.position + Vector3.up * 1.3f;
         }
 
-        /// <summary>A catch with a defender on the receiver: both play an authored contested catch pair (receiver wins) instead of the in-place catch clip.</summary>
-        void OnCatch(in PlayEvent e)
+        /// <summary>
+        /// E-122 / E-123 / E-129: a catch in traffic as a short pair. Asked by the stage when the intended receiver is about to catch: only when a defender is within a yard, the receiver is nearly stationary and
+        /// the ball is within reach height; the pair starts so its contact frame IS the catch frame, and the receiver is let go 0.35 s after it (he runs on); only the defender stays in the take.
+        /// Returns true when the director took the receiver over (the stage then does not play the plain catch).
+        /// </summary>
+        /// <summary>True when this receiver's catch is a duel in traffic (defender within a yard, receiver nearly stationary, ball low): the stage then waits for the pair instead of playing the plain catch.</summary>
+        public bool IsContestedCandidate(int receiver)
         {
+            int d; return Candidate(receiver, out d);
+        }
+
+        bool Candidate(int receiver, out int best)
+        {
+            best = -1;
+            if (!Enabled || _stage.Sim == null) return false;
             var sim = _stage.Sim;
-            var r = sim.Agents[e.AgentA];
-            if (r.Side != SimSide.Offense || sim.Kind != PlayKind.Scrimmage) return;
-            int best = -1; float bd = 1.9f;
+            if (sim.Kind != PlayKind.Scrimmage || receiver < 1 || receiver >= 11) return false;
+            var r = sim.Agents[receiver];
+            if (r.Speed * PlayFrame.YardsToMeters > 2.0f || sim.Ball.Pos.Z > 3.0f) return false;
+            float bd = 1.0f;
             for (int i = 11; i < 22; i++)
             {
                 var d = sim.Agents[i];
@@ -216,9 +296,84 @@ namespace PixFootball.Gameplay
                 float dist = (d.Pos - r.Pos).Length;
                 if (dist < bd) { bd = dist; best = i; }
             }
-            if (best < 0 || InSession(best) || InSession(e.AgentA)) return;
-            StartSession(ContactKind.Contested, best, e.AgentA, e, false);
-            Fire(WorldPos(e.AgentA), 0.35f, false, e.AgentA, best);
+            return best >= 0;
+        }
+
+        public bool WantsContestedCatch(int receiver, float eta)
+        {
+            if (!Enabled || _stage.Sim == null) return false;
+            var sim = _stage.Sim;
+            if (InSession(receiver)) return true;
+            var r = sim.Agents[receiver];
+            int best;
+            if (!Candidate(receiver, out best)) return false;
+            if (InSession(best)) return false;
+            // start so the pair's contact lands on the catch
+            var vc = View(receiver); var vt = View(best);
+            if (vc == null || vt == null) return false;
+            var sit = new ContactSituation { Kind = ContactKind.Contested, Bearing = ContactMath.BearingDeg(Ground(vt.transform.position), Ground(vc.transform.position), vc.Yaw), CarrierSpeed = r.Speed * PlayFrame.YardsToMeters, Closing = 0f, Seed = ++_seed * 5 + receiver };
+            var pair = TackleVariants.Choose(_table.pairs, sit);
+            if (pair == null) return false;
+            if (eta > Mathf.Min(0.36f, pair.tContact) + 0.04f) return false;     // not yet: the stage asks again every frame
+            var ev = new PlayEvent { Type = SimEventType.Catch, AgentA = receiver, AgentB = best, Value = 0f };
+            var s = StartSessionWith(pair, ContactKind.Contested, best, receiver, ev, false, sit);
+            if (s == null) return false;
+            s.ReleaseAAfter = 0.35f; s.ReleaseBAfter = 0f;
+            Fire(WorldPos(receiver), 0.35f, false, receiver, best, false, s);
+            return true;
+        }
+
+        /// <summary>E-188: the press jam as a short collision pair at the line: the receiver is let go at 0.4 s after contact and runs his release, the corner stays in the take a little longer.</summary>
+        void OnJam(in PlayEvent e)
+        {
+            int cb = e.AgentA, wr = e.AgentB;
+            if (InSession(cb) || InSession(wr)) return;
+            var s = StartSession(ContactKind.Collision, cb, wr, e, false, true);
+        }
+
+        void OnQbHit(in PlayEvent e)
+        {
+            int qb = e.AgentB, hitter = e.AgentA;
+            var vq = View(qb);
+            if (vq == null || InSession(qb) || vq.Rig == null || !vq.Rig.Valid) return;
+            // E-232: the quarterback flinches after the throw (upper body: the legs keep their follow-through)
+            var plan = AnimKit.Stumble(_seed++, 0f); plan.UpperBody = true;
+            if (plan.Valid) PlayOneShot(qb, plan, 0.6f);
+            FireNow(vq.transform.position, 0.4f, false, qb, hitter, hitter, qb);
+        }
+
+        void OnLostBall(in PlayEvent e)
+        {
+            var v = View(e.AgentB); if (v == null || v.Rig == null || !v.Rig.Valid) return;
+            ClipPlan plan;
+            if (e.Type == SimEventType.Interception) plan = AnimKit.Reaction("frustration", e.AgentB + _seed, false);
+            else { plan = AnimKit.Stumble(e.AgentB + _seed, 0f); plan.UpperBody = true; }
+            if (plan.Valid) PlayOneShot(e.AgentB, plan, e.Type == SimEventType.Interception ? 1.8f : 0.5f);
+        }
+
+        void OnRecovery(in PlayEvent e)
+        {
+            int a = e.AgentA;
+            var v = View(a);
+            if (v == null || InSession(a) || v.Rig == null || !v.Rig.Valid) return;
+            // E-233: the player who falls on the ball dives for it
+            var lib = ArtLibrary.Load(); if (lib == null) return;
+            var c = lib.ClipVariantCount(ArtKeys.FumbleDive) > 0 ? lib.ClipVariant(ArtKeys.FumbleDive, 0) : null;
+            if (c == null) return;
+            var plan = new ClipPlan { Clip = c, Start = 0f, End = Mathf.Min(c.length, 2.4f), Speed = Rate, FadeIn = 0.12f, FadeOut = 0.4f };
+            PlayOneShot(a, plan, 2.0f);
+        }
+
+        /// <summary>Plays a clip over one player for a while (the director keeps the match animation logic off him meanwhile).</summary>
+        public void PlayOnce(int agent, ClipPlan plan, float seconds) { PlayOneShot(agent, plan, seconds); }
+
+        void PlayOneShot(int agent, ClipPlan plan, float seconds)
+        {
+            var v = View(agent); if (v == null || v.Rig == null || !v.Rig.Valid) return;
+            for (int i = 0; i < _oneShots.Count; i++) if (_oneShots[i].Agent == agent) { _oneShots.RemoveAt(i); break; }
+            v.ContactDriven = true;
+            v.Rig.Play(plan);
+            _oneShots.Add(new OneShot { Agent = agent, End = seconds, T = 0f });
         }
 
         void OnPancake(in PlayEvent e)
@@ -227,55 +382,94 @@ namespace PixFootball.Gameplay
             if (loser >= 22 || blocker >= 22) return;
             Vector3 dir = WorldPos(loser) - WorldPos(blocker); dir.y = 0f;
             if (dir.sqrMagnitude < 1e-4f) dir = Vector3.forward;
-            Knock(loser, dir.normalized * 3.2f + Vector3.up * 0.8f, 0.55f);
-            Fire(WorldPos(loser), 0.45f, false, blocker, loser);
+            // E-279: the loser staggers back for a beat before the ragdoll takes him
+            _knocks.Add(new PendingKnock { Agent = loser, Impulse = dir.normalized * 3.2f + Vector3.up * 0.8f, Intensity = 0.55f, At = 0.12f });
+            // E-172: the blocker follows through (the drive finish: arms through, steps over) instead of playing nothing
+            var vb = View(blocker);
+            if (vb != null && vb.Rig != null && vb.Rig.Valid && !InSession(blocker))
+            {
+                var lib = ArtLibrary.Load();
+                var c = lib != null && lib.ClipVariantCount("ol_block_push") > 0 ? lib.ClipVariant("ol_block_push", blocker + _seed) : null;
+                if (c != null && c.length < 4f)
+                {
+                    var plan = new ClipPlan { Clip = c, Start = Mathf.Min(0.6f, c.length * 0.3f), End = Mathf.Min(c.length, 1.9f), Speed = Rate, FadeIn = 0.15f, FadeOut = 0.35f, UpperBody = true };
+                    PlayOneShot(blocker, plan, 1.1f);
+                }
+            }
+            FireNow(WorldPos(loser), 0.45f, false, blocker, loser, blocker, loser);
         }
 
-        float ImpactOf(in PlayEvent e) { return Mathf.Clamp01(e.Value / 8f + (e.Tackle == TackleType.BigHit ? 0.45f : 0.15f)); }
+        float ImpactOf(in PlayEvent e) { return Mathf.Clamp01(e.Value * PlayFrame.YardsToMeters / 8f + (e.Tackle == TackleType.BigHit ? 0.45f : 0.15f)); }      // E-349: the closing speed is in yards per second
 
         // ============================================================================================================ a pair take
-        void StartSession(ContactKind kind, int tackler, int carrier, in PlayEvent e, bool drag)
+        bool StartSession(ContactKind kind, int tackler, int carrier, in PlayEvent e, bool drag, bool shortTake = false)
         {
             var sim = _stage.Sim; var vc = View(carrier); var vt = View(tackler);
-            if (vc == null || vt == null || vc.Rig == null || vt.Rig == null || !vc.Rig.Valid || !vt.Rig.Valid) return;
+            if (vc == null || vt == null || vc.Rig == null || vt.Rig == null || !vc.Rig.Valid || !vt.Rig.Valid) return false;
             Vector3 pc = vc.transform.position, pt = vt.transform.position;
-            Vector2 simVelC = new Vector2(0f, 0f);
             Vector3 vel = _stage.Frame.VelToUnity(sim.Agents[carrier].Vel);
-            simVelC = new Vector2(vel.x, vel.z);
+            Vector2 simVelC = new Vector2(vel.x, vel.z);
             float cyaw = CarrierYaw(carrier);
+            // the speed the carrier ran into the hit with: the simulation has already slowed a carrier it brought down (x0.55 plus a slide), the animated velocity still remembers
+            float animSp = vc.Anim != null ? vc.Anim.SmoothedLocalVelocity.magnitude : 0f;
+            float sp = Mathf.Max(animSp, simVelC.magnitude * (sim.Agents[carrier].State == AgentState.Down ? 1.7f : 1f));
+            Vector2 dirC = simVelC.sqrMagnitude > 0.25f ? simVelC.normalized : new Vector2(Mathf.Sin(cyaw * Mathf.Deg2Rad), Mathf.Cos(cyaw * Mathf.Deg2Rad));
+            float entry = sp;      // the session predicts with the simulated velocity (what the simulation will really do); the entry speed only scales the carried slide
             var sit = new ContactSituation
             {
                 Kind = kind,
                 Bearing = ContactMath.BearingDeg(Ground(pt), Ground(pc), cyaw),
-                // the simulation has already slowed a carrier it brought down (x0.55 plus a slide): estimate how fast he was running into the hit
-                CarrierSpeed = simVelC.magnitude * (sim.Agents[carrier].State == AgentState.Down ? 1.7f : 1f),
-                Closing = Mathf.Max(0f, e.Value),
-                Seed = ++_seed * 7 + carrier * 13 + tackler
+                CarrierSpeed = sp,
+                Closing = Mathf.Max(0f, e.Value * PlayFrame.YardsToMeters),      // E-349: yards per second to metres per second
+                Seed = ++_seed * 7 + carrier * 13 + tackler,
+                WantLow = kind == ContactKind.Dive ? 0.9f : (kind == ContactKind.Wrap || kind == ContactKind.Sack ? 0.15f : 0f),
+                Distance = (RadiusOf(vc) + RadiusOf(vt)) * 1.15f,
+                Avoid = _recent
             };
             var pair = TackleVariants.Choose(_table.pairs, sit);
-            if (pair == null && kind != ContactKind.Wrap && kind != ContactKind.Contested) { sit.Kind = ContactKind.Wrap; pair = TackleVariants.Choose(_table.pairs, sit); }
-            if (pair == null) return;
-            var lib = ArtLibrary.Load(); if (lib == null) return;
+            if (pair == null && kind != ContactKind.Wrap && kind != ContactKind.Contested && kind != ContactKind.Collision) { sit.Kind = ContactKind.Wrap; pair = TackleVariants.Choose(_table.pairs, sit); }
+            if (pair == null) return false;
+            var s = StartSessionWith(pair, kind, tackler, carrier, e, drag, sit, null); if (s != null) { s.EntrySpeed = entry; }
+            if (s == null) return false;
+            if (shortTake) { s.ReleaseAAfter = 0.4f; s.ReleaseBAfter = 0.9f; }
+            if (e.Tackle == TackleType.BigHit || kind == ContactKind.BigHit) Fire(pc, ImpactOf(e), true, carrier, tackler, false, s);
+            else if (kind != ContactKind.Contested) Fire(pc, ImpactOf(e) * 0.7f, false, carrier, tackler, kind == ContactKind.Sack, s);
+            return true;
+        }
+
+        ContactSession StartSessionWith(ContactTable.Pair pair, ContactKind kind, int tackler, int carrier, in PlayEvent e, bool drag, ContactSituation sit, Vector2? velOverride = null)
+        {
+            var sim = _stage.Sim; var vc = View(carrier); var vt = View(tackler);
+            var lib = ArtLibrary.Load(); if (lib == null) return null;
             var clipA = lib.ClipByName(pair.clipA); var clipB = lib.ClipByName(pair.clipB);
-            if (clipA == null || clipB == null) return;
+            if (clipA == null || clipB == null) return null;
+            Vector3 pc = vc.transform.position, pt = vt.transform.position;
+            Vector3 vel = _stage.Frame.VelToUnity(sim.Agents[carrier].Vel);
+            Vector2 simVelC = velOverride.HasValue ? velOverride.Value : new Vector2(vel.x, vel.z);
+            float cyaw = CarrierYaw(carrier);
             var s = ContactSession.Create(pair, kind, carrier, tackler, Ground(pc), Ground(pt), cyaw, vt.Yaw, simVelC);
+            s.SepScale = Mathf.Clamp((RadiusOf(vc) + RadiusOf(vt)) / 0.58f, 0.85f, 1.25f);
+            s.ClipA = clipA; s.ClipB = clipB;
             if (drag) s.HoldAt = pair.tContact + 0.5f;
             _sessions.Add(s);
             vc.ContactDriven = true; vt.ContactDriven = true;
-            vc.Rig.Play(clipA, s.Start, s.EndA, 1f, 0.07f, 0.35f, false, false);
-            vt.Rig.Play(clipB, s.Start, s.EndB, 1f, 0.07f, 0.35f, false, false);
+            float rate = Rate;
+            // E-362 / E-376: the takes play at the pace of the game, and the contact take is fully in at the contact frame (the lead is long enough for a short fade)
+            vc.Rig.Play(clipA, s.Start, s.EndA, rate, 0.14f, 0.35f, false, false, false, 0f, AnimKit.ImpactFloor);
+            vt.Rig.Play(clipB, s.Start, s.EndB, rate, 0.14f, 0.35f, false, false, false, 0f, AnimKit.ImpactFloor);
+            _recent.Add(pair.clipA); if (_recent.Count > 6) _recent.RemoveAt(0);
             LastTake = kind + " " + pair.clipA + " bearing=" + sit.Bearing.ToString("0") + " speed=" + sit.CarrierSpeed.ToString("0.0");
-            if (e.Tackle == TackleType.BigHit || kind == ContactKind.BigHit) Fire(pc, ImpactOf(e), true, carrier, tackler);
-            else Fire(pc, ImpactOf(e) * 0.7f, false, carrier, tackler, kind == ContactKind.Sack);
+            return s;
         }
 
-        void EndSession(ContactSession s)
+        /// <summary>Ends a take. stop = false lets the next take cross-fade straight from the held / playing pose (E-241: no Stop followed by a Play).</summary>
+        void EndSession(ContactSession s, bool stop = true)
         {
             var vc = View(s.Carrier); var vt = View(s.Tackler);
-            if (vc != null) { vc.ContactDriven = false; if (vc.Rig != null) { vc.Rig.SetFrozen(false); vc.Rig.Stop(0.2f); } }
-            if (vt != null) { vt.ContactDriven = false; if (vt.Rig != null) { vt.Rig.SetFrozen(false); vt.Rig.Stop(0.2f); } }
+            if (vc != null) { vc.ContactDriven = false; if (vc.Rig != null) { vc.Rig.SetScrub(false); vc.Rig.SetFrozen(false); if (stop) vc.Rig.Stop(0.2f); } }
+            if (vt != null) { vt.ContactDriven = false; if (vt.Rig != null) { vt.Rig.SetScrub(false); vt.Rig.SetFrozen(false); if (stop) vt.Rig.Stop(0.2f); } }
             for (int i = _joiners.Count - 1; i >= 0; i--)
-                if (_joiners[i].Carrier == s.Carrier) { var vj = View(_joiners[i].Agent); if (vj != null) { vj.ContactDriven = false; if (vj.Rig != null) { vj.Rig.SetFrozen(false); vj.Rig.Stop(0.2f); } } _joiners.RemoveAt(i); }
+                if (_joiners[i].Carrier == s.Carrier) { var vj = View(_joiners[i].Agent); if (vj != null) { vj.ContactDriven = false; if (vj.Rig != null) { vj.Rig.SetScrub(false); vj.Rig.SetFrozen(false); vj.Rig.Stop(0.2f); } } _joiners.RemoveAt(i); }
             _sessions.Remove(s);
         }
 
@@ -285,9 +479,12 @@ namespace PixFootball.Gameplay
             var vt = View(tackler); var vc = View(carrier);
             if (vt == null || vc == null || vt.Rig == null || !vt.Rig.Valid) return;
             var lib = ArtLibrary.Load(); if (lib == null) return;
+            // E-223: the joiner goes in AFTER the primary hit has landed (0.25 s past its contact), takes a pair the others did not use and stands at his own angle
+            var used = new List<string>(_recent); used.Add(primary.Pair.clipA);
+            foreach (var j0 in _joiners) if (j0.Carrier == carrier && j0.Pair != null) used.Add(j0.Pair.clipA);
             Vector3 pc = vc.transform.position, pt = vt.transform.position;
             float cyaw = primary.Align.Yaw + primary.Pair.a[Mathf.Clamp(Mathf.RoundToInt(primary.Time / primary.Pair.step), 0, primary.Pair.CountA - 1) * ContactTable.Stride + 4];
-            var sit = new ContactSituation { Kind = ContactKind.Wrap, Bearing = ContactMath.BearingDeg(Ground(pt), Ground(pc), cyaw), CarrierSpeed = 0.5f, Closing = 2f, Seed = ++_seed * 11 + tackler };
+            var sit = new ContactSituation { Kind = ContactKind.Wrap, Bearing = ContactMath.BearingDeg(Ground(pt), Ground(pc), cyaw), CarrierSpeed = 0.5f, Closing = 2f, Seed = ++_seed * 11 + tackler, Avoid = used, Distance = (RadiusOf(vc) + RadiusOf(vt)) * 1.15f };
             var pair = TackleVariants.Choose(_table.pairs, sit);
             if (pair == null || pair == primary.Pair) { sit.Seed += 5; pair = TackleVariants.Choose(_table.pairs, sit); }
             if (pair == null) return;
@@ -295,13 +492,30 @@ namespace PixFootball.Gameplay
             int ic = Mathf.Clamp(Mathf.RoundToInt(pair.tContact / pair.step), 0, Mathf.Min(pair.CountA, pair.CountB) - 1);
             int S = ContactTable.Stride;
             Vector2 hA = new Vector2(pair.a[ic * S + 2], pair.a[ic * S + 3]), hB = new Vector2(pair.b[ic * S + 2], pair.b[ic * S + 3]);
-            var j = new Joiner { Agent = tackler, Carrier = carrier, Pair = pair, StartYaw = vt.Yaw };
-            j.Start = Mathf.Max(0f, pair.tContact - 0.18f); j.Time = j.Start;
-            j.Align = ContactMath.AlignPair(hB, hA, pair.a[ic * S + 4], Ground(pt), Ground(pc), cyaw, 0.6f);
+            int n = 0; foreach (var j0 in _joiners) if (j0.Carrier == carrier) n++;
+            var j = new Joiner { Agent = tackler, Carrier = carrier, Pair = pair, StartYaw = vt.Yaw, Clip = clipB, YawOffset = (n % 2 == 0 ? 1f : -1f) * (28f + 14f * n) };
+            j.Start = Mathf.Max(0f, pair.tContact - 0.3f); j.Time = j.Start;
+            j.Align = ContactMath.AlignPair(hB, hA, pair.a[ic * S + 4], Ground(pt), Ground(pc), cyaw + j.YawOffset, 0.6f);
             if (hold) j.HoldAt = pair.tContact + 0.5f;
             _joiners.Add(j);
-            vt.ContactDriven = true;
-            vt.Rig.Play(clipB, j.Start, Mathf.Min(pair.lengthB, 6.5f), 1f, 0.07f, 0.35f, false, false);
+            // the tackler keeps his simulated tackle clip until the primary hit has landed
+        }
+
+        void StartJoiner(Joiner j)
+        {
+            var vt = View(j.Agent); var vc = View(j.Carrier);
+            if (vt == null || vt.Rig == null || !vt.Rig.Valid) return;
+            // re-align at the moment he really goes in: where the two bodies are now
+            int S = ContactTable.Stride;
+            int ic = Mathf.Clamp(Mathf.RoundToInt(j.Pair.tContact / j.Pair.step), 0, Mathf.Min(j.Pair.CountA, j.Pair.CountB) - 1);
+            Vector2 hA = new Vector2(j.Pair.a[ic * S + 2], j.Pair.a[ic * S + 3]), hB = new Vector2(j.Pair.b[ic * S + 2], j.Pair.b[ic * S + 3]);
+            var s = SessionOf(j.Carrier);
+            float cyaw = s != null ? s.Align.Yaw : (vc != null ? vc.Yaw : 0f);
+            Vector3 pt = vt.transform.position, pc = vc != null ? vc.transform.position : pt;
+            j.StartYaw = vt.Yaw;
+            j.Align = ContactMath.AlignPair(hB, hA, j.Pair.a[ic * S + 4], Ground(pt), Ground(pc), cyaw + j.YawOffset, 0.6f);
+            j.Playing = true; vt.ContactDriven = true;
+            vt.Rig.Play(j.Clip, j.Start, Mathf.Min(j.Pair.lengthB, 6.5f), Rate, 0.14f, 0.35f, false, false, false, 0f, AnimKit.ImpactFloor);
         }
 
         // ============================================================================================================ ragdoll
@@ -327,11 +541,13 @@ namespace PixFootball.Gameplay
             var lib = ArtLibrary.Load();
             GetUp pick = default(GetUp); bool found = false; float best = float.MinValue;
             int seed = ++_seed * 31 + agent;
+            // E-229: the get-up is classified by how the body lies (face up / face down / on the side: the chest normal's height), then chosen among its class by a stable variety hash
+            float front = v.Ragdoll.FrontY();
             for (int i = 0; i < _getUps.Count; i++)
             {
                 var g = _getUps[i];
                 if ((g.FaceUp > 0f) != faceUp) continue;
-                float sc = ((seed * 97 + i * 131) & 0xFFFF) / 65535f;
+                float sc = -Mathf.Abs(g.FaceUp - Mathf.Clamp(front * 1.4f, -1f, 1f)) * 3f + ((seed * 97 + i * 131) & 0xFFFF) / 65535f * 0.6f;
                 if (sc > best) { best = sc; pick = g; found = true; }
             }
             Vector2 xz; float yaw;
@@ -347,13 +563,26 @@ namespace PixFootball.Gameplay
             st.End = Mathf.Min(len, (pick.ActorA ? pick.Pair.getUpA : pick.Pair.getUpB) + 1.1f);
             st.Align = ContactMath.Align(new Vector2(arr[ic * S + 2], arr[ic * S + 3]), arr[ic * S + 4], xz, yaw);
             _solo[agent] = st;
-            v.Rig.Play(clip, st.Start, st.End, 1f, 0.05f, 0.3f, false, false);
+            v.Rig.Play(clip, st.Start, st.End, Rate, 0.05f, 0.3f, false, false);
         }
 
         // ============================================================================================================ per frame
         public void Tick(float dt)
         {
             if (!Enabled || _stage.Sim == null) return;
+            float rate = Rate;
+            // ---- delayed knocks (the stagger before the ragdoll)
+            for (int i = _knocks.Count - 1; i >= 0; i--)
+            {
+                var k = _knocks[i]; k.At -= dt;
+                if (k.At <= 0f) { Knock(k.Agent, k.Impulse, k.Intensity); _knocks.RemoveAt(i); }
+            }
+            // ---- one-shots (pancake finish, QB flinch, recovery dive)
+            for (int i = _oneShots.Count - 1; i >= 0; i--)
+            {
+                var o = _oneShots[i]; o.T += dt;
+                if (o.T >= o.End) { var v = View(o.Agent); if (v != null) { v.ContactDriven = false; if (v.Rig != null) v.Rig.Stop(0.3f); } _oneShots.RemoveAt(i); }
+            }
             if (_stiff.Count > 0)
             {
                 List<int> gone = null;
@@ -370,17 +599,42 @@ namespace PixFootball.Gameplay
                 var s = _sessions[i];
                 var vc = View(s.Carrier); var vt = View(s.Tackler);
                 if (vc == null || vt == null) { _sessions.RemoveAt(i); continue; }
-                // A-009 (tackle bug): a dragged carrier's take is frozen until the next tackle event releases it; after the whistle no event ever comes, so the carrier and his tackler stood frozen in the wrap pose for the rest of the broadcast. At the whistle every held take plays on (fall, lie, get up).
+                // A-009 (tackle bug): at the whistle every held take plays on (fall, lie, get up)
                 bool whistled = _stage.Sim != null && _stage.Sim.Phase == PlayPhase.Dead;
-                if (whistled && s.Held) { s.Hold(false); s.HoldAt = 0f; vc.Rig.SetFrozen(false); vt.Rig.SetFrozen(false); }
-                if (s.HoldAt > 0f && !s.Held && !whistled && s.Time >= s.HoldAt) { s.Hold(true); vc.Rig.SetFrozen(true); vt.Rig.SetFrozen(true); }
-                s.Advance(dt);
+                if (whistled && s.Held) ReleaseHold(s);
+                if (s.HoldAt > 0f && !s.Held && !whistled && s.Time >= s.HoldAt && !s.ReleasedA)
+                {
+                    // E-222: the drag is a struggle, not a statue: a short window of the take plays back and forth while the tackler hangs on
+                    s.Hold(true); s.StruggleT = 0f; s.HeldFrom = Mathf.Max(s.Start, s.HoldAt - 0.45f);
+                    vc.Rig.SetScrub(true); vt.Rig.SetScrub(true);
+                }
+                if (s.Held)
+                {
+                    s.StruggleT += dt;
+                    float t = s.HeldFrom + Mathf.PingPong(s.StruggleT * 0.9f, Mathf.Max(0.05f, s.HoldAt - s.HeldFrom));
+                    if (!s.ReleasedA) vc.Rig.Scrub(t);
+                    if (!s.ReleasedB) vt.Rig.Scrub(t);
+                }
+                else
+                {
+                    s.Advance(dt, rate);
+                    // E-377: the playing clip is the clock (the session never drifts from the animation)
+                    if (!s.ReleasedA && vc.Rig.CurrentClip == s.ClipA) s.SyncTo(vc.Rig.ClipTime);
+                    else if (!s.ReleasedB && vt.Rig.CurrentClip == s.ClipB) s.SyncTo(vt.Rig.ClipTime);
+                }
+                s.TickHeld(dt);
+                // impacts at the contact moment (E-378)
+                for (int k = _impacts.Count - 1; k >= 0; k--)
+                    if (_impacts[k].S == s && s.PassedContact) { var p = _impacts[k]; FireNow(p.Pos, p.K, p.Big, p.A, p.B, p.B, p.A, p.Sack); _impacts.RemoveAt(k); }
                 // the simulation's positions this frame (ApplyMatch just set them)
                 Vector3 pc = vc.transform.position, pt = vt.transform.position;
                 ContactActorPose a, b;
                 s.Evaluate(Ground(pc), vc.Yaw, Ground(pt), vt.Yaw, out a, out b);
-                vc.SetContactPose(new Vector3(a.Root.x, pc.y, a.Root.y), a.Yaw);
-                vt.SetContactPose(new Vector3(b.Root.x, pt.y, b.Root.y), b.Yaw);
+                if (!s.ReleasedA) vc.SetContactPose(new Vector3(a.Root.x, pc.y, a.Root.y), a.Yaw);
+                if (!s.ReleasedB) vt.SetContactPose(new Vector3(b.Root.x, pt.y, b.Root.y), b.Yaw);
+                // E-215 / E-123: each actor is let go when HIS take ends (or at the early release of a contested catch / jam), the other keeps playing
+                if (!s.ReleasedA && !s.Held && ((s.ReleaseAAfter > 0f && s.Time >= s.Contact + s.ReleaseAAfter) || s.Time >= s.EndA)) ReleaseActor(s, true, a.Root, pc);
+                if (!s.ReleasedB && !s.Held && ((s.ReleaseBAfter > 0f && s.Time >= s.Contact + s.ReleaseBAfter) || s.Time >= s.EndB)) ReleaseActor(s, false, b.Root, pt);
                 if (s.Finished) EndSession(s);
             }
             for (int i = _joiners.Count - 1; i >= 0; i--)
@@ -389,9 +643,13 @@ namespace PixFootball.Gameplay
                 var vj = View(j.Agent);
                 var s = SessionOf(j.Carrier);
                 if (vj == null || s == null) { if (vj != null) vj.ContactDriven = false; _joiners.RemoveAt(i); continue; }
+                if (!j.Playing)
+                {
+                    if (s.Time >= s.Contact + 0.25f || s.Held) StartJoiner(j); else continue;
+                }
                 if (j.HoldAt > 0f && !j.Held && j.Time >= j.HoldAt) { j.Held = true; vj.Rig.SetFrozen(true); }
                 if (j.Held && !s.Held) { j.Held = false; vj.Rig.SetFrozen(false); j.HoldAt = 0f; }
-                if (!j.Held) j.Time += dt;
+                if (!j.Held) j.Time += dt * rate;
                 int S = ContactTable.Stride;
                 float w = ContactMath.WarpIn(j.Time, j.Start, j.Pair.tContact);
                 Vector2 root = j.Align.Apply(ContactMath.SampleXZ(j.Pair.b, S, 0, j.Pair.step, Mathf.Min(j.Time, j.Pair.lengthB)));
@@ -416,17 +674,33 @@ namespace PixFootball.Gameplay
                 {
                     var st = kv.Value; var v = View(kv.Key);
                     if (v == null) { (done ?? (done = new List<int>())).Add(kv.Key); continue; }
-                    st.Time += dt;
+                    st.Time += dt * rate;
                     var arr = st.ActorA ? st.Pair.a : st.Pair.b;
                     Vector2 root = st.Align.Apply(ContactMath.SampleXZ(arr, ContactTable.Stride, 0, st.Pair.step, st.Time));
                     Vector3 p = v.transform.position;
-                    float k = ContactMath.Smooth01((st.Time - (st.End - 0.7f)) / 0.7f);   // hand back to the simulation at the end of the get-up
-                    root = Vector2.Lerp(root, Ground(p), k);
-                    v.SetContactPose(new Vector3(root.x, p.y, root.y), st.Align.Yaw);
-                    if (st.Time >= st.End) (done ?? (done = new List<int>())).Add(kv.Key);
+                    // E-231: no glide to the simulated spot over the last 0.7 s: the take plays where the body lay, and at its end he walks on to the simulation (the view offset)
+                    if (st.Time >= st.End)
+                    {
+                        v.AddViewOffset(new Vector3(root.x - p.x, 0f, root.y - p.z));
+                        v.SetContactPose(new Vector3(root.x, p.y, root.y), st.Align.Yaw);      // this frame stays where the take had him; the next one starts from there (sim + offset)
+                        (done ?? (done = new List<int>())).Add(kv.Key);
+                    }
+                    else v.SetContactPose(new Vector3(root.x, p.y, root.y), st.Align.Yaw);
                 }
-                if (done != null) foreach (int id in done) { var v = View(id); if (v != null) { v.ContactDriven = false; if (v.Rig != null) v.Rig.Stop(0.2f); } _solo.Remove(id); }
+                if (done != null) foreach (int id in done) { var v = View(id); if (v != null) { v.ContactDriven = false; if (v.Rig != null) v.Rig.Stop(0.25f); } _solo.Remove(id); }
             }
+        }
+
+        void ReleaseActor(ContactSession s, bool carrier, Vector2 takeRoot, Vector3 simPos)
+        {
+            var v = View(carrier ? s.Carrier : s.Tackler);
+            if (carrier) s.ReleasedA = true; else s.ReleasedB = true;
+            if (v == null) return;
+            v.ContactDriven = false;
+            // the body that left the take at a different spot than the simulation walks on to it (not a pop)
+            Vector3 gap = new Vector3(takeRoot.x - simPos.x, 0f, takeRoot.y - simPos.z);
+            if (gap.sqrMagnitude > 0.0025f) v.AddViewOffset(gap);      // every kind: the body leaves the take where the take had him and walks on to the simulated spot (no pop)
+            if (v.Rig != null) { v.Rig.SetScrub(false); v.Rig.SetFrozen(false); v.Rig.Stop(0.25f); }
         }
     }
 }

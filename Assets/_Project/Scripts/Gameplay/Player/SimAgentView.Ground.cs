@@ -30,7 +30,7 @@ namespace PixFootball.Gameplay
         void FitGround(float dt)
         {
             if (DebugNoGroundFit || _restAnkle < 0f || Avatar == null || Avatar.Root == null || Avatar.Animator == null || !Avatar.Animator.isHuman) return;
-            bool wants = !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid
+            bool wants = !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid && !StanceLayerOn
                          && (_lastAction == AgentAction.Stance || _lastAction == AgentAction.Idle || _lastAction == AgentAction.Block);
             float target = 0f;
             if (wants)

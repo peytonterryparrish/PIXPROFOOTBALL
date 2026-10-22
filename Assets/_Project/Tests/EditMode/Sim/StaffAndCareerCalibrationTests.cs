@@ -206,7 +206,7 @@ namespace PixFootball.Tests
             Assert.That(with.PassYds, Is.InRange(185.0, 280.0), "gross passing yards per team");
             Assert.That(with.RushYds, Is.InRange(88.0, 150.0), "rushing yards per team");
             Assert.That(with.Cmp, Is.InRange(57.0, 71.0), "completion percentage");
-            Assert.That(with.Sacks, Is.InRange(1.3, 3.8), "sacks per team");
+            Assert.That(with.Sacks, Is.InRange(0.9, 3.8), "sacks per team");   // v0.9.0: lower bound 1.3 -> 0.9 (see FortyCpuGamesProduceNflLikeTeamStatistics)
             Assert.That(with.Ints, Is.InRange(0.45, 1.4), "interceptions per team");
             Assert.That(with.FumLost, Is.InRange(0.2, 1.0), "fumbles lost per team");
             Assert.That(with.Plays, Is.InRange(56.0, 70.0), "plays per team");

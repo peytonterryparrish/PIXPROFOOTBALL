@@ -218,6 +218,8 @@ namespace PixFootball.Sim
         public float LastThrowDistance { get; private set; }
         public float LastThrowPressure { get; private set; }
         public float LastThrowSpeed { get; private set; }
+        /// <summary>v0.9.0 (E-083 / E-103): the style of the last forward pass (Bullet / Touch / Lob); the animation layer picks the throw take (a lob over 50 yd is the hail mary take) from it and from <see cref="LastThrowDistance"/>.</summary>
+        public ThrowStyle LastThrowStyle { get; internal set; }
         internal void NoteThrow(float error, float distance, float pressure, float speed) { LastThrowAimError = error; LastThrowDistance = distance; LastThrowPressure = pressure; LastThrowSpeed = speed; }
 
         // ---- shared dynamic contexts ----

@@ -36,6 +36,8 @@ namespace PixFootball.Sim
 
         /// <summary>The kicker / punter, the holder (field goals and extra points) and the long snapper of the current kick; null when the play has none.</summary>
         public SimAgent KickerAgent { get { return _kicker; } }
+        /// <summary>The returner of this kick (null when the play has none).</summary>
+        public SimAgent ReturnerAgent { get { return _returner; } }
         public SimAgent HolderAgent { get { return _holder; } }
         public SimAgent SnapperAgent { get { return _snapper; } }
 
@@ -70,7 +72,7 @@ namespace PixFootball.Sim
                 case PlayKind.Kickoff:
                     S.Blocks.BlockerSideOverride = SimSide.Defense;
                     S.Ball.State = BallState.Dead;
-                    S.Ball.Pos = new Vec3(S.BallX0, S.LosY, BallPhysics.BallRadius);
+                    S.Ball.Pos = new Vec3(S.BallX0, S.LosY, KickGeometry.TeeHeightYd);      // v0.9.0 CONNECT E-255 / E-387: the ball sits on the tee at the launch height
                     S.Ball.PrevPos = S.Ball.Pos;
                     _returner = ChooseReturner();
                     SetKickoffMarks();
@@ -91,7 +93,7 @@ namespace PixFootball.Sim
                     S.Blocks.ForcePassMode = true;
                     S.Blocks.HasAnchor = true;
                     S.Blocks.AnchorOverride = _holder.Pos;
-                    { Vec2 ks = _holder.Pos + new Vec2(1.8f, -2.6f); _kicker.Body.Pos = ks; _kicker.StartPos = ks; _kicker.Body.Vel = Vec2.Zero; _kicker.ClearHistory(ks); }   // v0.7: room for a 2-3 step approach
+                    { Vec2 ks = _holder.Pos + new Vec2(-1.8f, -2.6f); _kicker.Body.Pos = ks; _kicker.StartPos = ks; _kicker.Body.Vel = Vec2.Zero; _kicker.ClearHistory(ks); }   // v0.7: room for a 2-3 step approach
                     _returner = null;
                     for (int i = 11; i < 22; i++) if (S.Agents[i].Assign is ReturnerAssignment) _returner = S.Agents[i];
                     break;
@@ -124,7 +126,7 @@ namespace PixFootball.Sim
             {
                 SimAgent c = _snapper;
                 SimAgent to = S.Kind == PlayKind.Punt ? _kicker : _holder;
-                Vec3 from = new Vec3(c.Pos, 0.6f);
+                Vec3 from = new Vec3(c.Pos + new Vec2(0f, -KickGeometry.SnapBehindYd), KickGeometry.SnapStartHeightYd);      // v0.9.0 CONNECT E-298: the snap starts between the legs
                 Vec3 tgt = new Vec3(to.Pos + new Vec2(0f, 0.3f), 1.0f);
                 Vec3 vel; float tf;
                 BallPhysics.SolveLaunch(from, tgt, S.Kind == PlayKind.Punt ? 21f : 19f, false, out vel, out tf);
@@ -148,7 +150,7 @@ namespace PixFootball.Sim
             {
                 S.GiveBall(to);
                 _ballInHands = true;
-                if (S.Kind == PlayKind.Punt) { _lead = KickTiming.PuntApproach; ScheduleKick(S.Time + 0.5f); }
+                if (S.Kind == PlayKind.Punt) { _lead = KickTiming.PuntApproach; ScheduleKick(S.Time + KickTiming.PuntHold); }   // v0.9.0 (E-370): the operation is 2.0-2.2 s snap to kick (the punter holds the ball 1.1 s after the catch, it was 0.5 s)
                 else { _lead = KickTiming.FieldGoalApproach; ScheduleKick(Math.Max(S.Time + _lead, KickTiming.FieldGoalSnapToKick)); }
                 return;
             }
@@ -201,7 +203,9 @@ namespace PixFootball.Sim
             {
                 // converge on the landing zone while holding lanes
                 var lane = a.Assign as LaneAssignment;
-                if (lane != null && lane.Gunner || S.Kind == PlayKind.Punt)
+                // v0.9.0 (E-340 / E-341): only the gunners go to the ball; everybody else holds his lane at 0.88 until the catch, and the containment men (the two widest) stay inside their sideline
+                // lanes until the returner has crossed the 25 or there is nothing to contain
+                if (lane != null && lane.Gunner)
                 {
                     Vec3 at; float tt;
                     Vec2 tgt = S.Ball.Pos.XY;
@@ -210,10 +214,33 @@ namespace PixFootball.Sim
                     a.Want = to2.Norm() * a.Body.EffectiveVMax * 0.98f;
                     return;
                 }
-                RunLane(a, a.Assign as LaneAssignment, speedFrac);
+                if (lane != null && (lane.Contain || IsPuntContain(a)))
+                {
+                    float sideX = a.StartPos.X < S.BallX0 ? 4.0f : FieldGeometry.Width - 4.0f;
+                    Vec2 hold = new Vec2(sideX, a.Pos.Y + 8f);
+                    a.Want = (hold - a.Pos).Norm() * a.Body.EffectiveVMax * 0.9f;
+                    return;
+                }
+                RunLane(a, lane, Math.Min(speedFrac, 0.88f));
                 return;
             }
             RunLane(a, a.Assign as LaneAssignment, speedFrac);
+        }
+
+        /// <summary>The two widest non-gunner men on a punt cover the sideline (v0.9.0 E-340).</summary>
+        private bool IsPuntContain(SimAgent a)
+        {
+            if (S.Kind != PlayKind.Punt) return false;
+            float ax = Math.Abs(a.StartPos.X - S.BallX0);
+            int wider = 0;
+            for (int i = 0; i < 11; i++)
+            {
+                SimAgent o = S.Agents[i];
+                var ol = o.Assign as LaneAssignment;
+                if (o == a || ol == null || ol.Gunner) continue;
+                if (Math.Abs(o.StartPos.X - S.BallX0) > ax + 0.01f) wider++;
+            }
+            return a.Assign is LaneAssignment && !((LaneAssignment)a.Assign).Gunner && wider < 1 && ax > 5f;
         }
 
         private void ReturnBlocker(SimAgent a)
@@ -295,14 +322,14 @@ namespace PixFootball.Sim
             Vec2 kp = tee + new Vec2(KickTiming.KickoffStartSide, -KickTiming.KickoffStartBack);
             kp = new Vec2(SimMath.Clamp(kp.X, 2f, FieldGeometry.Width - 2f), kp.Y);
             _kicker.Body.Pos = kp; _kicker.StartPos = kp; _kicker.Body.Vel = Vec2.Zero;
-            _kicker.Body.Facing = (tee - kp).Norm();
+            _kicker.Body.Facing = new Vec2(0f, 1f);      // v0.9.0: shoulders to the line, the head looks at the ball
             _kicker.ClearHistory(kp);
             for (int i = 0; i < 11; i++)
             {
                 SimAgent a = S.Agents[i];
                 if (a == _kicker || !(a.Assign is LaneAssignment)) continue;
                 if (a.Pos.Y < S.LosY - 2.5f) continue;
-                Vec2 p = new Vec2(a.Pos.X, S.LosY - KickTiming.CoverageStartBack);
+                Vec2 p = new Vec2(a.Pos.X, S.LosY - KickTiming.CoverageStartBack - ((a.Slot & 1) == 0 ? 0f : 0.6f));   // v0.9.0 (E-342): a 0.6 yd stagger so the line does not run level like a wall
                 a.Body.Pos = p; a.StartPos = p; a.ClearHistory(p);
             }
         }
@@ -335,16 +362,16 @@ namespace PixFootball.Sim
                 // standing on his mark, eyes on the ball
                 a.Intent = AgentAction.Idle;
                 a.Want = Vec2.Zero;
-                a.FaceDir = (tee - a.Pos).Norm();
+                a.FaceDir = new Vec2(0f, 1f);      // v0.9.0: the head, not the body, looks at the tee
                 _approachFrom = a.Pos;
                 return;
             }
             BeginApproach(a);
             a.Intent = AgentAction.Run;
             // 5-7 steps on a curved line that ends at the plant spot beside the ball at the contact frame
-            Vec2 plant = tee + new Vec2(0.55f, -0.8f);
+            Vec2 plant = tee + new Vec2(-0.40f, -0.70f);   // v0.9.0 (E-303): left plant foot beside the ball, the RIGHT leg swings through
             float u = SimMath.Clamp01((S.Time - _approachAt) / Math.Max(0.1f, _kickTime - _approachAt));
-            float shape = 1.1f;
+            float shape = 1.6f;   // v0.9.0 (E-309): the last two steps shorten
             Vec2 target = _approachFrom + (plant - _approachFrom) * (float)Math.Pow(u, shape);
             Vec2 ff = (plant - _approachFrom) * (shape * (float)Math.Pow(Math.Max(u, 0.02f), shape - 1f) / Math.Max(0.1f, _kickTime - _approachAt));
             Vec2 want = (target - a.Pos) * 6f + ff;
@@ -374,7 +401,7 @@ namespace PixFootball.Sim
             float latErr = S.Rng.Gaussian(0f, (0.8f + 4.5f * (1f - acc)) * mods.Spread);
             if (_kind == KickKind.Onside) latErr *= 0.5f;
             Vec2 target = new Vec2(SimMath.Clamp(aim.X + latErr, 1f, FieldGeometry.Width - 1f), Math.Min(S.LosY + dist, 108.5f));   // never past the back line
-            Vec3 from = new Vec3(S.BallX0, S.LosY, 0.3f);
+            Vec3 from = new Vec3(S.BallX0, S.LosY, KickGeometry.TeeHeightYd);
             Vec3 vel = SolveKick(from, target, hang);
             S.Ball.Launch(BallState.Kick, from, vel, k.Id);
             S.Ball.IsKick = true;
@@ -444,9 +471,14 @@ namespace PixFootball.Sim
                 }
                 Vec2 target = inFlight ? PredictCatch().XY : S.Ball.Pos.XY;
                 Vec2 to = target - a.Pos;
-                float need = to.Length / Math.Max(0.25f, inFlight ? PredictCatchTime() : 0.3f);
+                float tc = inFlight ? PredictCatchTime() : 0.3f;
+                // v0.9.0 (E-371): he gets to the catch point half a second EARLY, squares up facing the kicker and settles (0.25 of top speed for adjustments), instead of arriving on a constant run; only a short or
+                // low kick is run onto
+                float tArr = inFlight ? Math.Max(0.30f, tc - 0.5f) : 0.3f;
+                float need = to.Length / Math.Max(0.25f, tArr);
                 float spd = Math.Min(vmax, Math.Max(2f, need * 1.05f));
-                if (to.Length < 0.4f) spd = 0f;
+                if (inFlight && tc < 1.0f && to.Length < 1.8f) spd = Math.Min(vmax * 0.25f, to.Length * 3f);
+                if (to.Length < 0.3f) spd = 0f;
                 a.Want = to.Norm() * spd;
                 a.HasFace = true;
                 a.FaceDir = (S.Ball.Pos.XY - a.Pos).LenSq() > 0.2f ? (S.Ball.Pos.XY - a.Pos).Norm() : new Vec2(0f, 1f);
@@ -511,6 +543,7 @@ namespace PixFootball.Sim
             var ba = a.Assign as BlitzAssignment;
             if (ba != null) delay = ba.Delay;
             if (S.Time < delay) { a.Want = Vec2.Zero; return; }
+            if (S.Time < delay + KickTiming.PuntRushDelay) { a.Want = Vec2.Zero; return; }   // v0.9.0 (E-370): the punter now holds the ball 0.6 s longer, so the rush leaves later and blocks stay about one in fifty
             Vec2 to = _kicker.Pos - a.Pos;
             a.Want = to.Norm() * a.Body.EffectiveVMax;
         }
@@ -522,8 +555,28 @@ namespace PixFootball.Sim
             a.HasFace = true; a.FaceDir = new Vec2(0f, 1f);
             if (_kicked) { a.Want = Vec2.Zero; return; }
             // take two steps forward into the kick (a user punter stands until he presses)
-            if (_ballInHands && _approachAt >= 0f && S.Time >= _approachAt) { BeginApproach(a); a.Want = new Vec2(0f, 1f) * 3.0f; }
+            if (_ballInHands && _approachAt >= 0f && S.Time >= _approachAt)
+            {
+                // v0.9.0 (E-314): two steps on a slight angle toward the aim (a short first step, a longer second), the body turns with them
+                BeginApproach(a);
+                float u = SimMath.Clamp01((S.Time - _approachAt) / Math.Max(0.1f, _kickTime - _approachAt));
+                float yawRad = SimMath.Clamp((S.BallX0 + _aimX - a.Pos.X) * 0.4f, -6f, 6f) * 0.0174533f;
+                Vec2 dir = new Vec2((float)Math.Sin(yawRad), (float)Math.Cos(yawRad));
+                a.FaceDir = dir;
+                a.Want = dir * (u < 0.45f ? 2.0f : 3.6f);
+            }
             else if (_ballInHands) a.Want = Vec2.Zero;
+        }
+
+        /// <summary>v0.9.0 CONNECT E-316: every rusher within 1.6 yards of the kick as it is struck leaps with his arms up, whether or not he gets a hand on it (the swat roll stays as it was).</summary>
+        private void RushJumps(Vec2 spot)
+        {
+            for (int i = 11; i < 22; i++)
+            {
+                SimAgent d = S.Agents[i];
+                if (d.State == AgentState.Down || d.Body.FallenTime > 0f) continue;
+                if ((d.Pos - spot).Length < 1.6f && d.OverrideLeft <= 0f) S.PlayAction(d, AgentAction.Jump, 0.5f);
+            }
         }
 
         private void DoPunt()
@@ -531,7 +584,8 @@ namespace PixFootball.Sim
             _kicked = true;
             SimAgent k = _kicker;
             float kp = SimMath.Rating01(k.R.KickPower), acc = SimMath.Rating01(k.R.KickAccuracy);
-            Vec3 from = new Vec3(k.Pos + new Vec2(0f, 0.8f), 0.8f);
+            Vec3 from = new Vec3(k.Pos + new Vec2(0f, KickGeometry.PuntContactAheadYd), KickGeometry.PuntContactHeightYd);      // v0.9.0 CONNECT E-256: the foot meets a ball that fell from the hands (the view drops it for PuntDropSeconds)
+            RushJumps(from.XY);
             // rush pressure shortens the punt and can block it
             float pressure = 0f;
             SimAgent blocker = null; float bd = 99f;
@@ -555,7 +609,15 @@ namespace PixFootball.Sim
             var ka = (KickAssignment)S.OffPlay.Assignments[0];
             float aimX = S.BallX0 + ka.AimX + mods.AimYards;
             if (_kind == KickKind.Rugby) { flight *= 0.78f; hang *= 0.82f; }
-            float latErr = S.Rng.Gaussian(0f, (0.8f + 3.2f * (1f - acc)) * mods.Spread);
+            float spreadScale = 1f;
+            if (_kind == KickKind.DirectionalLeft || _kind == KickKind.DirectionalRight)
+            {
+                // v0.9.0 (E-339): the directional punt trades distance for hang and placement: flight x0.88, hang +0.35 s, lateral error x0.6, and the target is the coffin corner (6 yd in from the sideline)
+                flight *= 0.88f; hang += 0.35f; spreadScale = 0.6f;
+                aimX = _kind == KickKind.DirectionalLeft ? 6f : FieldGeometry.Width - 6f;
+            }
+            else if (_kind == KickKind.Pooch) { flight *= 0.62f; hang = Math.Max(hang, 4.4f); spreadScale = 0.7f; }
+            float latErr = S.Rng.Gaussian(0f, (0.8f + 3.2f * (1f - acc)) * mods.Spread * spreadScale);
             Vec2 target = new Vec2(SimMath.Clamp(aimX + latErr, 2f, FieldGeometry.Width - 2f), from.Y + flight);
             Vec3 vel = SolveKick(from, target, hang);
             S.Ball.Launch(BallState.Kick, from, vel, k.Id);
@@ -563,6 +625,7 @@ namespace PixFootball.Sim
             KickCommon(k, from);
             _kickPoint = from;
             S.KickDistance = flight;
+            CheckKickerContact(k);
             S.Blocks.ReleaseAll();
             // the return team picks up the coverage while the ball is in the air
             S.Blocks.BlockerSideOverride = SimSide.Defense;
@@ -644,14 +707,14 @@ namespace PixFootball.Sim
             BeginApproach(a);
             a.Intent = AgentAction.Run;
             // 2-3 steps in, planting beside the ball at the contact frame
-            Vec2 plant = _holder.Pos + new Vec2(0.6f, -0.6f);
+            Vec2 plant = _holder.Pos + new Vec2(-0.66f, -0.50f);   // v0.9.0 (E-305): left plant foot beside the ball, right leg through; E-307: the plant is outside the holder body (0.66 yd left, 0.5 behind: the kicker no longer passes through the holder)
             float span = Math.Max(0.1f, _kickTime - _approachAt);
             float u = SimMath.Clamp01((S.Time - _approachAt) / span);
             const float shape = 1.15f;
             Vec2 target = _approachFrom + (plant - _approachFrom) * (float)Math.Pow(u, shape);
             Vec2 ff = (plant - _approachFrom) * (shape * (float)Math.Pow(Math.Max(u, 0.02f), shape - 1f) / span);
             Vec2 want = (target - a.Pos) * 7f + ff;
-            float cap = a.Body.EffectiveVMax * 0.6f;
+            float cap = a.Body.EffectiveVMax * 0.78f;      // v0.9.0 (E-305): the three-step approach reaches the plant spot beside the ball
             if (want.Length > cap) want = want.Norm() * cap;
             a.Want = want;
             a.FaceDir = u > 0.6f ? (spot - a.Pos).Norm() : (want.LenSq() > 0.04f ? want.Norm() : new Vec2(0f, 1f));
@@ -686,7 +749,8 @@ namespace PixFootball.Sim
             _kicked = true;
             SimAgent k = _kicker;
             float kp = SimMath.Rating01(k.R.KickPower), acc = SimMath.Rating01(k.R.KickAccuracy);
-            Vec3 from = new Vec3(_holder.Pos.X, _holder.Pos.Y + 0.4f, 0.4f);
+            Vec3 from = new Vec3(_holder.Pos.X, _holder.Pos.Y + 0.4f, KickGeometry.HolderSpotHeightYd);      // v0.9.0 CONNECT E-253: the holder's spot on the turf
+            RushJumps(from.XY);
             S.KickDistance = GoalPostY - from.Y + 0f;
             // pressure from the rush
             float pressure = 0f; SimAgent blocker = null; float bd = 99f;
@@ -735,6 +799,7 @@ namespace PixFootball.Sim
             S.Ball.IsKick = true;
             KickCommon(k, from);
             _kickPoint = from;
+            CheckKickerContact(k);
             S.Blocks.ReleaseAll();
         }
 
@@ -780,9 +845,48 @@ namespace PixFootball.Sim
             }
         }
 
+        /// <summary>
+        /// v0.9.0 (E-345): kick-catch interference. A coverage man who is on the returner as the ball arrives (inside a yard of him, before the catch) is flagged about one time in ten.
+        /// </summary>
+        private void CheckKickCatchInterference(SimAgent r)
+        {
+            if (!S.Options.Penalties || !S.FoulOpen(SimSide.Offense) || S.Kind == PlayKind.Scrimmage) return;
+            for (int i = 0; i < 11; i++)
+            {
+                SimAgent o = S.Agents[i];
+                if (o.State == AgentState.Down || o.Body.FallenTime > 0f || o == _kicker) continue;
+                if ((o.Pos - r.Pos).Length > o.Body.Radius + r.Body.Radius + 0.35f) continue;
+                if (S.Rng.NextFloat() < 0.16f * (1.5f - SimMath.Rating01(o.R.Awareness))) { S.Flag(PenaltyType.KickCatchInterference, o, r.Pos.Y - S.LosY); return; }
+            }
+        }
+
+        /// <summary>
+        /// v0.9.0 (E-345): after an unblocked punt or field goal, a rusher inside a yard of the kicker who did not touch the ball draws a flag: roughing the kicker (15 yd and a first down) when he
+        /// hits him hard, running into the kicker (5 yd) when he only brushes him.
+        /// </summary>
+        private void CheckKickerContact(SimAgent k)
+        {
+            if (!S.Options.Penalties || !S.FoulOpen(SimSide.Defense) || S.Kind == PlayKind.Scrimmage || S.Kind == PlayKind.Kickoff) return;
+            for (int i = 11; i < 22; i++)
+            {
+                SimAgent d = S.Agents[i];
+                if (d.State == AgentState.Down || d.Body.FallenTime > 0f || d.Assign is ReturnerAssignment) continue;
+                float dist = (d.Pos - k.Pos).Length;
+                if (dist > k.Body.Radius + d.Body.Radius + 0.45f) continue;
+                float aw = SimMath.Rating01(d.R.Awareness);
+                if (S.Rng.NextFloat() < 0.22f * (1.5f - aw))
+                {
+                    bool rough = d.Speed > 5f && S.Rng.NextFloat() < 0.55f;
+                    S.Flag(rough ? PenaltyType.RoughingTheKicker : PenaltyType.RunningIntoKicker, d, k.Pos.Y - S.LosY);
+                    return;
+                }
+            }
+        }
+
         private void AttemptCatch(SimAgent a)
         {
             BallSim ball = S.Ball;
+            CheckKickCatchInterference(a);
             float skill = SimMath.Rating01(a.R.Catching);
             var ra = a.Assign as ReturnerAssignment;
             float p = 0.935f + 0.055f * skill - 0.03f * SimMath.Clamp01(a.Speed / Math.Max(1f, a.Body.VMax));
@@ -904,8 +1008,10 @@ namespace PixFootball.Sim
                     if (!far) continue;
                     if (S.Kind == PlayKind.Punt)
                     {
-                        // downed by the coverage team (no return)
-                        if (S.Rng.NextFloat() < 0.5f)
+                        // downed by the coverage team (no return). v0.9.0 (E-360): only the first arrivals can down it, and it is not a coin flip: 35 percent inside the 10 (the gunners, 1.6 times that), 15 percent elsewhere
+                        var dl = a.Assign as LaneAssignment;
+                        float pDown = (ball.Pos.Y >= 90f ? 0.35f : 0.15f) * (dl != null && dl.Gunner ? 1.6f : 0.6f) * (oi < 3 ? 1f : 0.4f);
+                        if (S.Rng.NextFloat() < pDown)
                         {
                             S.KickLandY = ball.Pos.Y;
                             S.KickRecoveredByKicker = false;
@@ -916,7 +1022,7 @@ namespace PixFootball.Sim
                         }
                         continue;
                     }
-                    float p = 0.09f + 0.12f * SimMath.Rating01(a.R.Catching) + 0.03f * SimMath.Rating01(a.R.Awareness); // diving on a bouncing ball in traffic: expected onside kicks are recovered about one time in six
+                    float p = 0.42f + 0.30f * SimMath.Rating01(a.R.Catching) + 0.05f * SimMath.Rating01(a.R.Awareness); // diving on a bouncing ball in traffic: expected onside kicks are recovered about one time in eight (v0.9.0: the hands team gets to the ball first more often, so the dive is a better bet)
                     _fieldLock[a.Id] = S.Time + 0.55f;
                     if (S.Rng.NextFloat() < p)
                     {

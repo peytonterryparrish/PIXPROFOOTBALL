@@ -9,7 +9,9 @@ namespace PixFootball.Core
         OffensiveHolding, DefensiveHolding,
         OffensivePassInterference, DefensivePassInterference,
         IllegalBlockInBack, FaceMask, RoughingThePasser, UnnecessaryRoughness,
-        IllegalFormation, IntentionalGrounding, IllegalContact, TooManyMen
+        IllegalFormation, IntentionalGrounding, IllegalContact, TooManyMen,
+        /// <summary>v0.9.0 (E-345): special-teams fouls. Appended at the end: the numbers of the existing types do not change.</summary>
+        RoughingTheKicker, RunningIntoKicker, KickCatchInterference
     }
 
     public enum PenaltySide { Offense, Defense, Either }
@@ -61,6 +63,9 @@ namespace PixFootball.Core
             Add(PenaltyType.IntentionalGrounding, "Intentional Grounding", PenaltySide.Offense, 10, 10, false, true, true, false);
             Add(PenaltyType.IllegalContact, "Illegal Contact", PenaltySide.Defense, 5, 5, true, false, false, false);
             Add(PenaltyType.TooManyMen, "Too Many Men on the Field", PenaltySide.Either, 5, 5, false, false, false, true);
+            Add(PenaltyType.RoughingTheKicker, "Roughing the Kicker", PenaltySide.Defense, 15, 15, true, false, false, false);
+            Add(PenaltyType.RunningIntoKicker, "Running Into the Kicker", PenaltySide.Defense, 5, 5, false, false, false, false);
+            Add(PenaltyType.KickCatchInterference, "Kick Catch Interference", PenaltySide.Offense, 15, 15, false, false, false, false);
         }
 
         private static void Add(PenaltyType t, string name, PenaltySide side, int pro, int col,

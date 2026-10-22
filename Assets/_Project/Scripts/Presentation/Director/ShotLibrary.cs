@@ -26,12 +26,35 @@ namespace PixFootball.Presentation
         /// <summary>Sign of the sideline the live broadcast camera is on (+1 = +X).</summary>
         public float LiveSide = 1f;
         public int Variant;
+        // ---- v0.9.0 CONNECT E-394: smoothing state of the tight shots (the director sets Dt every frame; 0 = first evaluation, which just seeds the state)
+        public float Dt;
+        public bool SmoothInit; public Vector3 SmoothMid; public float SmoothYaw;
     }
 
     /// <summary>The camera moves of the broadcast director: each shot is a function of its progress u (0..1) and the live scene.</summary>
     public static class ShotLibrary
     {
         static float Ease(float u) { return u * u * (3f - 2f * u); }
+
+        /// <summary>
+        /// v0.9.0 CONNECT E-394: the tight shots used to be rigidly locked to the moving player. The subject point follows with a 0.25 s time constant and the facing direction turns with the same
+        /// lag and at most 90 degrees per second, so a juke or a spin no longer whips the camera. Only advances when <see cref="ShotContext.Dt"/> &gt; 0 (a second evaluation in the same frame is free).
+        /// </summary>
+        static void SmoothSubject(ShotContext c, ref Vector3 mid, ref Vector3 face)
+        {
+            float yawT = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
+            if (!c.SmoothInit) { c.SmoothInit = true; c.SmoothMid = mid; c.SmoothYaw = yawT; }
+            else if (c.Dt > 0f)
+            {
+                float a = 1f - Mathf.Exp(-c.Dt / 0.25f);
+                c.SmoothMid = Vector3.Lerp(c.SmoothMid, mid, a);
+                float want = Mathf.DeltaAngle(c.SmoothYaw, yawT) * a, lim = 90f * c.Dt;
+                c.SmoothYaw += Mathf.Clamp(want, -lim, lim);
+            }
+            else { c.SmoothMid = mid; c.SmoothYaw = yawT; }   // Dt = 0 (tools, tests, the first frame): pass the raw values through
+            mid = c.SmoothMid;
+            face = Quaternion.Euler(0f, c.SmoothYaw, 0f) * Vector3.forward;
+        }
 
         public static ShotPose Evaluate(ShotKind kind, float u, ShotContext c)
         {
@@ -95,6 +118,7 @@ namespace PixFootball.Presentation
             Vector3 s = c.Subject(), s2 = c.Second();
             Vector3 mid = s2 != Vector3.zero ? Vector3.Lerp(s, s2, 0.4f) : s;
             Vector3 face = c.Facing(); face.y = 0f; if (face.sqrMagnitude < 0.01f) face = Vector3.forward * c.Downfield; face.Normalize();
+            SmoothSubject(c, ref mid, ref face);   // v0.9.0 CONNECT E-394
             Vector3 right = Vector3.Cross(Vector3.up, face);
             float dist = Mathf.Lerp(7.4f, 5.4f, Ease(u));
             Vector3 pos = mid + face * dist * 0.8f + right * dist * 0.55f * (c.Variant % 2 == 0 ? 1f : -1f);
@@ -108,6 +132,7 @@ namespace PixFootball.Presentation
         {
             Vector3 s = c.Subject();
             Vector3 face = c.Facing(); face.y = 0f; if (face.sqrMagnitude < 0.01f) face = Vector3.forward * c.Downfield; face.Normalize();
+            SmoothSubject(c, ref s, ref face);   // v0.9.0 CONNECT E-394
             float ang = Mathf.Lerp(-22f, 26f, Ease(u));
             float dist = Mathf.Lerp(7.6f, 5.6f, Ease(u));
             // in front of the scorer (he celebrates facing the camera side); the end-zone wall is not an option

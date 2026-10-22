@@ -25,7 +25,9 @@ namespace PixFootball.Gameplay
         /// <summary>Plain shoulder to shoulder collision (blocker / hit reaction).</summary>
         Collision,
         /// <summary>A catch in traffic: receiver and defender both go up for the ball (A = receiver, B = defender).</summary>
-        Contested
+        Contested,
+        /// <summary>v0.9.0 CONNECT E-219: a big hit the carrier shrugs off (the BoNES Failure / CriticalFailure takes), paired with a broken tackle.</summary>
+        BigHitShrug
     }
 
     /// <summary>What the simulation says about one contact, in the units the table uses (metres, degrees).</summary>
@@ -39,6 +41,10 @@ namespace PixFootball.Gameplay
         /// <summary>Closing speed of the tackler on the carrier, m/s.</summary>
         public float Closing;
         public int Seed;
+        /// <summary>v0.9.0 CONNECT E-217: how low the tackle goes (0 high wrap .. 1 dive / shoestring), the metres between the two hips the bodies call for (&lt;= 0: no preference), and the takes used recently (they are avoided).</summary>
+        public float WantLow;
+        public float Distance;
+        public IList<string> Avoid;
     }
 
     /// <summary>Picks the authored pair (a Draft Fever two-actor take) that best matches a simulated contact. Pure; unit tested.</summary>
@@ -70,6 +76,7 @@ namespace PixFootball.Gameplay
                 case ContactKind.Broken: return p.key == ArtKeys.ContactTackle && Has(n, "TackleBroken") && Has(n, "Dmo");
                 case ContactKind.Truck: return p.key == ArtKeys.ContactTackle && Has(n, "TackleBroken") && Has(n, "Omo");
                 case ContactKind.BigHit: return p.key == ArtKeys.ContactBigHit && Has(n, "Success");
+                case ContactKind.BigHitShrug: return p.key == ArtKeys.ContactBigHit && Has(n, "Failure");
                 case ContactKind.Sack: return p.key == ArtKeys.ContactSack && Has(n, "SackWrap");
                 case ContactKind.SackBroken: return p.key == ArtKeys.ContactSack && Has(n, "SackBroken");
                 case ContactKind.Collision: return p.key == ArtKeys.ContactCollision;
@@ -89,8 +96,14 @@ namespace PixFootball.Gameplay
         {
             float ang = Mathf.Abs(Mathf.DeltaAngle(p.bearing, s.Bearing));
             float score = -ang / 25f;
-            score -= Mathf.Abs(p.speedA - s.CarrierSpeed) * 0.18f;
+            // v0.9.0 CONNECT E-205: a take slower than the carrier is a take that stops him dead: the faster take wins hard; a faster take than the carrier is a soft mismatch
+            float dv = s.CarrierSpeed - p.speedA;
+            score -= dv > 0f ? dv * 0.55f : -dv * 0.2f;
             score -= Mathf.Abs(p.closingB - s.Closing) * 0.12f;
+            // E-217: a dive wants a low tackler, a wrap a high one; the bodies' size wants its own gap; the same take is not used again and again
+            if (s.WantLow > 0f) score -= Mathf.Abs(p.lowB - s.WantLow) * 1.2f;
+            if (s.Distance > 0f && p.distance > 0f) score -= Mathf.Abs(p.distance - s.Distance) * 0.8f;
+            if (s.Avoid != null) for (int i = 0; i < s.Avoid.Count; i++) if (s.Avoid[i] == p.clipA) { score -= 0.9f; break; }
             // variety among near-equal takes, stable per seed
             int h = (s.Seed * 73856093) ^ (StableHash(p.clipA) * 19349663);
             score += ((h & 0xFFFF) / 65535f) * 0.45f;

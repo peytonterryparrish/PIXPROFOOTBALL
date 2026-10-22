@@ -69,7 +69,7 @@ namespace PixFootball.Gameplay
             var p = new Part { Id = id, T = t, Mass = mass, Layer = t.gameObject.layer };
             var rb = t.gameObject.AddComponent<Rigidbody>();
             rb.mass = mass; rb.linearDamping = 0.2f; rb.angularDamping = 0.9f; rb.maxAngularVelocity = MaxAngularSpeed; rb.maxDepenetrationVelocity = 1.5f;
-            rb.solverIterations = 12; rb.solverVelocityIterations = 4; rb.interpolation = RigidbodyInterpolation.None; rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+            rb.solverIterations = 12; rb.solverVelocityIterations = 4; rb.interpolation = RigidbodyInterpolation.None;      // v0.9.0 CONNECT E-226: the bones are written from the rigid bodies in LateUpdate, so the interpolation is done here (prev / current physics state), not by Unity rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
             rb.isKinematic = true;
             Collider col;
             if (sphere) { var s = t.gameObject.AddComponent<SphereCollider>(); s.radius = radius; s.center = t.InverseTransformVector(Vector3.up * radius * 0.7f); col = s; }
@@ -221,6 +221,9 @@ namespace PixFootball.Gameplay
             return true;
         }
 
+        /// <summary>v0.9.0 CONNECT E-227: builds the rigid bodies now (while the player is pooled and idle) instead of on his first hit.</summary>
+        public void Prebuild() { if (!_built && Available) Build(); }
+
         /// <summary>Back to the animation immediately.</summary>
         public void Cancel()
         {
@@ -238,9 +241,15 @@ namespace PixFootball.Gameplay
             }
         }
 
+        Vector3[] _prevPos; Quaternion[] _prevRot; bool _hasPrev;
+
         void FixedUpdate()
         {
-            if (!Machine.Active || Machine.Phase == RagdollPhase.Recover) return;
+            if (!Machine.Active || Machine.Phase == RagdollPhase.Recover) { _hasPrev = false; return; }
+            // v0.9.0 CONNECT E-226: the state at the start of this physics step (the step runs right after FixedUpdate): LateUpdate draws between it and the state after the step
+            if (_prevPos == null || _prevPos.Length != _parts.Count) { _prevPos = new Vector3[_parts.Count]; _prevRot = new Quaternion[_parts.Count]; }
+            for (int i = 0; i < _parts.Count; i++) { var rb = _parts[i].Rb; if (rb == null) continue; _prevPos[i] = rb.position; _prevRot[i] = rb.rotation; }
+            _hasPrev = true;
             foreach (var p in _parts)
             {
                 if (p.Rb == null || p.Rb.isKinematic) continue;
@@ -297,9 +306,12 @@ namespace PixFootball.Gameplay
             {
                 case RagdollPhase.BlendIn:
                 case RagdollPhase.Active:
-                    foreach (var p in _parts)
+                    float ia = _hasPrev ? Mathf.Clamp01((Time.time - Time.fixedTime) / Mathf.Max(0.0001f, Time.fixedDeltaTime)) : 1f;
+                    for (int pi = 0; pi < _parts.Count; pi++)
                     {
+                        var p = _parts[pi];
                         Vector3 sp = p.Rb.position; Quaternion sr = p.Rb.rotation;
+                        if (_hasPrev && _prevPos != null && pi < _prevPos.Length) { sp = Vector3.Lerp(_prevPos[pi], sp, ia); sr = Quaternion.Slerp(_prevRot[pi], sr, ia); }
                         if (w >= 0.999f) p.T.SetPositionAndRotation(sp, sr);
                         else p.T.SetPositionAndRotation(Vector3.Lerp(p.T.position, sp, w), Quaternion.Slerp(p.T.rotation, sr, w));
                     }

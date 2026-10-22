@@ -29,7 +29,8 @@ namespace PixFootball.Sim
             TurnoverSpotY = d.Pos.Y;
             CatcherId = d.Id;
             PassTipped = false;
-            PlayAction(d, AgentAction.Catch, 0.4f);
+            PlayAction(d, AgentAction.Catch, GamePace.CatchSeconds);
+            d.CommitUntil = Time + GamePace.CatchSeconds; d.CommitSpeedFrac = GamePace.CatchSpeedFrac;   // v0.9.0 (E-138): an interceptor secures the ball before he turns upfield, like a receiver
             LogEvent(SimEventType.Interception, d.Id, PasserId, new Vec3(d.Pos, Ball.Pos.Z), TackleType.None, d.Pos.Y - LosY);
             Blocks.ReleaseAll();
         }

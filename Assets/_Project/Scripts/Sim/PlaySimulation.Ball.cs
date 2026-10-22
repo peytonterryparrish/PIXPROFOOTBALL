@@ -22,7 +22,7 @@ namespace PixFootball.Sim
         internal Vec3 BallHandPos(SimAgent h)
         {
             float z = 1.05f;
-            Vec2 p = h.Pos + h.Facing * 0.28f;
+            Vec2 p = h.Pos + h.Facing * 0.28f + h.Facing.Perp() * (h.BallSide * 0.12f);   // v0.9.0 (E-160): a carrier with a defender closing carries the ball on the far arm
             if (h.Side == SimSide.Offense && h.Slot == 0 && !PassThrown && (h.QbState == QbPhase.Set || h.QbState == QbPhase.Windup || h.QbState == QbPhase.Scramble || h.QbState == QbPhase.Dropback))
                 z = 1.75f;
             if (h.Move == CarrierMove.Dive && h.MoveTime > 0f) p = p + h.MoveDir * 0.85f;
@@ -42,6 +42,7 @@ namespace PixFootball.Sim
 
         internal void Handoff(SimAgent from, SimAgent to)
         {
+            ExchangeTime = Time;
             GiveBall(to);
             RusherId = to.Id;
             Blocks.HandedOff = true;
@@ -52,9 +53,10 @@ namespace PixFootball.Sim
 
         internal void PitchBall(SimAgent from, SimAgent to)
         {
+            ExchangeTime = Time;
             Vec3 a = new Vec3(from.Pos, 1.2f);
             float dist = (to.Pos - from.Pos).Length;
-            float t = Math.Max(0.38f, dist / 15f);
+            float t = Math.Max(to.PlayPos == Position.WR ? 0.42f : 0.55f, dist / (to.PlayPos == Position.WR ? 15f : 12f));   // v0.9.0 (E-156): a pitch flies at least 0.55 s (12 yd/s); the quick jet pitch to a receiver in motion 0.42 s
             Vec2 target = to.Pos + to.Vel * t;
             Vec3 tgt = new Vec3(target, 1.3f);
             Vec3 d = tgt - a;
@@ -150,6 +152,7 @@ namespace PixFootball.Sim
             GiveBall(a);
             LogEvent(SimEventType.Recovery, a.Id, -1, TackleType.None, turnover ? 1f : 0f);
             PlayAction(a, AgentAction.Catch, 0.3f);
+            a.CommitUntil = Time + 0.30f; a.CommitSpeedFrac = 0.78f;   // v0.9.0 (E-138): a recovery is secured before he runs
             if (turnover)
             {
                 BallSide = a.Side;
@@ -171,10 +174,12 @@ namespace PixFootball.Sim
             bool scoop = Rng.NextFloat() < (nearestOpp >= 3.8f ? 0.55f : (nearestOpp > 2.4f ? 0.25f : 0f));
             if (!scoop && (opponentsNear || Rng.NextFloat() < 0.6f))
             {
+                // v0.9.0 (E-295): he dives on it (a 0.25 s dive-on-ball) and the whistle follows after the pile (0.45 s), he no longer drops to the turf the tick he has it
+                PlayAction(a, AgentAction.Dive, 0.45f);
                 a.State = AgentState.Down;
                 a.Body.Fall(0.9f);
                 TacklerId = -1;
-                EndPlay(turnover ? EndReason.FumbleLost : EndReason.Tackle);
+                EndPlayAfter(turnover ? EndReason.FumbleLost : EndReason.Tackle, 0.45f);
             }
         }
 

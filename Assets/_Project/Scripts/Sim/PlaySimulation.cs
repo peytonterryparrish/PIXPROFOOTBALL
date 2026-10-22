@@ -20,6 +20,11 @@ namespace PixFootball.Sim
         /// <summary>Snap automatically after <see cref="AutoSnapDelay"/> seconds (CPU vs CPU / headless).</summary>
         public bool AutoSnap = true;
         public float AutoSnapDelay = 0.6f;
+        /// <summary>
+        /// v0.9.0 (E-323 / E-366 / E-374): when true an automatic snap follows a cadence instead of the bare <see cref="AutoSnapDelay"/>: the computer offense may send a man in motion, the defense may rotate
+        /// or show a blitz, and the ball is snapped 1.4-2.2 s (random per play) after the formation settles (the match flow sets this for CPU and autopilot snaps). Off by default: headless callers and tests keep the old fixed delay.
+        /// </summary>
+        public bool Cadence;
         /// <summary>Enable pre-snap and in-play penalty rolls (holding, DPI, false start...).</summary>
         public bool Penalties = true;
         /// <summary>Test hook: the quarterback never throws or scrambles (used to measure pass protection in isolation).</summary>
@@ -224,9 +229,11 @@ namespace PixFootball.Sim
             DefAI.Prepare();
             DefenseAlignment.Apply(this);
             Specials.Prepare();
+            SettlePreSnapBodies();
             PreSnapStances.Refresh(this);
             for (int i = 0; i < 22; i++) Agents[i].ClearHistory(Agents[i].Pos);
             _setup = true;
+            AutoJetMotion();
         }
 
         private void ResetOutcomeFacts()
@@ -270,6 +277,7 @@ namespace PixFootball.Sim
             int wt = player.Bio != null && player.Bio.WeightLb > 100 ? player.Bio.WeightLb : 215;
             int ht = player.Bio != null && player.Bio.HeightIn > 55 ? player.Bio.HeightIn : 72;
             a.Body = new AgentBody(a.R, wt, ht, GamePace.For(spec.Position));
+            if (spec.Position == Position.QB) a.Body.BackpedalFactor += 0.07f;   // v0.9.0: a quarterback drops back at 4.5-5.5 yd/s (a 7-step drop is 9 yd in 2.3 s), faster than a defensive back backpedals
             ApplyStaticBodyAbilities(a);
             if (Options != null && Options.Fatigue != null) a.Body.Energy = Options.Fatigue.EnergyOf(player.Id);
             a.Body.Facing = facing;
@@ -360,7 +368,7 @@ namespace PixFootball.Sim
             {
                 _accum -= Dt;
                 Step(inp);
-                steps++;
+                steps++; StepCounter++; if (AfterStep != null) AfterStep(this);      // v0.9.0 CONNECT E-006: render interpolation snapshots every fixed step
                 inp.JukeLeft = inp.JukeRight = inp.Spin = inp.StiffArm = inp.Truck = inp.Hurdle = inp.Dive = inp.Jump = false;
                 inp.Tackle = inp.SwitchPlayer = inp.Snap = inp.Throwaway = false;
                 inp.ThrowToSlot = 0;
@@ -408,11 +416,12 @@ namespace PixFootball.Sim
         /// <summary>One fixed 1/60 s step.</summary>
         public void Step(ControlInput input)
         {
-            Vec2 prevWind = BallPhysics.Wind; float prevScale = BallPhysics.WindScale;
+            Vec2 prevWind = BallPhysics.Wind; float prevScale = BallPhysics.WindScale; bool prevKick = BallPhysics.KickDrag;
+            BallPhysics.KickDrag = Kind == PlayKind.Kickoff || Kind == PlayKind.Punt || Kind == PlayKind.FieldGoal;
             BallPhysics.Wind = Options != null ? Options.Wind : Vec2.Zero;
             BallPhysics.WindScale = 1f;
             try { StepCore(input); }
-            finally { BallPhysics.Wind = prevWind; BallPhysics.WindScale = prevScale; }
+            finally { BallPhysics.Wind = prevWind; BallPhysics.WindScale = prevScale; BallPhysics.KickDrag = prevKick; }
         }
 
         /// <summary>The wind acting on this play's ball (simulation frame, yards per second).</summary>
@@ -441,6 +450,7 @@ namespace PixFootball.Sim
                     SimAgent a = Agents[i];
                     a.Want = Vec2.Zero; a.HasFace = false; a.Exertion = 0f;
                     Vec2 preWant = i == MotionSlot ? PreSnapWant(i) : (i >= 11 ? DefenseMotionResponse(i) : Vec2.Zero);
+                    if (_flinch != null && _flinch.Idx == i) preWant = FlinchWant(i);
                     a.Body.Step(Dt, preWant, i == MotionSlot, new Vec2(0f, 1f), 0f);   // v0.6: the man in motion shuffles across the formation square to the line (QA-308 / QA-672)
                     bool inMotion = i == MotionSlot && a.Speed > 0.6f;
                     a.Intent = inMotion ? AgentAction.Run : AgentAction.Stance;
@@ -449,8 +459,11 @@ namespace PixFootball.Sim
                     a.RecordHistory();
                 }
                 // a man in motion gets a few strides first and is never snapped while coming forward
-                bool motionSettled = MotionSlot < 0 || (PreSnapTime >= Options.AutoSnapDelay + 0.8f && Agents[MotionSlot].Vel.Y < 0.4f);   // moving laterally at the snap is legal; coming toward the line is not (and he must have had a few steps)
-                if (input.Snap || (Options.AutoSnap && PreSnapTime >= Options.AutoSnapDelay && motionSettled)) DoSnap();
+                if (Options.AutoSnap && Options.Cadence && !_cadencePlanned) PlanCadence();
+                float snapAfter = Options.Cadence && _cadencePlanned ? _cadenceSnapAt : Options.AutoSnapDelay;
+                bool motionSettled = MotionSlot < 0 || (PreSnapTime >= snapAfter + 0.8f && Agents[MotionSlot].Vel.Y < 0.4f);   // moving laterally at the snap is legal; coming toward the line is not (and he must have had a few steps)
+                if (_flinch != null) { StepFlinch(); return; }
+                if (input.Snap || (Options.AutoSnap && PreSnapTime >= snapAfter && motionSettled)) DoSnap();
                 return;
             }
             if (Phase == PlayPhase.Dead)
@@ -491,6 +504,33 @@ namespace PixFootball.Sim
             OffAI.OnSnap();
             DefAI.OnSnap();
             Specials.OnSnap();
+            AssignReactions();
+        }
+
+        /// <summary>
+        /// v0.9.0 (E-361 / E-367 / E-368): nobody reacts to the snap with the same latency (22 players moved 0.10-0.15 s after the snap). Linemen fire out on the ball in 0.15-0.28 s with a spread,
+        /// the pass rush gets its get-off (0.11-0.23 s), receivers and backs go on the ball in 0.10-0.20 s, linebackers read in 0.18-0.30 s, defensive backs react to the quarterback and the
+        /// receiver in 0.18-0.35 s. The human-controlled player has no delay.
+        /// </summary>
+        private void AssignReactions()
+        {
+            if (Kind != PlayKind.Scrimmage) return;
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent a = Agents[i];
+                a.ReactUntil = 0f;
+                if (i == 0 || a.ControlledByUser) continue;
+                float aw = SimMath.Rating01(a.R.Awareness), acc = SimMath.Rating01(a.R.Acceleration);
+                float rnd = Rng.NextFloat();
+                float t;
+                // (the audit measures the first move as the time the body passes 1 yd/s, which includes about 0.1 s of acceleration)
+                if (PositionGroup.IsOffensiveLine(a.PlayPos)) t = 0.08f + (1f - acc) * 0.08f + rnd * 0.06f;
+                else if (PositionGroup.IsDefensiveLine(a.PlayPos)) t = 0.06f + (1f - acc) * 0.08f + rnd * 0.05f;
+                else if (PositionGroup.IsLinebacker(a.PlayPos)) t = 0.12f + (1f - aw) * 0.10f + rnd * 0.05f;
+                else if (PositionGroup.IsDefensiveBack(a.PlayPos)) t = 0.12f + (1f - aw) * 0.12f + rnd * 0.05f;
+                else t = 0.04f + (1f - aw) * 0.05f + rnd * 0.05f;
+                a.ReactUntil = t;
+            }
         }
 
         private void LiveStep(ControlInput input)
@@ -502,9 +542,10 @@ namespace PixFootball.Sim
             {
                 SimAgent ag = Agents[i];
                 ag.Body.LimitSpeed();
-                if (ag.Move == CarrierMove.Dive && ag.MoveTime > 0f) { ag.PrevTickVel = ag.Body.Vel; continue; }   // the dive is a deliberate lunge: spreading it over ticks left sneaks and goal-line dives short
+                if (ag.Move == CarrierMove.Dive && ag.MoveTime > 0f) { LimitHeadingChange(ag); ag.PrevTickVel = ag.Body.Vel; continue; }   // the dive is a deliberate lunge: spreading it over ticks left sneaks and goal-line dives short
                 Vec2 dv = ag.Body.Vel - ag.PrevTickVel; float m = dv.Length;
                 if (m > MaxVelocityStep && Time > Dt * 2f) ag.Body.Vel = ag.PrevTickVel + dv * (MaxVelocityStep / m);
+                LimitHeadingChange(ag);
                 ag.PrevTickVel = ag.Body.Vel;
             }
         }
@@ -540,12 +581,24 @@ namespace PixFootball.Sim
                 SimAgent a = Agents[i];
                 Vec2 want = a.Want;
                 if (a.State == AgentState.Down) want = Vec2.Zero;
+                if (a.ReactUntil > Time && !a.ControlledByUser && a.State == AgentState.Normal)
+                {
+                    // still reacting to the snap: he holds his stance (the first action of the play is the move itself, never an idle stand-up)
+                    want = Vec2.Zero; a.HasFace = false; a.Intent = AgentAction.Stance;
+                }
                 if (a.CommitUntil > Time)
                 {
                     // commit window (v0.7): after a catch the receiver secures the ball before he turns upfield at full speed
                     float cap = a.Body.EffectiveVMax * a.CommitSpeedFrac;
                     float wl = want.Length;
                     if (wl > cap && wl > 0.001f) want = want * (cap / wl);
+                }
+                if (a.ImpactTime > 0f)
+                {
+                    // v0.9.0 (E-208): a contact impulse is a transfer over its duration (0.22 s), not a one-tick velocity cut
+                    float k = Math.Min(1f, Dt / a.ImpactTime);
+                    a.Body.Vel = a.Body.Vel + (a.ImpactVel - a.Body.Vel) * k;
+                    a.ImpactTime -= Dt;
                 }
                 a.Body.Step(Dt, want, a.HasFace, a.FaceDir, a.Exertion);
             }
@@ -568,6 +621,22 @@ namespace PixFootball.Sim
             if (Time >= (Kind == PlayKind.Scrimmage ? MaxPlaySeconds : MaxKickPlaySeconds)) ForceEnd();
         }
 
+        /// <summary>v0.9.0 (E-019): a running body does not change the DIRECTION of his velocity faster than MaxHeadingRate (a knock, a collision or a tackle used to flip it by up to 3,476 deg/s in one tick). Magnitude is kept; the direction follows over the next ticks.</summary>
+        public const float MaxHeadingRate = 540f * SimMath.Deg2Rad;   // radians per second at running speed (9 deg per tick; the audit target is under 600 deg/s everywhere)
+
+        private void LimitHeadingChange(SimAgent ag)
+        {
+            if (Time <= Dt * 2f || ag.State == AgentState.Down || ag.Body.FallenTime > 0f) return;
+            Vec2 pv = ag.PrevTickVel, nv = ag.Body.Vel;
+            float ps = pv.Length, ns = nv.Length;
+            if (ps < 2.5f || ns < 1.5f) return;
+            float ang = SimMath.AngleBetween(pv, nv);
+            float maxA = MaxHeadingRate * Dt;
+            if (ang <= maxA) return;
+            Vec2 dir = SimMath.RotateToward(pv.Norm(), nv.Norm(), maxA);
+            ag.Body.Vel = dir * ns;
+        }
+
         private void ForceEnd()
         {
             // a pathological play is whistled dead: the carrier is ruled down where he stands (no mid-field freeze without a tackle)
@@ -579,6 +648,28 @@ namespace PixFootball.Sim
 
         private void SeparateBodies()
         {
+            // v0.9.0 (E-044 / E-347): up to three relaxation passes so a six-body pile settles instead of jittering; later passes only push (no second impulse)
+            for (int pass = 0; pass < 3; pass++)
+                if (!SeparateBodiesPass(pass)) break;
+        }
+
+        /// <summary>True when the pair is the locked pair of an engagement: the defender and the PRIMARY blocker (the spring owns them). v0.9.0 (E-167): the second blocker of a double team is a real body that collides with both.</summary>
+        private static bool IsLockedPair(SimAgent a, SimAgent b)
+        {
+            BlockEngagement e = a.Engagement != null ? a.Engagement : b.Engagement;
+            if (e == null) return false;
+            if (a.Engagement != e && a != e.Defender) return false;
+            if (b.Engagement != e && b != e.Defender) return false;
+            SimAgent p = e.Primary;
+            return (a == e.Defender && b == p) || (b == e.Defender && a == p);
+        }
+
+        /// <summary>Sim time of the last hand-off or pitch (the exchange window in which the back and the passer may share space).</summary>
+        internal float ExchangeTime = -10f;
+
+        private bool SeparateBodiesPass(int pass)
+        {
+            bool any = false;
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = Agents[i];
@@ -594,12 +685,41 @@ namespace PixFootball.Sim
                         if (aLying && bLying) continue;
                         SimAgent st = aLying ? b : a, ly = aLying ? a : b;
                         if (st.State == AgentState.Engaged || st.State == AgentState.Down || Tackles.InTackleLock(a, b)) continue;
-                        BodyCollision.ResolveAroundFallen(st.Body, ly.Body, 0.75f);
+                        if (BodyCollision.ResolveAroundFallen(st.Body, ly.Body, 0.75f)) any = true;
                         continue;
                     }
-                    if (a.Engagement != null && a.Engagement == b.Engagement) continue;
+                    if (IsLockedPair(a, b))
+                    {
+                        // v0.9.0 (E-168): the engaged pair is held by the spring, but it may not interpenetrate and then pop apart when the lock ends (up to 0.5 yd in one tick): a deep overlap is eased out at most 0.05 yd a tick
+                        Vec2 ld = b.Body.Pos - a.Body.Pos;
+                        float lmin = (a.Body.Radius + b.Body.Radius) * 0.86f;
+                        float ldist = ld.Length;
+                        if (ldist < lmin && ldist > 1e-3f)
+                        {
+                            Vec2 ln = ld * (1f / ldist);
+                            float push = Math.Min(0.05f, (lmin - ldist) * 0.5f);
+                            float tot2 = a.Body.Mass + b.Body.Mass;
+                            a.Body.Pos = a.Body.Pos - ln * (push * b.Body.Mass / tot2) * 2f;
+                            b.Body.Pos = b.Body.Pos + ln * (push * a.Body.Mass / tot2) * 2f;
+                            any = true;
+                        }
+                        continue;
+                    }
                     // the back runs past the quarterback who just handed him the ball
-                    if (a.Side == b.Side && Kind == PlayKind.Scrimmage && Time < 1.8f && ((a.HasBall && b.Slot == 0) || (b.HasBall && a.Slot == 0))) continue;   // only while the exchange is happening
+                    if (a.Side == b.Side && Kind == PlayKind.Scrimmage && Time < ExchangeTime + 0.8f && ((a.HasBall && b.Slot == 0) || (b.HasBall && a.Slot == 0)))
+                    {
+                        // only while the exchange is happening, and even then the two bodies may overlap arms, not torsos: position-only separation to 0.82 of the contact distance (no impulse, no stopping the back)
+                        Vec2 ed = b.Body.Pos - a.Body.Pos;
+                        float emin = (a.Body.Radius + b.Body.Radius) * 0.82f, edist = ed.Length;
+                        if (edist < emin && edist > 1e-3f)
+                        {
+                            Vec2 en = ed * (1f / edist);
+                            float ep = Math.Min(0.06f, (emin - edist) * 0.5f);
+                            a.Body.Pos = a.Body.Pos - en * ep; b.Body.Pos = b.Body.Pos + en * ep;
+                            any = true;
+                        }
+                        continue;
+                    }
                     if (Tackles.InTackleLock(a, b)) continue;
                     if (a.IgnoreAgent == b.Id && Time < a.IgnoreUntil) continue;
                     if (b.IgnoreAgent == a.Id && Time < b.IgnoreUntil) continue;
@@ -609,9 +729,10 @@ namespace PixFootball.Sim
                     float dy = a.Body.Pos.Y - b.Body.Pos.Y;
                     if (dy > cull || dy < -cull) continue;
                     // teammates ghost through each other only while one is handing off
-                    BodyCollision.Resolve(a.Body, b.Body, 0.05f);
+                    if (BodyCollision.Resolve(a.Body, b.Body, pass == 0 ? 0.05f : 0f)) any = true;
                 }
             }
+            return any;
         }
 
         // ===================================================================================================
@@ -623,25 +744,36 @@ namespace PixFootball.Sim
             AgentAction act;
             if (a.State == AgentState.Down) act = AgentAction.Tackled;
             else if (a.Body.FallenTime > 0f) act = AgentAction.Fallen;
+            else if (a.Body.GetUpTime > 0f) act = AgentAction.GetUp;   // v0.9.0 (E-275): rising from the turf
             else if (a.Move != CarrierMove.None && a.MoveTime > 0f) act = MoveAction(a.Move);
             else if (a.OverrideLeft > 0f) act = a.Override;
             else if (a.State == AgentState.Engaged) act = a.Engagement != null && a.Engagement.IsShedding ? AgentAction.Shed : AgentAction.Engaged;
             else if (a.Body.StumbleTime > 0f) act = AgentAction.Stumble;
-            else if (a.Intent == AgentAction.Block && a.Speed < 2.5f) act = AgentAction.Block;
+            else if (a.Intent == AgentAction.Block && (a.Speed < 2.5f || a.IsOffensiveLineman || a.IsDefensiveLineman || SimMath.AngleBetween(a.Vel, a.Facing) < 1.75f)) act = AgentAction.Block;   // v0.9.0 (E-171): a blocker stays in his block action while he works (a lineman never shows the corner's shuffle)
             else if (Phase == PlayPhase.Dead && a.Speed < 0.5f) act = AgentAction.Idle;
             else
             {
+                // v0.9.0 (E-261 / E-285 / E-322 / E-346): the locomotion label has hysteresis bands (a body is 'moving' above 1.0 yd/s but keeps the label down to 0.6, Backpedal / Shuffle / Sprint switch at
+                // two different thresholds depending on where he is coming from) and a 0.2 s minimum between changes of gait, so the view no longer flips its locomotion state 7 times a play
                 float sp = a.Speed;
-                if (sp < 0.5f) act = a.Intent == AgentAction.Stance ? AgentAction.Stance : AgentAction.Idle;
+                AgentAction cur = a.Action;
+                bool wasMoving = cur == AgentAction.Run || cur == AgentAction.Sprint || cur == AgentAction.Backpedal || cur == AgentAction.Shuffle || cur == AgentAction.Route || cur == AgentAction.Carry || cur == AgentAction.Block;
+                float stopBand = wasMoving ? 0.6f : 1.0f;
+                if (sp < stopBand) act = a.Intent == AgentAction.Stance ? AgentAction.Stance : AgentAction.Idle;
                 else
                 {
                     float ang = SimMath.AngleBetween(a.Vel, a.Facing);
-                    if (ang > 2.0f) act = AgentAction.Backpedal;
-                    else if (ang > 0.85f) act = AgentAction.Shuffle;
+                    float tBack = cur == AgentAction.Backpedal ? 1.85f : 2.15f;
+                    float tShuf = cur == AgentAction.Shuffle ? 0.70f : 1.00f;
+                    if (ang > tBack) act = AgentAction.Backpedal;
+                    else if (ang > tShuf) act = AgentAction.Shuffle;
                     else if (a.HasBall) act = AgentAction.Carry;
                     else if (a.Intent == AgentAction.Route) act = AgentAction.Route;
                     else if (a.Intent == AgentAction.Block) act = AgentAction.Block;
-                    else act = sp > a.Body.VMax * 0.82f ? AgentAction.Sprint : AgentAction.Run;
+                    else act = sp > a.Body.VMax * (cur == AgentAction.Sprint ? 0.78f : 0.86f) ? AgentAction.Sprint : AgentAction.Run;
+                    bool curLoco = cur == AgentAction.Run || cur == AgentAction.Sprint || cur == AgentAction.Backpedal || cur == AgentAction.Shuffle || cur == AgentAction.Route || cur == AgentAction.Carry;
+                    bool newLoco = act == AgentAction.Run || act == AgentAction.Sprint || act == AgentAction.Backpedal || act == AgentAction.Shuffle || act == AgentAction.Route || act == AgentAction.Carry;
+                    if (act != cur && curLoco && newLoco && a.ActionTime < 0.2f && !(cur == AgentAction.Carry && !a.HasBall)) act = cur;
                 }
             }
             a.SetAction(act);
@@ -657,6 +789,7 @@ namespace PixFootball.Sim
                 case CarrierMove.Truck: return AgentAction.Truck;
                 case CarrierMove.Hurdle: return AgentAction.Hurdle;
                 case CarrierMove.Dive: return AgentAction.Dive;
+                case CarrierMove.Slide: return AgentAction.Slide;
                 default: return AgentAction.Run;
             }
         }
@@ -726,6 +859,12 @@ namespace PixFootball.Sim
         internal void LogEvent(SimEventType type, int a, int b, Vec3 pos, TackleType tackle = TackleType.None, float value = 0f, string note = null)
         {
             Log.Add(Time, type, a, b, pos, tackle, value, note);
+        }
+
+        /// <summary>As the other overload, recording a velocity (the carrier's speed at a tackle, E-350).</summary>
+        internal void LogEventVel(SimEventType type, int a, int b, Vec3 pos, TackleType tackle, float value, Vec2 vel)
+        {
+            Log.Add(Time, type, a, b, pos, tackle, value, null, vel);
         }
 
         internal void LogEvent(SimEventType type, int a, int b, TackleType tackle = TackleType.None, float value = 0f, string note = null)
@@ -828,7 +967,7 @@ namespace PixFootball.Sim
                 if (PositionGroup.IsOffensiveLine(Agents[i].PlayPos)) offLinemen.Add(i);
             }
             var defLine = new System.Collections.Generic.List<int>();
-            for (int i = 11; i < 22; i++) if (Agents[i].Pos.Y - LosY < 2.6f && !(Agents[i].Assign is ReturnerAssignment)) defLine.Add(i);
+            for (int i = 11; i < 22; i++) if (Agents[i].Pos.Y - LosY < 1.8f && !(Agents[i].Assign is ReturnerAssignment)) defLine.Add(i);   // v0.9.0 (E-332): only a man on the line can jump it (a linebacker at 2-2.5 yd used to be a culprit)
             if (offLinemen.Count == 0) offLinemen = offLine;
             float awOl = 0.7f, dlAw = 0.7f;
             if (offLinemen.Count > 0) { awOl = 0f; foreach (int i in offLinemen) awOl += Agents[i].R.Awareness; awOl = awOl / offLinemen.Count / 99f; }
@@ -852,7 +991,7 @@ namespace PixFootball.Sim
                 int worst = PickCareless(offLinemen);
                 var call = new PenaltyCall(PenaltyType.FalseStart, State.Possession, 0f, Agents[worst].PlayerId);
                 LogEvent(SimEventType.Penalty, worst, -1, TackleType.None, (float)PenaltyType.FalseStart, "FalseStart");
-                FinishPreSnap(PlayResult.PenaltyOnly(call));
+                BeginFlinch(worst, 1f, PlayResult.PenaltyOnly(call));   // v0.9.0 (E-332): the man actually jumps before the whistle
                 return true;
             }
             if (defLine.Count > 0 && u < (acc += 0.0075f * (1.55f - dlAw)))
@@ -860,7 +999,7 @@ namespace PixFootball.Sim
                 int g = PickCareless(defLine);
                 var call = new PenaltyCall(PenaltyType.Offside, State.Possession.Opponent(), 0f, Agents[g].PlayerId);
                 LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.Offside, "Offside");
-                FinishPreSnap(PlayResult.PenaltyOnly(call));
+                BeginFlinch(g, -1f, PlayResult.PenaltyOnly(call));
                 return true;
             }
             if (defLine.Count > 0 && u < (acc += 0.0026f * (1.55f - dlAw)))
@@ -868,10 +1007,10 @@ namespace PixFootball.Sim
                 int g = PickCareless(defLine);
                 var call = new PenaltyCall(PenaltyType.Encroachment, State.Possession.Opponent(), 0f, Agents[g].PlayerId);
                 LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.Encroachment, "Encroachment");
-                FinishPreSnap(PlayResult.PenaltyOnly(call));
+                BeginFlinch(g, -1f, PlayResult.PenaltyOnly(call));
                 return true;
             }
-            if (scrimmage && u < (acc += 0.0040f * (1.55f - qbAw)))
+            if (scrimmage && Options.AutoSnap && u < (acc += 0.0040f * (1.55f - qbAw)))   // v0.9.0 (E-364): the random delay-of-game roll is for automatic snaps only; a director-driven snap has the real play clock
             {
                 var call = new PenaltyCall(PenaltyType.DelayOfGame, State.Possession, 0f, Agents[0].PlayerId);
                 LogEvent(SimEventType.Penalty, 0, -1, TackleType.None, (float)PenaltyType.DelayOfGame, "DelayOfGame");

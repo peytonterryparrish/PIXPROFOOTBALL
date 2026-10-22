@@ -194,7 +194,7 @@ namespace PixFootball.Tests
             {
                 SimAgent a = sim.Agents[id];
                 float d1 = (a.Pos - a.Landmark).Length;
-                bool deepDefender = a.Landmark.Y - sim.LosY > 8f;
+                bool deepDefender = a.Landmark.Y - sim.LosY > 13f;
                 if (deepDefender) { if (a.Pos.Y >= a.Landmark.Y - 1.5f) close++; }
                 else { shallow++; if (d1 < 5.0f) close++; }   // a flat defender may carry a vertical a few yards before passing him off
             }

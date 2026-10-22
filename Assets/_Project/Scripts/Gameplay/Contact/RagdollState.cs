@@ -21,7 +21,7 @@ namespace PixFootball.Gameplay
     public sealed class RagdollStateMachine
     {
         public float BlendInTime = 0.12f;
-        public float MinActive = 0.4f, MaxActive = 1.2f;
+        public float MinActive = 0.4f, MaxActive = 2.0f;      // v0.9.0 CONNECT E-230: was 1.2 s, which froze bodies mid-tumble
         public float SettleSpeed = 0.7f;
         public float RecoverTime = 0.35f;
 
@@ -69,7 +69,8 @@ namespace PixFootball.Gameplay
                 case RagdollPhase.Active:
                     Weight = 1f;
                     bool settled = grounded && maxBoneSpeed < SettleSpeed && PhaseTime >= MinActive;
-                    if (settled || PhaseTime >= ActiveBudget) { Phase = RagdollPhase.Recover; PhaseTime = 0f; RecoverRequested = true; }
+                    bool budgetOver = PhaseTime >= ActiveBudget && (maxBoneSpeed < SettleSpeed * 2.5f || PhaseTime >= ActiveBudget + 0.6f);      // v0.9.0 CONNECT E-230: a body still tumbling is given up to 0.6 s more (speed gate)
+                    if (settled || budgetOver) { Phase = RagdollPhase.Recover; PhaseTime = 0f; RecoverRequested = true; }
                     break;
                 case RagdollPhase.Recover:
                     Weight = 1f - Mathf.Clamp01(PhaseTime / Mathf.Max(0.01f, RecoverTime));

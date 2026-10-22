@@ -24,6 +24,7 @@ namespace PixFootball.Gameplay
                 for (int i = 11; i < 22; i++) if (sim.Agents[i].ReturnerRole) { los = frame.ToUnity(sim.Agents[i].Pos); break; }
             }
             else if (!scrim) los = frame.ToUnity(sim.Agents[0].Pos);   // kicking: behind the kicker
+            if (!scrim && !userDef) c.KickKind = sim.Kind == PlayKind.Kickoff ? 1 : (sim.Kind == PlayKind.FieldGoal ? 2 : (sim.Kind == PlayKind.Punt ? 3 : 0));   // GFX-395
             c.Los = los;
             Vector3 focus = los, fvel = Vector3.zero; bool follow = false;
             if (!pre)
@@ -37,11 +38,21 @@ namespace PixFootball.Gameplay
                     if (pocket) focus = frame.ToUnity(sim.Agents[0].Pos);
                 }
                 else if (scrim) { focus = frame.ToUnity(sim.Agents[0].Pos); follow = b.State != BallState.Held; }
-                if (b.State != BallState.Held)
+                // v0.9.0 CONNECT E-391: the snap flight (centre to quarterback / holder, about 0.4 s) keeps the pocket framing on the quarterback; it used to lurch to the carrier preset and back at every snap
+                bool snapFlight = b.State == BallState.Snap && (scrim || sim.Kind == PlayKind.FieldGoal || sim.Kind == PlayKind.Punt);
+                if (snapFlight) { focus = frame.ToUnity(sim.Agents[0].Pos); fvel = Vector3.zero; follow = false; }
+                else if (b.State != BallState.Held)
                 {
-                    focus = frame.ToUnity(b.Pos); fvel = frame.VelToUnity(b.Vel.XY) * 0.35f; follow = true;
-                    if (fvel.magnitude > 12f) fvel = fvel.normalized * 12f;
+                    focus = frame.ToUnity(b.Pos); follow = true;
+                    bool kicked = b.State == BallState.Kick;   // GFX-395: a kick travels 25-35 m/s, the old clamp of 12 m/s let it outrun the camera: lead = 0.6 x the ball velocity, up to 30 m/s
+                    fvel = frame.VelToUnity(b.Vel.XY) * (kicked ? 0.6f : 0.35f);
+                    float cap = kicked ? 30f : 12f;
+                    if (fvel.magnitude > cap) fvel = fvel.normalized * cap;
+                    c.BallAirborne = focus.y > 1.2f;   // v0.9.0 CONNECT E-390: Focus.y carries the ball's height for UserCameraMath
                 }
+                // v0.9.0 CONNECT E-392: after a turnover on a scrimmage play (the defense now holds the ball, the user is the offense) the returner runs back toward the old offense's backfield.
+                // Flip the view to his travel direction so the camera stays behind him instead of framing him from the front; the rig turns the camera around smoothly (MatchCameraRig).
+                if (scrim && !userDef && sim.BallSide == SimSide.Defense && follow) c.ViewDir = -offDir;
             }
             c.Focus = focus; c.FocusVelocity = fvel; c.Follow = follow;
             return c;

@@ -24,9 +24,9 @@ namespace PixFootball.EditorTools
         /// <summary>Stance keys whose clips get a mirrored twin.</summary>
         static readonly string[] MirrorKeys = { "dl_stance", "stance_2pt", "stance_halfback", "stance_safety", "stance_3pt", "qb_stance_under", "qb_stance_shotgun", "idle_alt" };
 
-        struct Measured { public float Mean, Spread, HeadY; public int Hand, Foot; public float[] Hips, Shoulders; }
+        internal struct Measured { public float Mean, Spread, HeadY; public int Hand, Foot; public float[] Hips, Shoulders; }
 
-        static Measured Measure(Animator animator, AnimationClip clip)
+        internal static Measured Measure(Animator animator, AnimationClip clip)
         {
             float len = Mathf.Max(0.05f, clip.length);
             float[] fr = len > 8f ? new[] { 0.5f, 0.35f, 0.65f } : new[] { 0.15f, 0.5f, 0.85f };

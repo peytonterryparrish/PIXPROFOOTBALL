@@ -20,9 +20,9 @@ namespace PixFootball.Gameplay
         struct Tier { public float LodBias; public bool Fog, Ssao, Ssr, ContactShadows, MotionBlur, SpotShadows; public float ShadowDistance; public float FxScale; public bool Splashes, Breath, GrassBlades, Ssgi; }
         static readonly Tier[] Tiers =
         {
-            new Tier { LodBias = 0.45f, Fog = false, Ssao = false, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 60f, FxScale = 0.4f, Splashes = false, Breath = false, GrassBlades = false, Ssgi = false },
-            new Tier { LodBias = 0.7f, Fog = true, Ssao = true, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 90f, FxScale = 0.7f, Splashes = false, Breath = true, GrassBlades = false, Ssgi = false },
-            new Tier { LodBias = 1f, Fog = true, Ssao = true, Ssr = true, ContactShadows = true, MotionBlur = true, SpotShadows = false, ShadowDistance = 120f, FxScale = 1f, Splashes = true, Breath = true, GrassBlades = true, Ssgi = false },
+            new Tier { LodBias = 0.8f, Fog = false, Ssao = false, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 60f, FxScale = 0.4f, Splashes = false, Breath = false, GrassBlades = false, Ssgi = false },
+            new Tier { LodBias = 0.9f, Fog = true, Ssao = true, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 90f, FxScale = 0.7f, Splashes = false, Breath = true, GrassBlades = false, Ssgi = false },
+            new Tier { LodBias = 1.1f, Fog = true, Ssao = true, Ssr = true, ContactShadows = true, MotionBlur = true, SpotShadows = true, ShadowDistance = 120f, FxScale = 1f, Splashes = true, Breath = true, GrassBlades = true, Ssgi = false },
             new Tier { LodBias = 1.4f, Fog = true, Ssao = true, Ssr = true, ContactShadows = true, MotionBlur = true, SpotShadows = true, ShadowDistance = 150f, FxScale = 1.25f, Splashes = true, Breath = true, GrassBlades = true, Ssgi = true },
         };
 
@@ -35,6 +35,11 @@ namespace PixFootball.Gameplay
         /// <summary>Short grass blades near the camera (High and Ultra).</summary>
         public static bool GrassBlades { get { return Cur.GrassBlades; } }
         public static bool Ssgi { get { return Cur.Ssgi; } }
+        /// <summary>v0.9 (GFX-430): the tier's shadow distance (metres): the weather volume uses it for the HDRP maximum shadow distance (capped at 110, the range the cascades are tuned for).</summary>
+        public static float ShadowDistance { get { return Cur.ShadowDistance; } }
+        /// <summary>v0.9 (GFX-409/410): number of floodlights that cast player shadows (0 on Low / Medium, the two far rim lamps on High, four on Ultra).</summary>
+        public static int FloodShadowCount { get { return Cur.SpotShadows ? (Current >= 3 ? 4 : 2) : 0; } }
+        public static bool SpotShadows { get { return Cur.SpotShadows; } }
 
         public static int TierOfQualityLevel(int level)
         {
@@ -90,6 +95,9 @@ namespace PixFootball.Gameplay
             int t = Current;
             var tier = Tiers[Mathf.Clamp(t, 0, Tiers.Length - 1)];
             PlayerLod.Bias = tier.LodBias;
+            // v0.9: anisotropic filtering forced on from Medium (the turf stripes, the painted lines and the jersey weave shimmered / blurred at grazing angles; the import settings leave most textures at 1x)
+            QualitySettings.anisotropicFiltering = t >= 1 ? AnisotropicFiltering.ForceEnable : AnisotropicFiltering.Enable;
+            if (t >= 1) Texture.SetGlobalAnisotropicFilteringLimits(t >= 2 ? 16 : 8, t >= 2 ? 16 : 8);
             QualitySettings.shadowDistance = Mathf.Min(QualitySettings.shadowDistance, tier.ShadowDistance);
             foreach (var v in Object.FindObjectsByType<Volume>(FindObjectsSortMode.None))
             {
@@ -106,9 +114,11 @@ namespace PixFootball.Gameplay
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
             {
                 if (l.type != LightType.Spot) continue;
-                if (!tier.SpotShadows) { if (l.shadows != LightShadows.None) { _lightShadowsBefore[l] = l.shadows; l.shadows = LightShadows.None; } }
+                if (l.name.StartsWith("Flood_")) continue;   // v0.9 (GFX-409): the floodlight rig is owned by WeatherSystem.RefreshTier (which lamps cast, per tier); this loop used to switch them off again right after
+                if (!(tier.SpotShadows && Current >= 3)) { if (l.shadows != LightShadows.None) { _lightShadowsBefore[l] = l.shadows; l.shadows = LightShadows.None; } }
                 else { LightShadows was; if (_lightShadowsBefore.TryGetValue(l, out was)) { l.shadows = was; _lightShadowsBefore.Remove(l); } }
             }
+            var ws = WeatherSystem.Instance; if (ws != null) ws.RefreshTier();
             ApplyRenderScale();
         }
 

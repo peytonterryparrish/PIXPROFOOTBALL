@@ -119,9 +119,33 @@ namespace PixFootball.Core
             foreach (int d in defenders) if (!distinct.Contains(d)) distinct.Add(d);
             defenders = distinct;
             defenders.Sort((p, q) => X(p).CompareTo(X(q)));
-            ZoneRegion[] pat = UnderPattern(Math.Min(defenders.Count, 5));
-            for (int i = 0; i < defenders.Count; i++)
-                Zone(defenders[i], i < pat.Length ? pat[i] : ZoneRegion.HookMiddle());
+            // v0.9.0 (E-194 / E-203): the flats belong to the defensive backs (a nickel, a strong safety, a corner who is not deep) and the linebackers play hook / curl. The old pattern
+            // gave the leftmost defender the left flat (17 yd from the middle linebacker's side), so a 3-4 outside backer had to cross 11 yd in 2 s.
+            var backs = new List<int>(); var backers = new List<int>();
+            foreach (int d in defenders) { if (PositionGroup.IsDefensiveBack(_f.Slots[d].Position)) backs.Add(d); else backers.Add(d); }
+            bool flatL = false, flatR = false;
+            foreach (int b in backs)
+            {
+                bool left = X(b) < 0f;
+                if (left && !flatL) { Zone(b, ZoneRegion.FlatLeft()); flatL = true; }
+                else if (!left && !flatR) { Zone(b, ZoneRegion.FlatRight()); flatR = true; }
+                else if (!flatL) { Zone(b, ZoneRegion.FlatLeft()); flatL = true; }
+                else if (!flatR) { Zone(b, ZoneRegion.FlatRight()); flatR = true; }
+                else backers.Add(b);
+            }
+            backers.Sort((p, q) => X(p).CompareTo(X(q)));
+            int n = backers.Count;
+            // a side without a flat player is covered by the curl of the linebacker on it (depth 11); the middle of the field belongs to the hook zones
+            ZoneRegion[] pat;
+            switch (n)
+            {
+                case 0: pat = new ZoneRegion[0]; break;
+                case 1: pat = new[] { ZoneRegion.HookMiddle() }; break;
+                case 2: pat = new[] { flatL && !flatR ? ZoneRegion.HookMiddle() : ZoneRegion.HookLeft(), flatR && !flatL ? ZoneRegion.HookMiddle() : ZoneRegion.HookRight() }; if (!flatL && !flatR) pat = new[] { ZoneRegion.CurlLeft(), ZoneRegion.CurlRight() }; break;
+                case 3: pat = new[] { flatL ? ZoneRegion.HookLeft() : ZoneRegion.CurlLeft(), ZoneRegion.HookMiddle(), flatR ? ZoneRegion.HookRight() : ZoneRegion.CurlRight() }; break;
+                default: pat = new[] { ZoneRegion.CurlLeft(), ZoneRegion.HookLeft(), ZoneRegion.HookRight(), ZoneRegion.CurlRight() }; break;
+            }
+            for (int i = 0; i < n; i++) Zone(backers[i], i < pat.Length ? pat[i] : ZoneRegion.HookMiddle());
         }
 
         private int[] Prefs(int slot)
@@ -215,7 +239,7 @@ namespace PixFootball.Core
                 bool db = PositionGroup.IsDefensiveBack(_f.Slots[bl].Position);
                 RunGap gap = gi < c.Gaps.Length ? c.Gaps[gi] : (X(bl) < 0 ? (db ? RunGap.DLeft : RunGap.ALeft) : (db ? RunGap.DRight : RunGap.ARight));
                 gi++;
-                _a[bl] = new BlitzAssignment { Slot = bl, Gap = gap, Edge = db || gap == RunGap.CLeft || gap == RunGap.CRight || gap == RunGap.DLeft || gap == RunGap.DRight, Delay = db ? 0.3f : 0f };
+                _a[bl] = new BlitzAssignment { Slot = bl, Gap = gap, Edge = db || gap == RunGap.CLeft || gap == RunGap.CRight || gap == RunGap.DLeft || gap == RunGap.DRight, Delay = db ? 0.35f : 0.18f + 0.07f * (gi % 3) };   // v0.9.0 (E-358): a late bring (linebackers 0.18-0.32 s, defensive backs 0.35 s), not from the snap
             }
 
             foreach (int r in robbers) if (Free(r)) Zone(r, ZoneRegion.Robber());
@@ -372,25 +396,25 @@ namespace PixFootball.Core
             Func<Position, float, float, SlotSpec> d = (p, x, y) => new SlotSpec(p, x, y, "");
             var list = new List<Formation>();
             list.Add(new Formation(Base43, PlaySide.Defense, "4-3", new[] {
-                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
+                d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
                 d(Position.LOLB, -6f, 4.5f), d(Position.MLB, 0f, 4.5f), d(Position.ROLB, 6f, 4.5f),
                 d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
             list.Add(new Formation(Base34, PlaySide.Defense, "3-4", new[] {
-                d(Position.LE, -2.5f, 1f), d(Position.DT, 0f, 1f), d(Position.RE, 2.5f, 1f),
+                d(Position.LE, -2.5f, 1.45f), d(Position.DT, 0f, 1.45f), d(Position.RE, 2.5f, 1.45f),
                 d(Position.LOLB, -6f, 2f), d(Position.MLB, -2f, 4.5f), d(Position.MLB, 2f, 4.5f), d(Position.ROLB, 6f, 2f),
                 d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
             list.Add(new Formation(Nickel, PlaySide.Defense, "4-2-5", new[] {
-                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
+                d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
                 d(Position.LOLB, -3.5f, 4.5f), d(Position.MLB, 3.5f, 4.5f),
                 d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
             list.Add(new Formation(Dime, PlaySide.Defense, "4-1-6", new[] {
-                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
+                d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
                 d(Position.MLB, 0f, 4.5f),
                 d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 9f, 5f), d(Position.CB, 17f, 7f),
                 d(Position.FS, -5f, 12f), d(Position.SS, 5f, 12f) }));
             list.Add(new Formation(GoalLineD, PlaySide.Defense, "4-4-3", new[] {
-                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
-                d(Position.LOLB, -6f, 2.5f), d(Position.MLB, -2f, 3f), d(Position.MLB, 2f, 3f), d(Position.ROLB, 6f, 2.5f),
+                d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
+                d(Position.LOLB, -6f, 2.5f), d(Position.MLB, -2f, 3.2f), d(Position.MLB, 2f, 3.2f), d(Position.ROLB, 6f, 2.5f),
                 d(Position.CB, -14f, 3f), d(Position.CB, 14f, 3f), d(Position.FS, 0f, 6f) }));
             return list;
         }

@@ -74,10 +74,11 @@ namespace PixFootball.Gameplay
             {
                 int tier; float scale; int upscaler;
                 if (args[i] == "-pixUpscaler" && int.TryParse(args[i + 1], out upscaler)) UpscalerControl.Override(upscaler);
+                if (args[i] == "-pixLodPx") { var lp = args[i + 1].Split(','); if (lp.Length == 3) { float a, b, c; var ci = System.Globalization.CultureInfo.InvariantCulture; if (float.TryParse(lp[0], System.Globalization.NumberStyles.Float, ci, out a) && float.TryParse(lp[1], System.Globalization.NumberStyles.Float, ci, out b) && float.TryParse(lp[2], System.Globalization.NumberStyles.Float, ci, out c)) { PlayerLod.Lod0Px = a; PlayerLod.Lod1Px = b; PlayerLod.Lod2Px = c; } } }   // v0.9 GFX A/B of the screen-size LOD edges (px of a 1.9 m player at 1440 p)
                 if (args[i] == "-pixTier" && int.TryParse(args[i + 1], out tier)) { QualityTiers.Override(tier, -1f); }
                 float lodv;
                 if ((args[i] == "-pixLodNear" || args[i] == "-pixLodMid" || args[i] == "-pixLodFar") && float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out lodv))   // v0.7 A/B of the player LOD distances
-                { if (args[i] == "-pixLodNear") PlayerLod.Near = lodv; else if (args[i] == "-pixLodMid") PlayerLod.Mid = lodv; else PlayerLod.Far = lodv; }
+                { PlayerLod.UseScreenSize = false; if (args[i] == "-pixLodNear") PlayerLod.Near = lodv; else if (args[i] == "-pixLodMid") PlayerLod.Mid = lodv; else PlayerLod.Far = lodv; }
                 if (args[i] == "-pixRenderScale" && float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out scale)) { QualityTiers.Override(-1, scale); }
             }
             if (!Flag("-pixAutotestVsync")) { QualitySettings.vSyncCount = 0; Application.targetFrameRate = -1; }   // measure real frame cost, not the display refresh
@@ -274,13 +275,15 @@ namespace PixFootball.Gameplay
             while (!dir.Finished && Time.unscaledTime - matchStart < safety)
             {
                 var sim = dir.Sim;
+                if (!_ablated && dir.Phase == MatchPhase.PreSnap) { _ablated = true; ApplyAblate(dir); }
+                if (Flag("-pixAutotestMeasure") && Time.unscaledTime - matchStart > 80f) break;   // v0.9 GFX: 80 s of live play for A/B frame rates
                 if (_skipFrames > 0) _skipFrames--; else if (dir.Phase == MatchPhase.Live || dir.Phase == MatchPhase.PostPlay) _matchFrames.Add(Time.unscaledDeltaTime);
                 if (plays != lastPlays) { lastPlays = plays; lastProgress = Time.unscaledTime; }
                 if (Time.unscaledTime - lastProgress > 120f) { Log("FAIL: match stalled for 120 s at '" + lastStatus + "' phase " + dir.Phase); break; }
 
                 if (dir.Phase == MatchPhase.PlayCall && callShots < 1 && !_shots.Contains("playcall")) { _shots.Add("playcall"); callShots++; yield return new WaitForSecondsRealtime(0.5f); yield return Shot("match_playcall"); }
                 if (pendingBanner && Time.unscaledTime >= bannerAt) { pendingBanner = false; yield return Shot(bannerName); bannerShots++; if (bannerName.EndsWith("touchdown") && dir.Sim != null && dir.Sim.Carrier != null) { dir.Cams.CloseUp(dir.Stage.WorldPos(dir.Sim.Carrier.Id), new Vector3(4.5f, 1.6f, -2.2f)); yield return new WaitForSecondsRealtime(0.4f); yield return Shot("match_td_close"); dir.Cams.CloseUp(null, Vector3.zero); } }
-                if (sim != null && dir.Phase == MatchPhase.PreSnap && sim.Kind == PlayKind.Scrimmage && preSnapShots < 2 && !_shots.Contains("ps" + dir.PlayNumber)) { _shots.Add("ps" + dir.PlayNumber); preSnapShots++; yield return new WaitForSecondsRealtime(0.35f); yield return Shot("match_presnap_" + preSnapShots); }
+                if (sim != null && dir.Phase == MatchPhase.PreSnap && sim.Kind == PlayKind.Scrimmage && preSnapShots < 2 && !_shots.Contains("ps" + dir.PlayNumber)) { _shots.Add("ps" + dir.PlayNumber); preSnapShots++; if (preSnapShots == 1) LookDump(); yield return new WaitForSecondsRealtime(0.35f); yield return Shot("match_presnap_" + preSnapShots); }
                 if (sim != null && dir.Phase == MatchPhase.PreSnap && sim.Kind == PlayKind.Kickoff && kickoffShots < 1 && !_shots.Contains("ko" + dir.PlayNumber)) { _shots.Add("ko" + dir.PlayNumber); kickoffShots++; yield return new WaitForSecondsRealtime(0.35f); yield return Shot("match_kickoff_setup"); }
                 if (sim != null && dir.Phase == MatchPhase.PreSnap && (sim.Kind == PlayKind.Punt || sim.Kind == PlayKind.FieldGoal) && specialShots < 2 && !_shots.Contains("sp" + dir.PlayNumber)) { _shots.Add("sp" + dir.PlayNumber); specialShots++; yield return new WaitForSecondsRealtime(0.35f); yield return Shot("match_special_" + sim.Kind.ToString().ToLowerInvariant()); }
                 if (sim != null && dir.Phase == MatchPhase.Live)
@@ -302,6 +305,7 @@ namespace PixFootball.Gameplay
                     else if (e.Type == SimEventType.Kick && e.AgentA >= 0 && closeKick < 2) { closeKick++; dir.Cams.CloseUp(dir.Stage.WorldPos(e.AgentA), new Vector3(3.2f, 1.2f, -2.4f)); yield return new WaitForSecondsRealtime(0.08f); yield return Shot("match_kick_close_" + closeKick); dir.Cams.CloseUp(null, off); }
                     else if (e.Type == SimEventType.Pancake && e.AgentA >= 0 && closeBlock < 1) { closeBlock++; dir.Cams.CloseUp(dir.Stage.WorldPos(e.AgentA), off); yield return new WaitForSecondsRealtime(0.1f); yield return Shot("match_block_close_" + closeBlock); dir.Cams.CloseUp(null, off); }
                 }
+                if (Flag("-pixAutotestQuick") && preSnapShots >= 2 && closeTk >= 1) break;   // v0.9 GFX: a 40 second look run (two pre-snap shots and a tackle close-up)
                 if (!halfShot && dir.Flow.State.Quarter == 3 && dir.Phase == MatchPhase.Break) { halfShot = true; yield return new WaitForSecondsRealtime(0.5f); yield return Shot("match_halftime"); }
                 yield return null;
             }
@@ -361,6 +365,36 @@ namespace PixFootball.Gameplay
             Log("PERF " + label.PadRight(34) + " fps=" + (frames.Count / sum).ToString("0.0") + "  gpu=" + (n > 0 ? gpu / n : 0).ToString("0.0") + " ms  cpu=" + (n > 0 ? cpu / n : 0).ToString("0.0") + " ms  main=" + (n > 0 ? main / n : 0).ToString("0.0") + " ms");
         }
 
+        bool _ablated;
+        /// <summary>v0.9 GFX A/B: -pixAblate a,b,c switches individual look features off at the first pre-snap (ssgi, dof, mb, clouds, ao, cs, ssr, aniso, taa, cascades, proxy, lod, blobs, bloom, fog).</summary>
+        void ApplyAblate(MatchDirector dir)
+        {
+            string list = ArgValueOf("-pixAblate"); if (string.IsNullOrEmpty(list)) return;
+            var vols = FindObjectsByType<Volume>(FindObjectsSortMode.None);
+            foreach (string tok in list.Split(','))
+            {
+                switch (tok)
+                {
+                    case "ssgi": SetOverride<GlobalIllumination>(vols, false); break;
+                    case "dof": SetOverride<DepthOfField>(vols, false); break;
+                    case "mb": SetOverride<MotionBlur>(vols, false); break;
+                    case "clouds": SetOverride<CloudLayer>(vols, false); break;
+                    case "ao": SetOverride<ScreenSpaceAmbientOcclusion>(vols, false); break;
+                    case "cs": SetOverride<ContactShadows>(vols, false); break;
+                    case "ssr": SetOverride<ScreenSpaceReflection>(vols, false); break;
+                    case "bloom": SetOverride<Bloom>(vols, false); break;
+                    case "fog": SetFog(vols, false); break;
+                    case "aniso": QualitySettings.anisotropicFiltering = AnisotropicFiltering.Disable; break;
+                    case "taa": foreach (var c in FindObjectsByType<HDAdditionalCameraData>(FindObjectsSortMode.None)) { c.TAAQuality = HDAdditionalCameraData.TAAQualityLevel.Medium; c.taaSharpenMode = HDAdditionalCameraData.TAASharpenMode.LowQuality; c.taaSharpenStrength = 0.4f; c.taaAntiFlicker = 0.5f; c.taaHistorySharpening = 0.35f; } break;
+                    case "cascades": foreach (var v in vols) { HDShadowSettings sh; if (v.profile != null && v.profile.TryGet(out sh)) { sh.cascadeShadowSplitCount.value = 3; sh.maxShadowDistance.value = 90f; sh.cascadeShadowSplit0.value = 0.04f; sh.cascadeShadowSplit1.value = 0.12f; } } break;
+                    case "proxy": PixFootball.Art.PhotoPlayer.ShadowProxy = false; foreach (var pp in FindObjectsByType<PixFootball.Art.PhotoPlayer>(FindObjectsSortMode.None)) pp.SetPartVisible("Jersey", true); break;
+                    case "lod": PlayerLod.UseScreenSize = false; break;
+                    case "blobs": foreach (var t in FindObjectsByType<Transform>(FindObjectsSortMode.None)) if (t.name == FootShadow.ChildName) t.gameObject.SetActive(false); break;
+                }
+            }
+            Log("ablate: " + list);
+        }
+
         IEnumerator PerfSweep(MatchDirector dir)
         {
             // wait for the first scrimmage pre-snap so all 22 players are on the field
@@ -379,6 +413,11 @@ namespace PixFootball.Gameplay
             add("no SSR", () => SetOverride<ScreenSpaceReflection>(vols, false), () => SetOverride<ScreenSpaceReflection>(vols, true));
             add("no contact shadows", () => SetOverride<ContactShadows>(vols, false), () => SetOverride<ContactShadows>(vols, true));
             add("no motion blur", () => SetOverride<MotionBlur>(vols, false), () => SetOverride<MotionBlur>(vols, true));
+            add("no SSGI", () => SetOverride<GlobalIllumination>(vols, false), () => SetOverride<GlobalIllumination>(vols, true));
+            add("no depth of field", () => SetOverride<DepthOfField>(vols, false), () => SetOverride<DepthOfField>(vols, true));
+            add("no cloud layer", () => SetOverride<CloudLayer>(vols, false), () => SetOverride<CloudLayer>(vols, true));
+            add("old LOD distances 9 / 22 / 55 m", () => PlayerLod.UseScreenSize = false, () => PlayerLod.UseScreenSize = true);
+            add("all players LOD2", () => { PlayerLod.UseScreenSize = false; PlayerLod.Near = 0.1f; PlayerLod.Mid = 0.2f; PlayerLod.Far = 500f; }, () => { PlayerLod.UseScreenSize = true; PlayerLod.Near = 9f; PlayerLod.Mid = 22f; PlayerLod.Far = 55f; });
             add("no bloom+grain+vignette", () => { SetOverride<Bloom>(vols, false); SetOverride<FilmGrain>(vols, false); SetOverride<Vignette>(vols, false); }, () => { SetOverride<Bloom>(vols, true); SetOverride<FilmGrain>(vols, true); SetOverride<Vignette>(vols, true); });
             var shadowLights = new List<Light>(); foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None)) if (l.shadows != LightShadows.None) shadowLights.Add(l);
             add("no light shadows (" + shadowLights.Count + ")", () => { foreach (var l in shadowLights) l.shadows = LightShadows.None; }, () => { foreach (var l in shadowLights) l.shadows = LightShadows.Soft; });
@@ -426,6 +465,22 @@ namespace PixFootball.Gameplay
         static void SetCascades(Volume[] vols, int n)
         {
             foreach (var v in vols) { HDShadowSettings sh; if (v.profile != null && v.profile.TryGet(out sh)) sh.cascadeShadowSplitCount.value = n; }
+        }
+
+        /// <summary>v0.9 GFX: what the lighting actually is when a shot is taken (weather, sun, which lights cast shadows, how many player renderers cast).</summary>
+        void LookDump()
+        {
+            var ws = WeatherSystem.Instance;
+            if (ws != null) Log("look: " + ws.Preset.Label + " " + ws.DebugState());
+            foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None)) if (l.isActiveAndEnabled && (l.type == LightType.Directional || l.shadows != LightShadows.None)) Log("  light " + l.name + " " + l.type + " lux/int " + l.intensity.ToString("0") + " shadows " + l.shadows + " rot " + l.transform.eulerAngles);
+            int on = 0, off = 0, so = 0;
+            var d = MatchDirector.Instance;
+            if (d != null && d.Stage != null) foreach (var r in d.Stage.GetComponentsInChildren<Renderer>(false)) { if (r.shadowCastingMode == ShadowCastingMode.On) on++; else if (r.shadowCastingMode == ShadowCastingMode.ShadowsOnly) so++; else off++; }
+            { var lv = new int[4]; if (d != null && d.Stage != null) foreach (var v in d.Stage.Views) if (v != null && v.Avatar != null && v.Avatar.Lod != null) lv[Mathf.Clamp(v.Avatar.Lod.Level, 0, 3)]++; Log("  players per LOD: " + lv[0] + " / " + lv[1] + " / " + lv[2] + " / " + lv[3]); }
+            Log("  player renderers active: shadow on " + on + ", shadows only " + so + ", off " + off);
+            { var vc = PlayerLod.ViewCamera; Log("  lod camera: " + (vc != null ? vc.name + " fov " + vc.fieldOfView.ToString("0.0") + " pixelHeight " + vc.pixelHeight + " pos " + vc.transform.position : "NULL") + " px(20 m) " + PlayerLod.ScreenPixels(20f, vc != null ? vc.fieldOfView : 46f, vc != null ? vc.pixelHeight : 1440f).ToString("0")); }
+            { var vc2 = PlayerLod.ViewCamera; var sb2 = new StringBuilder("  lod per player (level @ px):"); if (d != null && d.Stage != null && vc2 != null) foreach (var v in d.Stage.Views) if (v != null && v.Avatar != null && v.Avatar.Lod != null) sb2.Append(" ").Append(v.Avatar.Lod.Level).Append("@").Append(PlayerLod.ScreenPixels(Vector3.Distance(vc2.transform.position, v.transform.position), vc2.fieldOfView, vc2.pixelHeight).ToString("0")); Log(sb2.ToString()); }
+            Log("  tier " + QualityTiers.Current + " lodBias " + PlayerLod.Bias + " " + UpscalerControl.Report());
         }
 
         IEnumerator Shot(string name)

@@ -126,6 +126,14 @@ namespace PixFootball.Gameplay
             SetT(PlayerMoves.Get(m).Trigger, true);
         }
 
+        /// <summary>v0.9.0 CONNECT E-158: a carrier move trigger that was never consumed (the move layer was busy) is dropped instead of firing late.</summary>
+        public void ResetTrigger(PlayerMove m)
+        {
+            if (Animator == null || !_hasController || !Ready || m == PlayerMove.None) return;
+            string n = PlayerMoves.Get(m).Trigger;
+            if (UseRig) { var l = Rig.Loco; l.ResetTrigger(n); } else Animator.ResetTrigger(n);
+        }
+
         public void SetCelebrating(bool on) { if (Animator != null && _hasController && Ready) SetB(Celebrating, on); }
         public void SetProtect(bool on) { _carrying = on; if (Animator != null && _hasController && Ready) SetB(ProtectP, on); }
     }

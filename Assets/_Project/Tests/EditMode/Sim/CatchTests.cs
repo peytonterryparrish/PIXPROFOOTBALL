@@ -112,8 +112,8 @@ namespace PixFootball.Tests
             TestContext.WriteLine("contested catch rates: strong receiver=" + a + " even=" + b + " strong defender=" + c);
             Assert.Greater(a, b + 0.04f);
             Assert.Greater(b, c + 0.04f);
-            float picksStrong = Rate(strongDef, 300, 500, o => o.Intercepted);
-            float picksWeak = Rate(strongRcv, 300, 500, o => o.Intercepted);
+            float picksStrong = Rate(strongDef, 2500, 500, o => o.Intercepted);
+            float picksWeak = Rate(strongRcv, 2500, 500, o => o.Intercepted);
             Assert.Greater(picksStrong, picksWeak, "better ball skills pick off more passes");
             float pbuStrong = Rate(strongDef, 300, 500, o => o.Deflections > 0);
             float pbuWeak = Rate(strongRcv, 300, 500, o => o.Deflections > 0);

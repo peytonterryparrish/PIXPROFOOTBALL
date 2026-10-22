@@ -67,11 +67,64 @@ namespace PixFootball.Gameplay
             v.Avatar.SetJersey(LookFor(a, kit));
         }
 
+        // ---- v0.9 (GFX-433): wear is stamped under the foot that plants, when it lands (the foot bone stops going down), not under the body root every 0.16 s
+        readonly float[] _footY = new float[44], _footVy = new float[44], _footCool = new float[44];
+        void FootSteps(int i, SimAgent a, SimAgentView v, float dt, WeatherSystem weather, FieldWear wear, float wet, bool snowy)
+        {
+            var an = v.Avatar != null ? v.Avatar.Animator : null;
+            if (an == null || dt < 1e-5f) return;
+            float speed = a.Vel.Length;   // yards per second
+            for (int f = 0; f < 2; f++)
+            {
+                var bone = an.GetBoneTransform(f == 0 ? HumanBodyBones.LeftFoot : HumanBodyBones.RightFoot);
+                if (bone == null) continue;
+                int k = i * 2 + f;
+                float y = bone.position.y - v.transform.position.y;
+                float vy = (y - _footY[k]) / dt;
+                bool plant = _footVy[k] < -0.35f && vy > -0.2f && y < 0.17f && _footCool[k] <= 0f;
+                _footY[k] = y; _footVy[k] = vy; _footCool[k] -= dt;
+                if (!plant || speed <= 2.2f) continue;
+                _footCool[k] = 0.14f;
+                float s = Mathf.Clamp01((speed - 2f) / 7f);
+                bool art = weather != null && weather.ArtificialTurf;
+                wear.Footstep(bone.position, 0.2f + 0.08f * s, art ? 0.002f : 0.011f * (0.5f + s), art ? 0f : wet * 0.045f * s, snowy ? 0.55f : 0f);   // two feet at about 3 plants per second replace the one-per-0.16 s root stamp
+            }
+        }
+
+        // ---- v0.9 (GFX-411): the soft foot shadow under every player on every tier
+        readonly Transform[] _blobFor = new Transform[22], _blob = new Transform[22];
+        float _blobStrength = -1f;
+        void EnsureBlobs()
+        {
+            if (_stage == null) return;
+            var w = WeatherSystem.Instance;
+            float k = 1f;
+            if (w != null && w.Applied) k = w.Preset.Time == TimeOfDay.Night ? 0.8f : (1.15f - 0.35f * w.Preset.CloudCover);   // a little lighter under flat light where the real shadows are weak anyway
+            if (Mathf.Abs(k - _blobStrength) > 0.01f) { _blobStrength = k; FootShadow.SetStrength(k); }
+            for (int i = 0; i < 22; i++)
+            {
+                var v = _stage.Views[i]; if (v == null) { _blobFor[i] = null; _blob[i] = null; continue; }
+                if (_blobFor[i] != v.transform) { _blob[i] = FootShadow.Ensure(v.transform); if (_blob[i] != null) _blobFor[i] = v.transform; }
+            }
+        }
+
         public void BeginPlay()
         {
-            if (FieldLogo.Instance != null) FieldLogo.Instance.FaceCamera(Camera.main);
+            EnsureBlobs();
+            if (FieldLogo.Instance != null) { var md = MatchDirector.Instance; int q = md != null && md.Flow != null ? md.Flow.State.Quarter : 1; FieldLogo.Instance.FaceCamera(Camera.main, q <= 2 ? 0 : 1); }
+            WipeAtHalftime();
             System.Array.Clear(_engaged, 0, 22);
             for (int i = 0; i < 22; i++) { _lastAction[i] = AgentAction.Idle; _breathAt[i] = Random.value * 1.5f; }
+        }
+
+        int _lastHalf = 0;
+        /// <summary>v0.9 (GFX-436): at halftime the kits are wiped down by 40 percent (the second half starts a little cleaner).</summary>
+        void WipeAtHalftime()
+        {
+            var md = MatchDirector.Instance; if (md == null || md.Flow == null) return;
+            int half = md.Flow.State.Quarter <= 2 ? 1 : 2;
+            if (_lastHalf == 1 && half == 2) { Dirt.Wipe(0.4f); for (int i = 0; i < 22; i++) Refresh(i); }
+            _lastHalf = half;
         }
 
         UniformSet KitOf(SimAgent a) { return a.Side == SimSide.Offense ? _stage.OffenseKit : _stage.DefenseKit; }
@@ -124,6 +177,9 @@ namespace PixFootball.Gameplay
                 case SimEventType.Sack:
                     if (e.AgentB >= 0) { Soil(e.AgentB, DirtEvent.Sacked, 1f); Divot(e.AgentB, 0.85f, 0.55f); }
                     break;
+                case SimEventType.Kick:
+                    if (e.AgentA >= 0) { Soil(e.AgentA, DirtEvent.KickPlant, 1f); Divot(e.AgentA, 0.45f, 0.35f); }   // GFX-436 / 433: the kicker plants the standing foot at contact
+                    break;
                 case SimEventType.Pancake:
                     if (e.AgentB >= 0) Soil(e.AgentB, DirtEvent.Pancaked, 0.9f);
                     break;
@@ -154,6 +210,7 @@ namespace PixFootball.Gameplay
         public void Tick(float dt)
         {
             if (_stage == null || _stage.Sim == null) return;
+            EnsureBlobs();
             var sim = _stage.Sim;
             var weather = WeatherSystem.Instance;
             var wear = FieldWear.Instance;
@@ -172,17 +229,7 @@ namespace PixFootball.Gameplay
                     if (a.Action == AgentAction.Fallen || a.Action == AgentAction.Stumble) { Soil(i, DirtEvent.Fell, a.Action == AgentAction.Fallen ? 0.6f : 0.25f); if (a.Action == AgentAction.Fallen) Divot(i, 0.45f, 0.2f); }
                     _lastAction[i] = a.Action;
                 }
-                if (step && wear != null && wear.Ready)
-                {
-                    float speed = a.Vel.Length;   // yards per second
-                    if (speed > 2.2f)
-                    {
-                        float k = Mathf.Clamp01((speed - 2f) / 7f);
-                        Vector3 p = v.transform.position;
-                        bool art = weather != null && weather.ArtificialTurf;
-                        wear.Footstep(p, 0.2f + 0.08f * k, art ? 0.002f : 0.011f * (0.5f + k), art ? 0f : wet * 0.045f * k, snowy ? 0.55f : 0f);
-                    }
-                }
+                if (wear != null && wear.Ready) FootSteps(i, a, v, dt, weather, wear, wet, snowy);
                 if (cold && v.Avatar != null && v.Avatar.Head != null)
                 {
                     _breathAt[i] -= dt;

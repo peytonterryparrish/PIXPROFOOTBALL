@@ -20,7 +20,7 @@ namespace PixFootball.Sim
         /// <c>BlockerAI.AssignPassPro</c> sends the tackle to the guard's man) and, once that is patched, the shaded front stops the run (4.0 yards a carry, 7.9 yards an attempt),
         /// so the blocking schemes and the run game need a calibration pass of their own before it can ship.
         /// </summary>
-        public static bool UseTechniques = false;
+        public static bool UseTechniques = true;   // v0.9.0 (E-061): ON. The slide-protection pairing is fixed (BlockerAI.AssignPassPro uses the monotone match) and the run / pass blocking was recalibrated (block bias, engagement geometry, pass set, DL get-off) with it
 
         /// <summary>Called by the simulation setup: aligns the line by technique when <see cref="UseTechniques"/> is on.</summary>
         public static void AlignLineIfEnabled(PlaySimulation s) { if (UseTechniques) AlignLine(s); }
@@ -76,9 +76,12 @@ namespace PixFootball.Sim
                 if (strong > 0) { x = new[] { weakEnd, c, strongEnd }; tech = new[] { 5, 0, 4 }; }
                 else { x = new[] { strongEnd, c, weakEnd }; tech = new[] { 4, 0, 5 }; }
             }
+            // v0.9.0: the user's line shift (pinch / spread) still applies on top of the technique alignment (it used to be overwritten, so a pinch moved nobody)
+            float shift = s.DefAdjust != null ? (s.DefAdjust.Line == LineShift.Pinch ? 0.70f : (s.DefAdjust.Line == LineShift.Spread ? 1.28f : 1f)) : 1f;
             for (int i = 0; i < dl.Count; i++)
             {
                 SimAgent a = dl[i];
+                if (shift != 1f) x[i] = s.BallX0 + (x[i] - s.BallX0) * shift;
                 Vec2 p = new Vec2(SimMath.Clamp(x[i], 0.8f, FieldGeometry.Width - 0.8f), a.StartPos.Y);
                 a.Body.Pos = p; a.StartPos = p; a.Body.Vel = Vec2.Zero;
                 a.ClearHistory(p);
@@ -86,9 +89,49 @@ namespace PixFootball.Sim
             return tech;
         }
 
+        /// <summary>
+        /// v0.9.0 (E-330): the strength of the offensive formation: +1 when the tight end (or, with none, the heavier receiver side) is to the right, -1 to the left. The linebackers and the strong safety
+        /// shift to it before the coverage alignment is applied (the strong safety used to stand at x = +7 whichever side the tight end or the trips were on).
+        /// </summary>
+        public static int StrengthOf(PlaySimulation s)
+        {
+            float te = 0f, wide = 0f;
+            for (int i = 1; i < 11; i++)
+            {
+                SimAgent a = s.Agents[i];
+                if (!a.IsReceiverEligible) continue;
+                float rx = a.StartPos.X - s.BallX0;
+                if (a.PlayPos == Position.TE) te += Math.Sign(rx) * 1.5f;
+                else if (a.PlayPos == Position.WR) wide += Math.Sign(rx);
+                else if (a.PlayPos == Position.RB || a.PlayPos == Position.FB) wide += Math.Sign(rx) * 0.4f;
+            }
+            float st = Math.Abs(te) > 0.1f ? te : wide;
+            return st < 0f ? -1 : 1;
+        }
+
+        private static void ShiftToStrength(PlaySimulation s)
+        {
+            int strong = StrengthOf(s);
+            int delta = strong - s.StrengthApplied;   // (idempotent: Apply runs again after every pre-snap change; only the change of strength moves the backers)
+            s.StrengthApplied = strong;
+            for (int i = 11; i < 22; i++)
+            {
+                SimAgent a = s.Agents[i];
+                if (a.Assign is RushAssignment) continue;
+                Position p = a.PlayPos;
+                float nx = a.Pos.X;
+                if (PositionGroup.IsLinebacker(p)) nx = a.Pos.X + delta * 1.2f;
+                else if (p == Position.SS) nx = s.BallX0 + strong * Math.Max(4f, Math.Abs(a.Pos.X - s.BallX0));
+                else continue;
+                Vec2 np = new Vec2(SimMath.Clamp(nx, 0.8f, FieldGeometry.Width - 0.8f), a.Pos.Y);
+                a.Body.Pos = np; a.StartPos = np; a.ClearHistory(np);
+            }
+        }
+
         public static void Apply(PlaySimulation s)
         {
             if (s.Kind != PlayKind.Scrimmage || s.DefPlay == null) return;
+            ShiftToStrength(s);
 
             bool userPress = s.DefAdjust != null && s.DefAdjust.Press != PressMode.Auto;
             for (int i = 0; i < 11; i++)
@@ -114,8 +157,9 @@ namespace PixFootball.Sim
                     }
                     else if (PositionGroup.IsSafety(a.PlayPos))
                     {
-                        // a safety on a tight end or back shades over to him but keeps his depth
-                        rel = new Vec2(rx + inside * 0.4f, a.StartPos.Y - s.LosY); set = true;
+                        // a safety on a tight end or back shades over to him; v0.9.0 (E-202) man safeties play 6.5 yd off a tight end or back and 8.5 yd off a receiver (not their 9-12 yd formation depth)
+                        bool backOrTe = r.PlayPos == Position.TE || r.PlayPos == Position.RB || r.PlayPos == Position.FB;
+                        rel = new Vec2(rx + inside * 0.4f, backOrTe ? 6.5f : 8.5f); set = true;
                     }
                 }
                 else if (!cov.IsMan && cov.Zone != null)

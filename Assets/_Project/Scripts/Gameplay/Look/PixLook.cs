@@ -131,15 +131,27 @@ namespace PixFootball.Gameplay
             m.SetVector(PixDirtB, new Vector4(look.Dirt.GrassFraction, look.Dirt.Mud, look.Dirt.Grime, 0f));
         }
 
+        public const float NumberBackScale = 1.2f, NumberFrontScale = 1.25f;
+
+        public static Color SoilColor()
+        {
+            var w = WeatherSystem.Instance;
+            if (w == null || !w.Applied) return new Color(0.12f, 0.08f, 0.045f);
+            if (w.ArtificialTurf) return new Color(0.055f, 0.055f, 0.05f);
+            return Color.Lerp(new Color(0.14f, 0.10f, 0.055f), new Color(0.08f, 0.055f, 0.03f), w.Climate != null ? w.Climate.Wet : 0f);
+        }
+
         public static void SetNumberPlacements(Material m, PixLookAssets a)
         {
             if (m == null || a == null) return;
-            m.SetVector(PixNumFront, a.numberFront); m.SetVector(PixNumBack, a.numberBack);
+            // v0.9 (GFX-412): the back number +20 percent and the front +25 percent (75 px per metre at the 17 m Classic camera: the numerals were 8-9 px tall strokes); the numerals scale about their centre
+            var nf = a.numberFront; nf.z *= NumberFrontScale; var nb = a.numberBack; nb.z *= NumberBackScale;
+            m.SetVector(PixNumFront, nf); m.SetVector(PixNumBack, nb);
             m.SetVector(PixNumShoulderL, a.numberShoulderL); m.SetVector(PixNumShoulderR, a.numberShoulderR);
             m.SetVector(PixNamePlace, a.namePlacement); m.SetVector(PixWordPlace, a.wordPlacement);
             if (a.letterAtlas != null) m.SetTexture(PixLetters, a.letterAtlas);
-            // the dirt colour is the same soil brown for everyone; grass vs mud is decided per player
-            m.SetColor(PixDirtColor, new Color(0.12f, 0.08f, 0.045f));
+            // v0.9 (GFX-436): the soil colour follows the surface: brown soil on natural grass (darker when wet), black rubber infill grime on artificial turf; grass vs mud is decided per player
+            m.SetColor(PixDirtColor, SoilColor());
         }
     }
 }

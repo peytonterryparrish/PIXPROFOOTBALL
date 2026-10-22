@@ -29,7 +29,7 @@ namespace PixFootball.Tests
             {
                 for (int mode = 0; mode < 2; mode++)
                 {
-                    var sim = Manual("Slants", "Shotgun", "Cover 2 Zone", "Nickel", seed);
+                    var sim = Manual("Slants", "Shotgun", "Cover 4 Quarters", "Nickel", seed);   // v0.9.0: quarters leaves the out open (cover 2 now squats the flat and the quick Out is covered)
                     Assert.IsTrue(sim.SetHotRoute(10, HotRoute.Out));
                     if (mode == 1) ((RouteAssignment)sim.Agents[10].Assign).IsHot = false;   // same route, same read order, no preference
                     SnapAndRun(sim);

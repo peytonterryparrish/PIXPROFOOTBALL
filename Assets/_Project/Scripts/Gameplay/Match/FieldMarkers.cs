@@ -10,7 +10,7 @@ namespace PixFootball.Gameplay
     /// </summary>
     public sealed class FieldMarkers : MonoBehaviour
     {
-        const float LineY = 0.022f, WidthM = 48.76f, RingSize = 2.5f;
+        const float LineY = 0.03f, WidthM = 48.76f, RingSize = 2.5f;
         Transform _los, _fd, _ring;
         Renderer _losR, _fdR, _ringR;
         Transform _follow;

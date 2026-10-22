@@ -119,7 +119,7 @@ namespace PixFootball.Gameplay
                 if (PixSettings.PhotoPlayers) BodySelect.For(a.PlayPos, a.Player != null && a.Player.Bio != null ? a.Player.Bio.HeightIn : 0, a.Player != null && a.Player.Bio != null ? a.Player.Bio.WeightLb : 0, out bodySize, out bodyBase);
                 var v = Acquire(bodySize, bodyBase, a.Player != null ? a.Player.Id : 1000 + i);
                 v.AgentId = i; v.Role = RoleUtil.Of(a.PlayPos);
-                v.Stance = StanceRules.For(a.PlayPos, a.Side, sim.Kind, a.Side == SimSide.Offense ? sim.OffForm.Unit : sim.DefForm.Unit, a.StartPos.X - sim.BallX0, a.StartPos.Y - sim.LosY, _shotgun, a.ReturnerRole);
+                v.Stance = StanceRules.For(a.PlayPos, a.Side, sim.Kind, a.Side == SimSide.Offense ? sim.OffForm.Unit : sim.DefForm.Unit, a.StartPos.X - sim.BallX0, a.StartPos.Y - sim.LosY, _shotgun, a.ReturnerRole, StanceCtx(a));
                 var set = a.Side == SimSide.Offense ? offense : defense;
                 v.Dress(set.Uniform, set.Helmet);
                 v.SetIdentity(a.Player != null ? a.Player.Id : 1000 + i, a.PlayPos);
@@ -131,6 +131,7 @@ namespace PixFootball.Gameplay
                 _views[i] = v;
                 _carrySide[i] = 1; _carrySideAt[i] = -9f;
             }
+            ConnectBegin(sim, frame);      // v0.9.0 CONNECT: render interpolation snapshots, huddle break to the line
             Ball.SetVisible(true);
             Present(0.0166f);
         }
@@ -163,6 +164,8 @@ namespace PixFootball.Gameplay
 
         public void End()
         {
+            if (Contacts != null) Contacts.Reset();      // v0.9.0 CONNECT E-292: before the views go back to the pool (a held take must be released while the views still exist)
+            ConnectEnd();
             if (Look != null && Sim != null) Look.EndPlay();
             for (int i = 0; i < 22; i++) { if (_views[i] != null) Return(_views[i]); _views[i] = null; }
             Sim = null;
@@ -176,6 +179,7 @@ namespace PixFootball.Gameplay
 
         struct Walk { public bool Active; public Vector3 Pos, Target, Look; public float Speed; }
         readonly Walk[] _walks = new Walk[22];
+        readonly float[] _walkSpeed = new float[22];
         bool _anyWalk;
 
         /// <summary>After the whistle a player jogs to a spot (celebration huddle around the scorer) and then faces <paramref name="look"/>; the simulation keeps owning everything else.</summary>
@@ -188,7 +192,7 @@ namespace PixFootball.Gameplay
             _walks[agent] = w; _anyWalk = true;
         }
 
-        public void ClearWalks() { System.Array.Clear(_walks, 0, _walks.Length); _anyWalk = false; }
+        public void ClearWalks() { System.Array.Clear(_walks, 0, _walks.Length); System.Array.Clear(_walkSpeed, 0, _walkSpeed.Length); _anyWalk = false; }
 
         public bool WalkArrived(int agent)
         {
@@ -205,9 +209,12 @@ namespace PixFootball.Gameplay
             vel = Vector3.zero;
             if (d > 0.18f)
             {
-                float step = Mathf.Min(d, w.Speed * Mathf.Max(dt, 0.0001f));
+                // v0.9.0 CONNECT E-290: a speed profile (accelerate, ease out over the last 2 m) instead of a straight line at full speed and a dead stop
+                float want = Mathf.Min(w.Speed, Mathf.Max(0.7f, d * 1.6f));
+                _walkSpeed[i] = Mathf.MoveTowards(_walkSpeed[i], want, 6.5f * Mathf.Max(dt, 0.0001f));
+                float step = Mathf.Min(d, _walkSpeed[i] * Mathf.Max(dt, 0.0001f));
                 w.Pos += to / d * step;
-                vel = to / d * Mathf.Min(w.Speed, d / Mathf.Max(dt, 0.0167f));
+                vel = to / d * _walkSpeed[i];
                 face = to / d;
             }
             else
@@ -240,7 +247,8 @@ namespace PixFootball.Gameplay
                 var e = ev[_logIdx++];
                 _fresh.Add(e);
                 if (Look != null) Look.OnEvent(e);
-                if (Contacts != null) Contacts.OnEvent(e, _logIdx < ev.Count && ev[_logIdx].Type == SimEventType.Sack);
+                ConnectEvent(e);      // v0.9.0 CONNECT: drops, interceptions, deflections, strips, QB hits, fumbles, recoveries, jams
+                if (Contacts != null) Contacts.OnEvent(e, SackFollows(ev, _logIdx, e));      // v0.9.0 CONNECT E-221: the sack is found within the next 3 events, or from the tackle itself
                 if ((e.Type == SimEventType.Tackle || e.Type == SimEventType.Sack) && e.AgentA >= 0 && e.AgentB >= 0)
                 {
                     TackleInfo ti;
@@ -255,6 +263,10 @@ namespace PixFootball.Gameplay
         public void Present(float dt)
         {
             if (Sim == null) return;
+            _presentDt = dt;
+            _magnetAgent = -1; _magnetEta = 9f;
+            for (int mi = 0; mi < 22; mi++) _magEta[mi] = 9f;
+            _preExTgt = -1;
             _fresh.Clear();
             ScanLog();
             if (Sim.Phase == PlayPhase.PreSnap && Sim.OffForm != null && Sim.OffForm.Slots.Length > 0) _shotgun = Sim.OffForm.Slots[0].Y < -2.5f;
@@ -263,13 +275,12 @@ namespace PixFootball.Gameplay
             {
                 SimAgent a = Sim.Agents[i]; var v = _views[i];
                 if (v == null) continue;
-                Vector3 pos = Frame.ToUnity(a.Pos);
-                Vector3 vel = Frame.VelToUnity(a.Vel);
-                Vector3 face = Frame.DirToUnity(a.Facing);
-                if (Sim.Phase == PlayPhase.PreSnap && a.Action == AgentAction.Stance) v.ReplanStance(StanceRules.For(a.PlayPos, a.Side, Sim.Kind, a.Side == SimSide.Offense ? Sim.OffForm.Unit : Sim.DefForm.Unit, a.StartPos.X - Sim.BallX0, a.StartPos.Y - Sim.LosY, _shotgun, a.ReturnerRole));   // audibles, flips and shifts move players
+                Vector3 pos, vel, face; SampleAgent(i, out pos, out vel, out face);      // v0.9.0 CONNECT E-006: rendered between the last two fixed steps
+                if (Sim.Phase == PlayPhase.PreSnap && a.Action == AgentAction.Stance) v.ReplanStance(StanceRules.For(a.PlayPos, a.Side, Sim.Kind, a.Side == SimSide.Offense ? Sim.OffForm.Unit : Sim.DefForm.Unit, a.StartPos.X - Sim.BallX0, a.StartPos.Y - Sim.LosY, _shotgun, a.ReturnerRole, StanceCtx(a)));   // audibles, flips and shifts move players
                 AgentAction viewAction = FlowAction(i, a, v);      // v0.7.0: the intended receiver reaches before the ball arrives, the quarterback and the runner meet for the hand-off
                 AnimHints h = BuildHints(a, v, viewAction);
                 h.EventEta = _flowEta;
+                ConnectAgent(i, a, v, ref h, ref pos, ref vel, ref face, ref viewAction, dt);      // v0.9.0 CONNECT: pre-snap glide / huddle, reach and tuck, extra hints
                 float lat = 0f;
                 if (a.Move != CarrierMove.None)
                 {
@@ -278,6 +289,7 @@ namespace PixFootball.Gameplay
                     if (a.Move == CarrierMove.JukeLeft) lat = -1f; else if (a.Move == CarrierMove.JukeRight) lat = 1f;
                 }
                 if (_anyWalk && _walks[i].Active) StepWalk(i, dt, ref pos, ref vel, ref face);
+                UpdateStanceInput(i, a, v, dt);      // v0.9.0 QBSTANCE
                 v.ApplyMatch(pos, vel, face, viewAction, h, lat, specials, _shotgun, dt);
             }
             if (Contacts != null) Contacts.Tick(dt);
@@ -304,14 +316,7 @@ namespace PixFootball.Gameplay
                 if (ac.Action != AgentAction.Tackled || !IsTackleAction(at.Action)) continue;
                 Pull(vc, vt, Mathf.Min(ac.ActionTime, at.ActionTime), 0.8f, 0.18f, false, true);
             }
-            for (int i = 0; i < 22; i++)
-            {
-                SimAgent a = Sim.Agents[i];
-                if ((a.Action != AgentAction.Engaged && a.Action != AgentAction.Shed) || a.Engagement == null || a.Engagement.Defender != a) continue;
-                SimAgent b = a.Engagement.Primary;
-                if (b == null || _views[b.Id] == null || _views[i] == null) continue;
-                Pull(_views[b.Id], _views[i], a.ActionTime, 0.78f, 0.15f, true, true);
-            }
+            ApplyEngagementPulls(_presentDt);      // v0.9.0 CONNECT E-173 / E-174
         }
 
         static void Pull(SimAgentView a, SimAgentView b, float t, float distance, float over, bool turnA, bool turnB)
@@ -332,6 +337,7 @@ namespace PixFootball.Gameplay
             var h = new AnimHints { Seed = a.Id * 7 + _playIndex * 3, Side = 'C', Carrying = a.HasBall, Kind = Sim.Kind };
             Vector3 fwd = v.Forward, right = Vector3.Cross(Vector3.up, fwd);
             AddFlowHints(ref h, a, v);
+            AddQbHints(ref h, a, v);      // v0.9.0 QBSTANCE
             switch (act)
             {
                 case AgentAction.Throw:
@@ -382,6 +388,7 @@ namespace PixFootball.Gameplay
                 h.Tackle = ti.Type; h.Sack = ti.Sack;
                 h.Partner = a.Id == carrier;
             }
+            ConnectHints(ref h, a, v, act);      // v0.9.0 CONNECT: pair seeds, block style, catch situation
             return h;
         }
 
@@ -394,6 +401,7 @@ namespace PixFootball.Gameplay
         {
             var b = Sim.Ball;
             Vector3 down = Frame.DirToUnity(new Vec2(0f, 1f));
+            ConnectBallTrack(b);      // v0.9.0 CONNECT: who caught / received the ball and when
             if (b.State == BallState.Held && b.Holder >= 0)
             {
                 SimAgent h = Sim.Agents[b.Holder]; var v = _views[b.Holder];
@@ -401,7 +409,7 @@ namespace PixFootball.Gameplay
                 {
                     bool qbPass = h.Side == SimSide.Offense && h.Slot == 0 && !Sim.PassIsThrown && Sim.Kind == PlayKind.Scrimmage
                                   && (h.QbState == QbPhase.Set || h.QbState == QbPhase.Windup || h.QbState == QbPhase.Dropback || h.QbState == QbPhase.Scramble || h.QbState == QbPhase.Mesh || h.QbState == QbPhase.Fake);
-                    if (qbPass || Sim.Kind == PlayKind.FieldGoal || Sim.Kind == PlayKind.Punt) { Ball.SetQbHold(v, h.Action == AgentAction.Throw, v.Motion != null ? v.Motion.ShownCarriage : BodyMotion.Carriage.None); return; }
+                    if (ConnectHeld(h, v, qbPass)) return;      // v0.9.0 CONNECT: quarterback / holder / punter holds, catch hold, hand-off exchange (E-124 E-126 E-247 E-253 E-256)
                     if (h.Action == AgentAction.Celebrate && !SimAgentView.DebugNoFlow) { Ball.SetHand(v, CelebrateHand(h, v)); return; }      // v0.7.0 (note 29): the ball stays in one hand through the whole celebration
                     // carry arm: away from the nearest defender, with hysteresis
                     if (Time.time - _carrySideAt[h.Id] > 1.0f)
@@ -425,8 +433,13 @@ namespace PixFootball.Gameplay
                     return;
                 }
             }
-            Vector3 wp = Frame.ToUnity(b.Pos);
-            if (Sim.Phase == PlayPhase.PreSnap && Sim.Kind == PlayKind.Kickoff) { Ball.SetTee(Frame.ToUnity(new Vec2(b.Pos.X, b.Pos.Y)), down); return; }
+            Vector3 wp = MagnetBall(SampleBallPos(), b.State);      // v0.9.0 CONNECT E-006 / E-125: interpolated, and drawn into the catcher's hands at the end of its flight
+            if (ConnectTeeNow()) { Ball.SetTee(Frame.ToUnity(new Vec2(b.Pos.X, b.Pos.Y)), down); return; }
+            Ball.Kind = Sim.Kind;   // GFX-310: spiral punts, tumbling kickoffs / field goals
+            // GFX-437: the landing ring for the returner (punts and kickoffs in the air, the 2K8 cue)
+            bool ring = b.State == BallState.Kick && (Sim.Kind == PlayKind.Punt || Sim.Kind == PlayKind.Kickoff) && b.Pos.Z > 1f;
+            if (ring) { Vec3 at; float tt; if (BallPhysics.PredictAtHeight(b.Pos, b.Vel, BallPhysics.BallRadius, out at, out tt)) Ball.SetLanding(Frame.ToUnity(new Vec2(at.X, at.Y)), true); else ring = false; }
+            if (!ring) Ball.SetLanding(Vector3.zero, false);
             Ball.SetFree(wp, Frame.VelToUnity(b.Vel.XY) + Vector3.up * (b.Vel.Z * PlayFrame.YardsToMeters), b.State, b.AtRest, down, dt);
         }
     }

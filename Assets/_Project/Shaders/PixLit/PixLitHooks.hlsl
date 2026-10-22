@@ -217,12 +217,16 @@ void PixSurfaceHook(FragInputs input, LayerTexCoord ltc, float3 V, inout Surface
         float3 mn = PixGradFromTex(SAMPLE_TEXTURE2D(_PixMicroNormal, sampler_PixMicroNormal, mUV), _PixMicro.y, float3(1, 0, 0), float3(0, 0, 1));
         normalTS += mn;
         // v0.7 blade detail: fine blades stretched along the mowing direction with per-blade tone and a tiny normal ripple, fading out with distance (the macro stripes carry the far view)
-        float bladeFade = (1.0 - smoothstep(14.0, 55.0, length(input.positionRWS))) * (1.0 - artificial);
+        float bladeFade = (1.0 - smoothstep(24.0, 95.0, length(input.positionRWS))) * (1.0 - artificial);   // v0.9: the blade detail now reaches the 20-45 m the Classic camera looks at the players from (was 14-55 m)
         float bl = SAMPLE_TEXTURE2D(_PixMicroTex, sampler_PixMicroTex, float2(xz.x * 13.0, xz.y * 3.1)).r;
         float bl2 = SAMPLE_TEXTURE2D(_PixMicroTex, sampler_PixMicroTex, float2(xz.x * 29.0 + 0.2, xz.y * 6.3)).r;
         float blade = bl * 0.55 + bl2 * 0.45;
         sd.baseColor *= lerp(1.0, lerp(float3(0.74, 0.88, 0.58), float3(1.2, 1.12, 0.82), blade), 0.5 * bladeFade);
-        normalTS += float3(bl - 0.5, bl2 - 0.5, 0.0) * 0.14 * bladeFade;
+        normalTS += float3(bl - 0.5, bl2 - 0.5, 0.0) * 0.22 * bladeFade;
+        // v0.9: one more scale of variation between the 18 m patches and the blades: 60 cm clumps of lighter / darker, thicker / thinner grass (breaks the tiling of the micro texture at mid distance)
+        float clump = PixFbm(xz * 1.7 + 11.0);
+        sd.baseColor *= lerp(0.93, 1.07, clump);
+        normalTS += float3(clump - 0.5, PixFbm(xz * 1.9 + 31.0) - 0.5, 0.0) * 0.10 * (1.0 - artificial);
         // the sheen of the lay of the grass: stripes that bend away from the camera are lighter and glossier
         sd.perceptualSmoothness = lerp(0.14 + 0.05 * par, 0.34 + 0.06 * par, artificial);
         if (artificial > 0.5)

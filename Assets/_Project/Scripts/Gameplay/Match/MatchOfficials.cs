@@ -117,7 +117,7 @@ namespace PixFootball.Gameplay
 
         readonly List<Person> _crew = new List<Person>(), _coaches = new List<Person>();
         ArtLibrary _lib;
-        AnimationClip _idle, _walk, _run, _back, _clapC, _headset, _clipboard;
+        AnimationClip _idle, _walk, _run, _back, _clapC, _headset, _clipboard, _spotBall;
         PlayFrame _frame; bool _hasFrame;
         float _ballZ, _losZ; Vector3 _ballWorld; bool _live;
         public int Count { get { return _crew.Count; } }
@@ -135,7 +135,7 @@ namespace PixFootball.Gameplay
         {
             _lib = ArtLibrary.Load();
             if (_lib == null) return;
-            _idle = _lib.Clip("ref_idle"); _walk = _lib.Clip("ref_walk"); _run = _lib.Clip("ref_run"); _back = _lib.Clip("ref_backpedal");
+            _idle = _lib.Clip("ref_idle"); _spotBall = _lib.Clip("ref_spot_ball"); _walk = _lib.Clip("ref_walk"); _run = _lib.Clip("ref_run"); _back = _lib.Clip("ref_backpedal");
             _clapC = _lib.Clip("coach_clap"); _headset = _lib.Clip("coach_headset_idle"); _clipboard = _lib.Clip("coach_clipboard_idle");
             GameObject rp = _lib.Prefab("referee");
             if (rp != null)
@@ -208,6 +208,11 @@ namespace PixFootball.Gameplay
                 Vector3 w = frame.ToUnity(t);
                 if (!_crew[i].Tr.gameObject.activeSelf || flipped || (_crew[i].Tr.position - w).magnitude > 40f) { _crew[i].Tr.position = w; _crew[i].Tr.gameObject.SetActive(true); }
                 _crew[i].Target = w;
+                // GFX-294: after a long gain the crew used to hustle across the field for six seconds while the ball was snapped; they now arrive within 9 m of their spot (the walk the call screen and the pre-snap time cover) and finish it on foot
+                Vector3 to = w - _crew[i].Tr.position; to.y = 0f;
+                if (to.magnitude > 9f) { var pp = _crew[i].Tr.position; _crew[i].Tr.position = new Vector3(w.x, pp.y, w.z) - to.normalized * 9f; }
+                // the umpire spots the ball (GFX-426)
+                if (_crew[i].Role == "U" && _spotBall != null && _crew[i].Signal == null) { _crew[i].Signal = _spotBall; _crew[i].SignalT = Mathf.Min(_spotBall.length, 2.5f); _crew[i].Anim.Play(_spotBall, false, 0.2f); }
             }
             PlaceCoaches(frame, sim.LosY);
         }
@@ -239,6 +244,7 @@ namespace PixFootball.Gameplay
             }
         }
 
+        /// <summary>v0.9 (GFX-382 / 426 / 427): the gesture variant is seeded from the play number (the same play always shows the same gesture, a replay agrees with the live play); the crew shares the work: first down is the referee and the line judge, incomplete the referee, field judge and back judge, a timeout the referee and the umpire, a safety the referee and the head linesman; a plain whistle gives the dead-ball signal (referee) and a whistle arm (umpire, head linesman, line judge).</summary>
         public void Signal(OfficialSignal s, bool homeTeamInvolved = true)
         {
             string key; bool all = false;
@@ -254,15 +260,24 @@ namespace PixFootball.Gameplay
                 default: return;
             }
             if (_lib == null) return;
+            var md = MatchDirector.Instance;
+            int seed = ((md != null ? md.PlayNumber : 0) * 7919 + (int)s * 104729) & 0x7fffffff;
             int n = _lib.ClipVariantCount(key);
-            AnimationClip clip = n > 1 ? _lib.ClipVariant(key, Random.Range(0, n)) : _lib.Clip(key);
+            AnimationClip clip = n > 1 ? _lib.ClipVariant(key, seed % n) : _lib.Clip(key);
             if (clip == null) return;
+            AnimationClip whistle = s == OfficialSignal.DeadBall ? _lib.Clip("ref_whistle") : null;
             for (int i = 0; i < _crew.Count; i++)
             {
                 var p = _crew[i];
-                bool does = all || p.Role == "R" || (s == OfficialSignal.Incomplete && (p.Role == "U" || p.Role == "BJ") && false);
+                bool does = all || p.Role == "R";
+                if (s == OfficialSignal.FirstDown && p.Role == "LJ") does = true;
+                else if (s == OfficialSignal.Incomplete && (p.Role == "FJ" || p.Role == "BJ")) does = true;
+                else if (s == OfficialSignal.Timeout && p.Role == "U") does = true;
+                else if (s == OfficialSignal.Safety && p.Role == "HL") does = true;
+                var c = clip;
+                if (!does && whistle != null && (p.Role == "U" || p.Role == "HL" || p.Role == "LJ")) { does = true; c = whistle; }
                 if (!does) continue;
-                p.Signal = clip; p.SignalT = clip.length; p.Anim.Play(clip, false, 0.15f);
+                p.Signal = c; p.SignalT = c.length; p.Anim.Play(c, false, 0.15f);
             }
             if (s == OfficialSignal.Touchdown) CoachCheer(homeTeamInvolved ? 0 : 1);
         }

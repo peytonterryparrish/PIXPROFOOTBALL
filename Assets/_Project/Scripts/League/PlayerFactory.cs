@@ -424,7 +424,7 @@ namespace PixFootball.League
             p.Bio = new PlayerBio
             {
                 Id = ids.NextPlayerId(), FirstName = first, LastName = last, Age = age, HeightIn = h, WeightLb = wt,
-                Hometown = NameGenerator.Hometown(rng), College = "", Hand = rng.Chance(pos == Position.QB ? 0.09f : 0.11f) ? Handedness.Left : Handedness.Right
+                Hometown = NameGenerator.Hometown(rng), College = "", Hand = rng.Chance(pos == Position.QB ? 0.09f : 0.11f) && pos != Position.K && pos != Position.P ? Handedness.Left : Handedness.Right   // v0.9.0 (E-338): the game is right-foot only, so kickers and punters are right-footed (the draw is still made: the random stream is unchanged)
             };
             p.Morale = rng.Range(55, 90);
             p.Experience = Math.Max(0, age - 22);

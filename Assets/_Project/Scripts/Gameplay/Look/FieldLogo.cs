@@ -68,6 +68,16 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>QA-706: turns the crest so it reads upright from the camera that frames the play (the user camera looks along the field, the broadcast camera across it).</summary>
+        int _half = -1;
+        /// <summary>v0.9 (GFX-435): the crest is oriented ONCE per half (it used to re-rotate to the camera axis at every snap, so it spun between plays); half = 0 for the 1st / 2nd quarter, 1 for the 2nd half.</summary>
+        public void FaceCamera(Camera cam, int half)
+        {
+            if (half == _half) return;
+            if (cam == null) return;
+            _half = half;
+            FaceCamera(cam);
+        }
+
         public void FaceCamera(Camera cam)
         {
             if (cam == null) return;

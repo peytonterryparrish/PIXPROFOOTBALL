@@ -320,7 +320,7 @@ MonoBehaviour:
       maxShadowRequests: 128
       directionalShadowsDepthBits: 32
       punctualShadowFilteringQuality: 1
-      directionalShadowFilteringQuality: 1
+      directionalShadowFilteringQuality: 2
       areaShadowFilteringQuality: 0
       punctualLightShadowAtlas:
         shadowAtlasResolution: 4096
@@ -371,7 +371,7 @@ MonoBehaviour:
       advancedUpscalersByPriority: 
       advancedUpscalerNames:
       - STP
-      DLSSPerfQualitySetting: 0
+      DLSSPerfQualitySetting: 2
       DLSSInjectionPoint: 0
       TAAUInjectionPoint: 0
       STPInjectionPoint: 0

@@ -26,7 +26,15 @@ namespace PixFootball.Gameplay
         KickoffRunner,      // kickoff coverage runner: upright athletic
         Returner,           // kick / punt returner: two-point, hands out
         Kicker,             // K / P: standing at the spot
-        Holder              // v0.7.0: field goal / PAT holder: kneeling, hands out for the snap (the first frames of the Yan holder take, held)
+        Holder,             // v0.7.0: field goal / PAT holder: kneeling, hands out for the snap (the first frames of the Yan holder take, held)
+        // ---- v0.9.0 QBSTANCE
+        OlTwoPoint,         // OL in a shotgun / pass-only set (images 97, 101)
+        LinebackerBlitz,    // 3-4 edge / blitzing backer close to the line: lower, weight forward
+        KickoffReceive,     // the receiving front line: staggered, hands up
+        Punter,             // punter: feet square, hands out at the waist
+        LongSnapper,        // long snapper: wide base, head down, ball between the legs
+        QbPocket,           // v0.9.0: the quarterback set in the pocket (feet alive, ball high at the chest)
+        QbDrop              // v0.9.0: the quarterback on his drop-back / slide (the feet follow the footfall planner)
     }
 
     /// <summary>Everything the view needs to pose a player before the snap.</summary>
@@ -36,12 +44,19 @@ namespace PixFootball.Gameplay
         /// <summary>The stance's up foot / lead side seen from the player: true = the stance is the mirror image (left hand down, right foot back for a right tackle, left foot back for a left-side receiver ...).</summary>
         public bool Mirror;
         public bool IsLeftOfBall;
+        // ---- v0.9.0 QBSTANCE
+        /// <summary>The player is on the defence side of the ball (he faces -Y: his left / right are the other way round in the field frame).</summary>
+        public bool Defense;
+        /// <summary>Stance tell for linemen: -1 = pass set (sits back, a light hand), +1 = run block (weight on the hand), 0 = neutral.</summary>
+        public float Tell;
+        /// <summary>Extra body yaw of the stance in degrees (+ = clockwise from above): the wide-9 edge tilts toward the quarterback.</summary>
+        public float Tilt;
     }
 
     /// <summary>
     /// Pure rules for stances and facing (EditMode tested). The simulation always drives toward +Y; the offense faces +Y and the defense faces -Y before the snap, kick returners face the kicker, kickers face the kick.
     /// </summary>
-    public static class StanceRules
+    public static partial class StanceRules
     {
         /// <summary>Tolerance (degrees) for pre-snap facing checks.</summary>
         public const float FacingToleranceDeg = 20f;
@@ -71,7 +86,7 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>Stance for one agent. <paramref name="relX"/> is lateral yards from the ball (+ = the offense's right), <paramref name="depth"/> yards from the line of scrimmage (offense: negative = backfield; defense: positive = off the ball).</summary>
-        public static StanceSpec For(Position pos, SimSide side, PlayKind kind, string unit, float relX, float depth, bool qbShotgun, bool returner)
+        public static StanceSpec ForBasic(Position pos, SimSide side, PlayKind kind, string unit, float relX, float depth, bool qbShotgun, bool returner)
         {
             var s = new StanceSpec { Kind = StanceKind.Upright, IsLeftOfBall = relX < 0f };
             // facing the field: the right-handed 3-point stance puts the right hand down and the left foot up; the left side of the formation is the natural side, the right side mirrors it
@@ -156,6 +171,12 @@ namespace PixFootball.Gameplay
                 case StanceKind.Returner: return new[] { ArtKeys.StanceS, ArtKeys.Stance2pt };
                 case StanceKind.Kicker: return new[] { ArtKeys.StanceKicker };
                 case StanceKind.Holder: return new[] { ArtKeys.KickHolder };
+                case StanceKind.OlTwoPoint: return new[] { ArtKeys.StanceLb, ArtKeys.Stance2pt, ArtKeys.IdleAlt };
+                case StanceKind.LinebackerBlitz: return new[] { ArtKeys.StanceLb, ArtKeys.IdleAlt };
+                case StanceKind.KickoffReceive: return new[] { ArtKeys.StanceLb, ArtKeys.Stance2pt };
+                case StanceKind.Punter: return new[] { ArtKeys.StanceKicker };
+                case StanceKind.LongSnapper: return new[] { ArtKeys.StanceSnapper, ArtKeys.StanceCenter, ArtKeys.StanceOl3ptR };
+                case StanceKind.QbPocket: case StanceKind.QbDrop: return new[] { ArtKeys.QbStanceShotgun };
                 default: return new string[0];
             }
         }

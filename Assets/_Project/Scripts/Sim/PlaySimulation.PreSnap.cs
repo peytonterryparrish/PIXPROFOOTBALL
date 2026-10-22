@@ -14,7 +14,7 @@ namespace PixFootball.Sim
     {
         readonly Dictionary<int, HotRoute> _hotRoutes = new Dictionary<int, HotRoute>();
         Play _calledDefense;
-        float _motionLimitLeft = -16f, _motionLimitRight = 16f;
+        float _motionLimitLeft = -11f, _motionLimitRight = 11f;   // v0.9.0 (E-384): the man in motion stops at the far side of the formation (about 11 yd from the ball), not 16 yd out
         bool _slideSet;
 
         /// <summary>Slot of the receiver in motion (-1 none) and his direction (-1 left, 1 right in the offense's frame).</summary>
@@ -32,7 +32,7 @@ namespace PixFootball.Sim
         {
             for (int i = 0; i < 11; i++) Agents[i].Assign = OffPlay.Assignments[i];
             if (relayout) LayoutOffense();
-            DefenseAlignment.AlignLineIfEnabled(this); OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
+            DefenseAlignment.AlignLineIfEnabled(this); OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); SettlePreSnapBodies(); PreSnapStances.Refresh(this);
         }
 
         void LayoutOffense()
@@ -121,7 +121,7 @@ namespace PixFootball.Sim
             SimAgent a = Agents[agent];
             float x = a.Pos.X - BallX0;
             if (MotionDir > 0 && x >= _motionLimitRight || MotionDir < 0 && x <= _motionLimitLeft) return Vec2.Zero;
-            return new Vec2(MotionDir * 3.4f, 0f);
+            return new Vec2(MotionDir * (IsJetMotion(agent) ? 6.0f : 4.5f), 0f);   // the jet-sweep man is already at a run   // v0.9.0 (E-384): a jog (4.5 yd/s), not a 3.4 yd/s walk
         }
 
         // ================================================================================================ defense
@@ -168,11 +168,15 @@ namespace PixFootball.Sim
             DefPlay = call;
             for (int i = 0; i < 11; i++) Agents[11 + i].Assign = call.Assignments[i];
             LayoutDefense();
-            DefenseAlignment.AlignLineIfEnabled(this); OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
+            DefenseAlignment.AlignLineIfEnabled(this); OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); SettlePreSnapBodies(); PreSnapStances.Refresh(this);
         }
+
+        /// <summary>The offensive strength (+1 right, -1 left) the defense has already shifted for (see <c>DefenseAlignment.ShiftToStrength</c>); reset when the defense is laid out afresh.</summary>
+        internal int StrengthApplied;
 
         void LayoutDefense()
         {
+            StrengthApplied = 0;
             bool anyBlitz = false;
             for (int i = 0; i < 11; i++) if (DefPlay.Assignments[i] is BlitzAssignment) anyBlitz = true;
             int mike = -1;
@@ -275,7 +279,21 @@ namespace PixFootball.Sim
         {
             if (MotionSlot < 0 || MotionDir == 0) return Vec2.Zero;
             SimAgent d = Agents[agent];
-            if (d.CoverTarget != MotionSlot) return Vec2.Zero;
+            if (d.CoverTarget != MotionSlot)
+            {
+                // v0.9.0 (E-356): the zone roll. The safety or linebacker nearest the motion man's side rolls 1.5-1.8 yd with him (3-4 steps), the rest stay
+                if (d.Zone == null || !(PositionGroup.IsSafety(d.PlayPos) || PositionGroup.IsLinebacker(d.PlayPos))) return Vec2.Zero;
+                SimAgent mm = Agents[MotionSlot];
+                float dm = Math.Abs(d.Pos.X - mm.Pos.X);
+                for (int j = 11; j < 22; j++)
+                {
+                    SimAgent o = Agents[j];
+                    if (o == d || o.Zone == null || !(PositionGroup.IsSafety(o.PlayPos) || PositionGroup.IsLinebacker(o.PlayPos)) || o.CoverTarget == MotionSlot) continue;
+                    if (Math.Abs(o.Pos.X - mm.Pos.X) < dm - 0.01f) return Vec2.Zero;
+                }
+                float rolled = (d.Pos.X - d.StartPos.X) * MotionDir;
+                return rolled < 1.7f ? new Vec2(MotionDir * 1.5f, 0f) : Vec2.Zero;
+            }
             SimAgent m = Agents[MotionSlot];
             float dx = (m.Pos.X - d.Pos.X) * 2.5f;
             return new Vec2(SimMath.Clamp(dx, -3.0f, 3.0f), 0f);

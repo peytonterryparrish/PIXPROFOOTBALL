@@ -63,7 +63,10 @@ namespace PixFootball.Gameplay
             if (plan.Loop) return;
             switch (action)
             {
-                case AgentAction.Throw: case AgentAction.Handoff: case AgentAction.Catch: case AgentAction.Jump:
+                case AgentAction.Catch:
+                    // v0.9.0 CONNECT E-144: the catch commit ends at the hands-secure frame (about 0.45 s) and ranks below the carrier moves, so a juke / spin / stiff arm after the catch is not suppressed
+                    _commitPri = 4; _commitUntil = _clock + Mathf.Clamp(Mathf.Min(len * 0.85f, 0.45f), 0.25f, 0.6f); break;
+                case AgentAction.Throw: case AgentAction.Handoff: case AgentAction.Jump:
                     _commitPri = Priority(action); _commitUntil = _clock + Mathf.Clamp(len * 0.85f, 0.3f, 1.4f); break;
                 case AgentAction.Celebrate:
                     _commitPri = 8; _commitUntil = _clock + Mathf.Min(len * 0.95f, 7f); break;
@@ -80,6 +83,7 @@ namespace PixFootball.Gameplay
         {
             switch (action)
             {
+                case AgentAction.Juke: case AgentAction.Spin: case AgentAction.StiffArm: case AgentAction.Truck: case AgentAction.Stumble: case AgentAction.Engaged:      // v0.9.0 CONNECT E-363
                 case AgentAction.Fallen: case AgentAction.Tackled: case AgentAction.Celebrate: case AgentAction.Shed: case AgentAction.Block: case AgentAction.Jump:
                 case AgentAction.TackleWrapUp: case AgentAction.TackleBigHit: case AgentAction.TackleShoestring: case AgentAction.TackleDive: case AgentAction.TackleGang:
                     plan.Speed *= GamePace.AnimationRate; break;
@@ -91,6 +95,8 @@ namespace PixFootball.Gameplay
         /// <summary>Returns true when the quarterback flow owns the player this frame (the generic action to clip mapping must not run).</summary>
         bool QbFlow(AgentAction action, in AnimHints h, bool shotgunQb, float dt)
         {
+            _qbStanceHold = false;
+            if (QbPoseFlow(action, h, shotgunQb, dt)) return true;      // v0.9.0 QBSTANCE: drop-back and pocket on the pose layer
             if (DebugNoFlow || !h.IsQb || Rig == null || !Rig.Valid) return false;
             switch (action)
             {
@@ -99,7 +105,7 @@ namespace PixFootball.Gameplay
                 default: _qbMode = QbMode.None; if (Motion != null) Motion.SetCarriage(BodyMotion.Carriage.None); return false;      // throw, hand-off, tackled ... : the generic path plays the take
             }
             var q = h.Qb;
-            if (q == QbPhase.PreSnap || q == QbPhase.WaitSnap) return true;      // the snap is on its way: keep the stance until the ball is in his hands
+            if (q == QbPhase.PreSnap || q == QbPhase.WaitSnap) { _qbStanceHold = true; return true; }      // v0.9.0: the stance pose layer stays up until the ball is in his hands; the snap is on its way: keep the stance until the ball is in his hands
             if (q == QbPhase.Done || q == QbPhase.Kneel || q == QbPhase.Spike || q == QbPhase.Windup)
             {
                 if (Motion != null) Motion.SetCarriage(BodyMotion.Carriage.None);
@@ -138,7 +144,7 @@ namespace PixFootball.Gameplay
             // mesh, play-action fake, scramble, roll-out: locomotion under the carriage
             if (_qbMode != QbMode.Loco)
             {
-                if (_ownsClip) { Rig.Stop(0.22f); _ownsClip = false; }
+                if (_ownsClip) { Rig.Stop(DebugNoConnect ? 0.22f : 0.38f); _ownsClip = false; }      // v0.9.0 CONNECT E-288: the crouch is let go over a longer blend (the pop filter absorbs the rest) instead of a plain 0.22 s fade
                 _qbMode = QbMode.Loco;
             }
             return true;
@@ -157,7 +163,8 @@ namespace PixFootball.Gameplay
         {
             var plan = AnimKit.QbPocket(h.Seed);
             _qbMode = QbMode.Pocket; _modeSince = _clock; _pumped = _pumping = false;
-            if (plan.Valid) { Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); }
+            if (plan.Valid && !DebugNoConnect && Rig.CurrentClip == plan.Clip && Rig.InWindow) { _ownsClip = true; }      // v0.9.0 CONNECT E-287: the stance loop that is playing IS the pocket loop: it continues (no restart at another phase)
+            else if (plan.Valid) { Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); }
             else if (_ownsClip) { Rig.Stop(0.22f); _ownsClip = false; }
         }
 

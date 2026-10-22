@@ -100,26 +100,28 @@ namespace PixFootball.Presentation
             // ---- angle A: the sideline long lens, real time then slowing into the key moment
             float a0 = Mathf.Max(clip.StartTime + 0.1f, key - 3.3f), a1 = Mathf.Max(a0 + 1.5f, key - 0.45f);
             // ---- angle B: low orbit around the key player, slow motion through the moment
-            float b0 = Mathf.Max(clip.StartTime + 0.1f, key - 0.9f), b1 = Mathf.Min(clip.EndTime, key + 1.15f);
+            // v0.9.0 CONNECT E-381: B used to run its whole 2 s window at 0.36x (about 5.7 s real). Now the deep slow motion is only the beat around the key moment and each angle has a hard real-time cap
+            // (A 3.0 s, B 3.4 s), so a touchdown replay costs about 6.4 s instead of 8.5 s+.
+            float b0 = Mathf.Max(clip.StartTime + 0.1f, key - 0.9f), b1 = Mathf.Min(clip.EndTime, key + 0.85f);
             if (b1 <= b0 + 0.6f) b1 = Mathf.Min(clip.EndTime, b0 + 1.6f);
 
             _view.Reset(clip, target, ReplayAngle.Sideline); _view.Dof = true;
-            yield return RunSegment(a0, a1, t => 1f, skippable, v => done = v, speedScale);
+            yield return RunSegment(a0, a1, t => 1f, skippable, v => done = v, speedScale, null, 3.0f);
             if (!done)
             {
                 Note("auto replay B");
                 _hud.Flash();
                 _view.Reset(clip, target, ReplayAngle.Orbit, 205f); _view.Pitch = 11f; _view.Dist = 8.6f; _view.AutoOrbitRate = 16f; _view.Dof = true;
                 _cam.Cut();
-                yield return RunSegment(b0, b1, t => 0.36f, skippable, v => done = v, speedScale);
+                yield return RunSegment(b0, b1, t => Mathf.Abs(t - key) < 0.4f ? 0.36f : 0.8f, skippable, v => done = v, speedScale, null, 3.4f);
             }
             yield return new WaitForSecondsRealtime(0.12f);
             End();
         }
 
-        IEnumerator RunSegment(float t0, float t1, Func<float, float> speedAt, bool skippable, Action<bool> skipped, float speedScale, Func<bool> extraSkip = null)
+        IEnumerator RunSegment(float t0, float t1, Func<float, float> speedAt, bool skippable, Action<bool> skipped, float speedScale, Func<bool> extraSkip = null, float maxReal = 0f)
         {
-            float t = t0;
+            float t = t0, real = 0f;   // v0.9.0 CONNECT E-381: maxReal > 0 caps the real (unscaled) duration of the segment
             _player.Time = t; Speed = 1f;
             ReplayClip clip = CurrentClip;
             ApplyCamera(clip, t, 0.016f);
@@ -128,6 +130,7 @@ namespace PixFootball.Presentation
             while (t < t1)
             {
                 float dt = Mathf.Min(UnityEngine.Time.unscaledDeltaTime, 0.05f);
+                real += dt; if (maxReal > 0f && real > maxReal) yield break;
                 float sp = speedAt(t) * speedScale;
                 // ease into and out of the slow-motion window instead of a hard switch
                 Speed = Mathf.MoveTowards(Speed, sp, dt * 4f);

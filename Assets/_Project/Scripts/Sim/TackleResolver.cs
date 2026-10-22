@@ -23,8 +23,9 @@ namespace PixFootball.Sim
 
         public bool InTackleLock(SimAgent a, SimAgent b)
         {
-            if (a.State == AgentState.Tackling && b.HasBall) return true;
-            if (b.State == AgentState.Tackling && a.HasBall) return true;
+            // v0.9.0 (E-240): the lock is for a tackler who has hold of the carrier (standing, dragging, or the carrier is down). A tackler who whiffed and lies on the grass is an obstacle again.
+            if (a.State == AgentState.Tackling && b.HasBall) return a.Body.FallenTime <= 0f || b.State == AgentState.Down;
+            if (b.State == AgentState.Tackling && a.HasBall) return b.Body.FallenTime <= 0f || a.State == AgentState.Down;
             return false;
         }
 
@@ -34,7 +35,7 @@ namespace PixFootball.Sim
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = S.Agents[i];
-                if (a.State == AgentState.Tackling && a.StateTime > 0.75f && a.Body.FallenTime <= 0f)
+                if (a.State == AgentState.Tackling && a.StateTime > 0.55f && a.Body.FallenTime <= 0f)   // v0.9.0 (E-246): 0.3 s of get-up after the wrap, then he is back in the play (was 0.75 s of standing still)
                 {
                     SimAgent c = S.Carrier;
                     if (c == null || c.DragMass <= 0f || !IsDragger(a)) a.State = AgentState.Normal;
@@ -72,11 +73,20 @@ namespace PixFootball.Sim
                 if (carrier == null || carrier.State == AgentState.Down) return;
             }
 
+            if (S.EndPending) PileOn(carrier);
             for (int i = 0; i < 22; i++)
             {
                 SimAgent d = S.Agents[i];
                 if (d.Side == carrier.Side) continue;
-                if (d.State == AgentState.Engaged || d.State == AgentState.Down || d.Body.FallenTime > 0f) continue;
+                if (d.State == AgentState.Down || d.Body.FallenTime > 0f || d.Body.GetUpTime > 0f) continue;
+                if (S.EndPending) continue;   // (the carrier is already wrapped up: later arrivals pile on, see PileOn)
+                bool engagedArm = false;
+                if (d.State == AgentState.Engaged)
+                {
+                    // v0.9.0 (E-235): a defender who is locked up but holding his own can still get an arm on a carrier who runs into him
+                    if (d.Engagement == null || d.Engagement.Lev > 0.3f || d.TackleCooldown > 0f || d.Engagement.IsShedding) continue;
+                    engagedArm = true;
+                }
                 if (d.State == AgentState.Tackling && !(d.Move == CarrierMove.Dive && d.MoveTime > 0f)) continue;
                 if (d.TackleCooldown > 0f) continue;
                 if (carrier.IgnoreAgent == d.Id && S.Time < carrier.IgnoreUntil) continue;
@@ -85,9 +95,13 @@ namespace PixFootball.Sim
                 float dist = rel.Length;
                 bool diving = d.Move == CarrierMove.Dive && d.MoveTime > 0f;
                 float reach = d.Body.Radius + carrier.Body.Radius + 0.42f + 0.18f * SimMath.Rating01(d.R.Tackling);
+                if (engagedArm) reach = d.Body.Radius + carrier.Body.Radius + 0.12f;
+                // v0.9.0 (E-236): a defender facing away from the carrier reaches 0.3 yd less (an arm tackle from behind)
+                if (!diving && dist > 0.05f && d.Facing.Dot(rel * (1f / dist)) < 0.15f) reach -= 0.3f;
                 if (diving) { if (S.BodyBetween(d, carrier)) continue; reach += 1.25f; }
                 if (carrier.Move == CarrierMove.StiffArm && carrier.MoveTime > 0f) reach -= 0.2f;
                 if (dist > reach) continue;
+                if (engagedArm) { ArmTackle(d, carrier); if (S.Phase != PlayPhase.Live) return; carrier = S.Carrier; if (carrier == null || carrier.State == AgentState.Down) return; continue; }
                 Attempt(d, carrier, diving);
                 if (S.Phase != PlayPhase.Live) return;
                 carrier = S.Carrier;
@@ -119,6 +133,44 @@ namespace PixFootball.Sim
             }
         }
 
+        /// <summary>v0.9.0 (E-235): an engaged defender gets an arm on the runner: about a third of the time it is a tackle, otherwise the runner shakes the arm and stumbles on.</summary>
+        private void ArmTackle(SimAgent d, SimAgent c)
+        {
+            d.TackleCooldown = 0.8f;
+            float p = 0.18f + 0.30f * SimMath.Rating01(d.R.Tackling) - 0.18f * SimMath.Rating01(c.R.BreakTackle) - 0.10f * SimMath.Clamp01(c.Speed / Math.Max(1f, c.Body.VMax));
+            if (S.Rng.NextFloat() < p)
+            {
+                S.Blocks.Release(d);
+                Vec2 rel = c.Pos - d.Pos; float dist = Math.Max(0.05f, rel.Length);
+                BringDown(d, c, TackleType.WrapUp, Math.Max(0f, (d.Vel - c.Vel).Dot(rel * (1f / dist))), 1, false);
+            }
+            else
+            {
+                c.Body.Stumble(0.25f);
+                c.Body.Vel = c.Body.Vel * 0.82f;
+            }
+        }
+
+        /// <summary>
+        /// v0.9.0 (E-244): defenders who arrive inside the wrap window pile on instead of running through the pair: they wrap up, go to the grass and the pile is the picture at the whistle.
+        /// </summary>
+        private void PileOn(SimAgent carrier)
+        {
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent d = S.Agents[i];
+                if (d.Side == carrier.Side || d.State != AgentState.Normal || d.Body.FallenTime > 0f || d.Move != CarrierMove.None) continue;
+                float gap = (d.Pos - carrier.Pos).Length - d.Body.Radius - carrier.Body.Radius;
+                if (gap > 0.7f) continue;
+                d.State = AgentState.Tackling; d.StateTime = 0f;
+                S.PlayAction(d, AgentAction.TackleGang, 0.7f);
+                d.Body.Vel = d.Body.Vel * 0.3f;
+                d.Body.Fall(0.45f);
+                d.TackleCooldown = 1.5f;
+                S.LogEvent(SimEventType.PileOn, d.Id, carrier.Id, new Vec3(carrier.Pos, 0f), TackleType.GangTackle);
+            }
+        }
+
         private bool IsDragger(SimAgent a)
         {
             for (int i = 0; i < _draggers.Count; i++) if (_draggers[i] == a) return true;
@@ -130,6 +182,14 @@ namespace PixFootball.Sim
         private void Attempt(SimAgent d, SimAgent c, bool diving)
         {
             d.TackleCooldown = 0.32f;
+            if (c.Move == CarrierMove.Slide && c.MoveTime > 0f)
+            {
+                // v0.9.0 (E-083 / E-093): the quarterback slid: he is down at the contact, no fumble, no hit
+                c.Move = CarrierMove.None; c.MoveTime = 0f; c.Body.SpeedMultiplier = 1f;
+                Vec2 rs = c.Pos - d.Pos; float ds = Math.Max(0.05f, rs.Length);
+                FinishTackle(d, c, TackleType.WrapUp, false, false, Math.Max(0f, (d.Vel - c.Vel).Dot(rs * (1f / ds))) * 0.5f);
+                return;
+            }
             Vec2 rel = c.Pos - d.Pos;
             float dist = Math.Max(0.05f, rel.Length);
             Vec2 toC = rel * (1f / dist);
@@ -142,8 +202,8 @@ namespace PixFootball.Sim
             float icm = c.Body.Mass * Math.Max(0f, c.Vel.Dot(toC * -1f)) + 0.6f * c.Body.Mass;
             float ratio = idm / Math.Max(1f, icm);
 
-            float tkEff = d.R.Tackling >= 75 ? 75f + (d.R.Tackling - 75f) * 1.45f : 75f + (d.R.Tackling - 75f) * 0.46f;
-            float tackleSkill = 0.52f * tkEff + 0.16f * d.R.Strength + 0.12f * d.R.Awareness + 0.10f * d.R.Agility + 0.10f * d.R.Speed;
+            float tkEff = d.R.Tackling >= 75 ? 75f + (d.R.Tackling - 75f) * 1.45f : 75f + (d.R.Tackling - 75f) * 0.68f;
+            float tackleSkill = 0.52f * tkEff + 0.16f * d.R.Strength + 0.12f * d.R.Awareness + 0.10f * d.R.Agility + 0.10f * d.R.Speed - 8f * (1f - d.Body.Energy);   // v0.9.0 (E-355): a gassed tackler loses up to 8 points
             float carrierSkill = 0.34f * c.R.BreakTackle + 0.22f * c.R.Strength + 0.14f * c.R.Carrying + 0.18f * c.R.Elusiveness + 0.12f * c.R.Agility;
             if (c.Fx != null)
             {
@@ -155,7 +215,7 @@ namespace PixFootball.Sim
             mod += category == 0 ? 5f : (category == 2 ? -14f : -3f);
             if (diving) mod -= 14f;
             mod += (d.Body.Mass - c.Body.Mass) / 40f * 5f;
-            { float facing = d.Facing.Dot(toC); if (facing < 0.3f) mod -= 12f * SimMath.Clamp01((0.3f - facing) / 1.3f); }   // a defender running away from the carrier cannot make a full-strength tackle
+            { float facing = d.Facing.Dot(toC); if (facing < 0.3f) mod -= 18f * SimMath.Clamp01((0.3f - facing) / 1.3f); }   // a defender running away from the carrier cannot make a full-strength tackle (v0.9.0 E-236: 18 points, was 12)
             mod += (float)Math.Log(ratio) * 7f;
             mod -= 5f * SimMath.Clamp01(c.Speed / Math.Max(1f, c.Body.VMax));
             mod += Math.Min(6f, closing * 0.6f);
@@ -163,7 +223,7 @@ namespace PixFootball.Sim
             if (c.Body.StumbleTime > 0f) mod += 10f;
             if (d.Body.StumbleTime > 0f) mod -= 9f;
             if (c.DragMass > 0f) mod += 10f + 22f * (c.DragMass / c.Body.Mass);
-            if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) mod += 12f; // passers rarely escape an unblocked rusher
+            if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) mod += 7f; // passers rarely escape an unblocked rusher (v0.9.0 E-242: +7, was +12; the grasp itself is the sack, a passer in the arms of a rusher is not a flat coin flip)
             if (c.State == AgentState.Normal && c.Body.FallenTime > 0f) mod += 20f;
 
             float margin = tackleSkill - carrierSkill + mod + S.Rng.Gaussian(0f, 12f) + 2.0f;
@@ -320,6 +380,9 @@ namespace PixFootball.Sim
             }
 
             bool fumble = S.Rng.NextFloat() < FumbleChance(d, c, type, closing, sack) && !S.Options.ForceTackle.HasValue;
+            // v0.9.0 (E-245): a tackler chasing from behind at speed can punch the ball out
+            if (!fumble && !sack && category == 2 && closing > 3f && !S.Options.ForceTackle.HasValue && type != TackleType.PushOutOfBounds)
+                fumble = S.Rng.NextFloat() < (0.004f + 0.00004f * d.R.Tackling) * Math.Max(0.1f, 1f + c.Fxv(SimHook.FumbleResist) / 100f);
 
             FinishTackle(d, c, type, sack, fumble, closing);
         }
@@ -328,6 +391,7 @@ namespace PixFootball.Sim
         {
             S.LastTackleType = type;
             S.TacklerId = d.Id;
+            Vec2 cVel0 = c.Body.Vel;   // (E-350) the carrier's velocity at first contact, recorded in the Tackle event
             c.State = AgentState.Down;
             c.StateTime = 0f;
             Vec2 dirv = (c.Pos - d.Pos).Norm();
@@ -336,11 +400,17 @@ namespace PixFootball.Sim
             if (d.Fx != null) slide *= 1f + d.Fxv(SimHook.HitPower) / 100f;   // v0.8.0 Bone Rattler: the hit carries the runner further back
 
             c.Body.Fall(1.1f);
-            c.Body.Vel = c.Body.Vel * 0.55f + dirv * (slide * 0.8f);
+            {
+                // v0.9.0 (E-208 / E-237): momentum-conserving contact, phased over 0.22 s. Both bodies come to the shared velocity of the pair (a 190 lb back stopped by a 310 lb tackle loses far
+                // more than the other way round) instead of a one-tick cut to 55 / 35 percent of their own speed.
+                float mc = c.Body.Mass, md = d.Body.Mass;
+                Vec2 vcm = (c.Body.Vel * mc + d.Body.Vel * md) * (1f / (mc + md));
+                c.ImpactVel = vcm * 0.9f + dirv * (slide * 0.8f); c.ImpactTime = 0.22f;
+                d.ImpactVel = vcm * 0.85f; d.ImpactTime = 0.22f;
+            }
             S.PlayAction(d, TackleAction(type), 0.8f);
             d.State = AgentState.Tackling;
             d.StateTime = 0f;
-            d.Body.Vel = d.Body.Vel * 0.35f;
             d.TacklesMade++;
             if (type == TackleType.DiveTackle) d.Body.Fall(0.8f);
             S.Blocks.Release(c);
@@ -355,7 +425,7 @@ namespace PixFootball.Sim
                 S.EndPlay(EndReason.OutOfBounds);
                 return;
             }
-            S.LogEvent(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), type, closing);
+            S.LogEventVel(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), type, closing, cVel0);
 
             if (sack && fumble)
             {
@@ -377,17 +447,23 @@ namespace PixFootball.Sim
                 S.QbSack = true;
                 S.SackerId = d.Id;
                 S.LogEvent(SimEventType.Sack, d.Id, c.Id, new Vec3(c.Pos, 0f), type, S.LosY - c.Pos.Y);
-                S.EndPlayAfter(c.Pos.Y <= 0.2f ? EndReason.Safety : EndReason.Sack, WrapSeconds);
+                S.EndPlayAfter(c.Pos.Y <= 0.2f ? EndReason.Safety : EndReason.Sack, WrapFor(type));
                 if (c.Pos.Y <= 0.2f) { S.SafetyScored = true; }
                 return;
             }
             if (c.Side == SimSide.Offense && c.Pos.Y + 0.2f <= 0f && S.BallSide == SimSide.Offense)
             {
                 S.SafetyScored = true;
-                S.EndPlayAfter(EndReason.Safety, WrapSeconds);
+                S.EndPlayAfter(EndReason.Safety, WrapFor(type));
                 return;
             }
-            S.EndPlayAfter(EndReason.Tackle, WrapSeconds);
+            S.EndPlayAfter(EndReason.Tackle, WrapFor(type));
+        }
+
+        /// <summary>v0.9.0 (E-369): a form tackle takes 0.5-0.8 s from contact to the whistle (0.7 s for a big hit, a gang tackle or a dive), long enough for its clip to finish; the ball is spotted at contact.</summary>
+        private static float WrapFor(TackleType t)
+        {
+            return t == TackleType.BigHit || t == TackleType.GangTackle || t == TackleType.DiveTackle ? GamePace.TackleWrapBigSeconds : WrapSeconds;
         }
 
         /// <summary>Late hits, face masks and roughing: the defender's discipline decides whether a hard tackle draws a flag.</summary>
@@ -511,8 +587,15 @@ namespace PixFootball.Sim
             }
         }
 
+        private void NoteQbHurry(SimAgent d, SimAgent c)
+        {
+            // v0.9.0 (E-234): a rusher who gets a hand on the passer before the release and does not bring him down hurries him (a QbHurry event, less accuracy on the throw)
+            if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) S.OffAI.NoteHurry(d);
+        }
+
         private void Shoestring(SimAgent d, SimAgent c, bool diving)
         {
+            NoteQbHurry(d, c);
             d.Body.Fall(0.8f);
             d.State = AgentState.Tackling;
             d.StateTime = 0f;
@@ -529,11 +612,22 @@ namespace PixFootball.Sim
 
         private void BrokenTackle(SimAgent d, SimAgent c, bool diving)
         {
-            d.Body.Fall(0.9f + 0.4f * S.Rng.NextFloat());
-            d.State = AgentState.Tackling;
-            d.StateTime = 0f;
+            NoteQbHurry(d, c);
+            if (diving)
+            {
+                d.Body.Fall(0.9f + 0.4f * S.Rng.NextFloat());
+                d.State = AgentState.Tackling;
+                d.StateTime = 0f;
+                c.IgnoreAgent = d.Id; c.IgnoreUntil = S.Time + 0.5f;
+            }
+            else
+            {
+                // v0.9.0 (E-238 / E-240): a standing wrap-up that misses is a stumble for the tackler (0.45 s) and a hitch for the carrier (0.2 s), and both are real bodies the whole time; only a dive or a shoestring puts a man on the grass
+                d.Body.Stumble(0.45f);
+                c.Body.Stumble(0.2f);
+                c.IgnoreAgent = d.Id; c.IgnoreUntil = S.Time + 0.3f;
+            }
             S.PlayAction(d, diving ? AgentAction.TackleDive : AgentAction.TackleWrapUp, 0.8f);
-            c.IgnoreAgent = d.Id; c.IgnoreUntil = S.Time + 0.7f;
             d.TackleCooldown = 1.3f;
             c.Body.Vel = c.Body.Vel * 0.9f;
             S.LogEvent(SimEventType.BrokenTackle, d.Id, c.Id, new Vec3(c.Pos, 0f), TackleType.BrokenTackle);

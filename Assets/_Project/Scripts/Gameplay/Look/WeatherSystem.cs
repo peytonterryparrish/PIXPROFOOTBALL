@@ -140,7 +140,7 @@ namespace PixFootball.Gameplay
                     if (hd != null)
                     {
                         hd.angularDiameter = Mathf.Lerp(1.4f, 6f, p.CloudCover);   // soft, short-edged player shadows even in clear weather (QA-300)                  // overcast skies give soft shadows
-                        hd.shadowDimmer = Mathf.Lerp(1f, 0.45f, p.CloudCover);
+                        hd.shadowDimmer = night ? 0.6f : Mathf.Lerp(1f, 0.7f, p.CloudCover);   // v0.9 (GFX-439 / 410): the old 0.45 left overcast players with no grounding, and the moon needs shadows you can see
                     }
                     RenderSettings.sun = sun;
                 }
@@ -158,10 +158,41 @@ namespace PixFootball.Gameplay
                 if (cookie != null && l.type == LightType.Spot) l.cookie = cookie;
                 var lhd = l.GetComponent<HDAdditionalLightData>();
                 if (lhd != null) lhd.volumetricDimmer = p.FloodVolumetric;
-                // player shadows from the rim lamps (long shadows toward the camera): one at High, two at Ultra
-                bool shadow = (tier >= 2 && n == "Flood_E6") || (tier >= 3 && n == "Flood_E7");
+            }
+            ApplyFloodShadows();
+        }
+
+        /// <summary>v0.9 (GFX-409 / 410): which floodlights cast player shadows (long shadows toward the broadcast camera): none on Low / Medium, the two far rim lamps on High, all four far lamps on Ultra. QualityTiers used to switch them off again after this.</summary>
+        static readonly string[] FloodShadowOrder = { "Flood_E6", "Flood_E7", "Flood_E5", "Flood_E8" };
+        void ApplyFloodShadows()
+        {
+            int n = QualityTiers.FloodShadowCount;
+            for (int i = 0; i < _flood.Count; i++)
+            {
+                var l = _flood[i]; if (l == null) continue;
+                int rank = System.Array.IndexOf(FloodShadowOrder, l.name);
+                bool shadow = l.type == LightType.Spot && rank >= 0 && rank < n && l.enabled;
                 l.shadows = shadow ? LightShadows.Soft : LightShadows.None;
             }
+        }
+
+        // ------------------------------------------------------------------------------------------------ v0.9 sun: elevation lowers over the game, azimuth rotates a little per quarter
+        float _progress;   // 0 (kickoff) .. 1 (the end of the game)
+        Quaternion SunRotation()
+        {
+            var p = Preset;
+            float end = p.Time == TimeOfDay.Dusk ? 0.6f : (p.Time == TimeOfDay.Day ? 0.8f : 1f);    // dusk sinks to 60 percent of its elevation, day to 80 percent, the moon stays
+            float elev = p.SunElevation * Mathf.Lerp(1f, end, _progress);
+            return Quaternion.Euler(elev, p.SunAzimuth + 14f * _progress, 0f);
+        }
+
+        /// <summary>Called by the match director at every period: quarter 1..4 (5+ = overtime) moves the sun along its path so shadows lengthen toward the end of the game.</summary>
+        public void SetGameProgress(int quarter)
+        {
+            _progress = Mathf.Clamp01((Mathf.Max(1, quarter) - 1) / 3f);
+            if (!Applied || Lighting == null) return;
+            var sun = Preset.Time == TimeOfDay.Night ? Lighting.NightSun : Lighting.DaySun;
+            if (sun != null) sun.transform.rotation = SunRotation();
         }
 
         // ------------------------------------------------------------------------------------------------ volume
@@ -222,18 +253,87 @@ namespace PixFootball.Gameplay
             float gb = Mathf.Clamp01(p.GreenBoost);
             var keys = new[] { new Keyframe(0.00f, 0.5f), new Keyframe(0.17f, 0.5f), new Keyframe(0.24f, 0.5f + 0.16f * gb), new Keyframe(0.33f, 0.5f + 0.24f * gb), new Keyframe(0.42f, 0.5f + 0.12f * gb), new Keyframe(0.52f, 0.5f), new Keyframe(1.00f, 0.5f) };
             curves.hueVsSat.Override(new TextureCurve(keys, 0.5f, true, new Vector2(0f, 1f)));
-            var mbl = _profile.Add<MotionBlur>(false); mbl.intensity.Override(0f);   // live play stays sharp (QA-176 / QA-255); the drama volume adds a little
-            var shs = _profile.Add<HDShadowSettings>(false); shs.maxShadowDistance.Override(90f); shs.cascadeShadowSplitCount.Override(QualityTiers.Current >= 2 ? 4 : 3);
-            shs.cascadeShadowSplit0.Override(0.04f); shs.cascadeShadowSplit1.Override(0.12f); shs.cascadeShadowSplit2.Override(0.3f); shs.cascadeShadowBorder0.Override(0.15f); shs.cascadeShadowBorder1.Override(0.15f); shs.cascadeShadowBorder2.Override(0.15f);
-            var bloom = _profile.Add<Bloom>(false); bloom.intensity.Override(p.Bloom); bloom.threshold.Override(0.9f); bloom.scatter.Override(0.6f);
+            // v0.9 camera-only motion blur (GFX-431): the old override forced 0 at priority 50 on top of the scene's 0.12; a short shutter (0.18) so only fast camera moves and sprints smear
+            var mbl = _profile.Add<MotionBlur>(false); mbl.intensity.Override(0.18f); mbl.maximumVelocity.Override(90f); mbl.minimumVelocity.Override(6f); mbl.cameraMotionBlur.Override(true);
+            var shs = _profile.Add<HDShadowSettings>(false); _shadowSettings = shs; ApplyShadowSettings(shs);
+            BuildInPlayEffects(_profile);
+            var bloom = _profile.Add<Bloom>(false); bloom.intensity.Override(p.Bloom); bloom.threshold.Override(1.15f); bloom.scatter.Override(0.6f);   // v0.9 (GFX-441): white jerseys and the lines stop haloing
             var vg = _profile.Add<Vignette>(false); vg.intensity.Override(p.Vignette); vg.smoothness.Override(0.55f);
             var fgr = _profile.Add<FilmGrain>(false); fgr.type.Override(FilmGrainLookup.Thin1); fgr.intensity.Override(p.FilmGrain); fgr.response.Override(0.8f);
             var smh = _profile.Add<ShadowsMidtonesHighlights>(false);
             smh.shadows.Override(new Vector4(p.ShadowTint.R, p.ShadowTint.G, p.ShadowTint.B, 0f)); smh.midtones.Override(new Vector4(p.MidtoneTint.R, p.MidtoneTint.G, p.MidtoneTint.B, 0f)); smh.highlights.Override(new Vector4(p.HighlightTint.R, p.HighlightTint.G, p.HighlightTint.B, 0f));
             var cab = _profile.Add<ChromaticAberration>(false); cab.intensity.Override(p.Chromatic);
-            if (QualityTiers.Ssgi) { var gi = _profile.Add<GlobalIllumination>(false); gi.enable.Override(true); }
+            var gi = _profile.Add<GlobalIllumination>(false); gi.enable.Override(true); gi.fullResolutionSS.Override(false);   // v0.9 (GFX-447): half-res SSGI on High and Ultra (active follows the tier in QualityTiers.ApplyScene)
         }
 
+
+        // ------------------------------------------------------------------------------------------------ v0.9 in-play effects (GFX-407 / 430 / 432 / 440 / 445 / 446)
+        HDShadowSettings _shadowSettings; DepthOfField _dof; CloudLayer _clouds;
+
+        /// <summary>Cascades tuned for the 20-50 m the players stand from the camera (GFX-407: the old 4 / 12 / 30 percent splits wasted 4 m near the camera and left the last cascade 10.8-90 m), and the tier's shadow distance (GFX-430: it was never used).</summary>
+        void ApplyShadowSettings(HDShadowSettings shs)
+        {
+            if (shs == null) return;
+            int tier = QualityTiers.Current;
+            // measured: 4 cascades out to 110 m cost 5-8 fps against 3 out to 90 m, so only Ultra gets 4; High / Low / Medium: 3 cascades, 12.6 / 32 / 90 m (the players stand 20-45 m from the camera: they live in the 2nd cascade and its outer half)
+            shs.maxShadowDistance.Override(Mathf.Min(QualityTiers.ShadowDistance, tier >= 3 ? 110f : 90f));
+            if (tier >= 3)
+            {
+                shs.cascadeShadowSplitCount.Override(4);
+                shs.cascadeShadowSplit0.Override(0.10f); shs.cascadeShadowSplit1.Override(0.25f); shs.cascadeShadowSplit2.Override(0.50f);
+            }
+            else
+            {
+                shs.cascadeShadowSplitCount.Override(3);
+                shs.cascadeShadowSplit0.Override(0.14f); shs.cascadeShadowSplit1.Override(0.36f);
+            }
+            shs.cascadeShadowBorder0.Override(0.12f); shs.cascadeShadowBorder1.Override(0.12f); shs.cascadeShadowBorder2.Override(0.12f); shs.cascadeShadowBorder3.Override(0.05f);
+        }
+
+        /// <summary>The tier-controlled effects (SSAO, contact shadows, SSR, depth of field) live in this volume so one place defines the in-play look and QualityTiers.ApplyScene only switches them on or off (GFX-446).</summary>
+        void BuildInPlayEffects(VolumeProfile profile)
+        {
+            var p = Preset;
+            bool wet = p.Wetness > 0.5f || p.CloudCover > 0.8f;
+            var ao = profile.Add<ScreenSpaceAmbientOcclusion>(false);
+            ao.intensity.Override(0.9f); ao.radius.Override(wet ? 1.0f : 0.8f); ao.directLightingStrength.Override(0.25f); ao.specularOcclusion.Override(0.6f);   // GFX-439: a wider AO under overcast / rain where the sun gives no shadow
+            var cs = profile.Add<ContactShadows>(false);
+            cs.enable.Override(true); cs.length.Override(0.45f); cs.opacity.Override(1f); cs.maxDistance.Override(60f); cs.fadeDistance.Override(12f);   // GFX-411: 0.25 m only caught the feet
+            var ssr = profile.Add<ScreenSpaceReflection>(false);
+            ssr.enabled.Override(true); ssr.minSmoothness = wet ? 0.7f : 0.92f;   // GFX-445: wet turf and puddles reflect
+            // very subtle far-only depth of field: the stadium behind the field softens, the field and the players stay sharp (Manual, no near blur); focus follows the camera each frame
+            _dof = profile.Add<DepthOfField>(false);
+            _dof.focusMode.Override(DepthOfFieldMode.Manual);
+            _dof.nearFocusStart.Override(0f); _dof.nearFocusEnd.Override(0f); _dof.nearMaxBlur = 0f;   // no near blur
+            _dof.farFocusStart.Override(55f); _dof.farFocusEnd.Override(160f); _dof.farMaxBlur = 3f; _dof.farSampleCount = 8;
+            // a cheap cloud layer for the sky (visible in the toss, replays and the broadcast cameras)
+            _clouds = null;
+            if (p.PhysicallyBasedSky)
+            {
+                _clouds = profile.Add<CloudLayer>(false);
+                _clouds.opacity.Override(Mathf.Clamp01(0.25f + p.CloudCover * 0.75f));
+                _clouds.layers.Override(CloudMapMode.Single);
+                _clouds.layerA.opacityR.Override(1f);
+                _clouds.layerA.altitude.Override(3000f);
+            }
+        }
+
+        /// <summary>Applies the current graphics tier to the weather volume and the floodlights (QualityTiers.ApplyScene calls this after a tier change).</summary>
+        public void RefreshTier()
+        {
+            if (!Applied) return;
+            ApplyShadowSettings(_shadowSettings);
+            ApplyFloodShadows();
+        }
+
+        void UpdateDepthOfField(Camera cam)
+        {
+            if (_dof == null || cam == null || QualityTiers.Current < 2) return;
+            // distance to where the camera looks at the turf: the far blur starts well behind it
+            Vector3 f = cam.transform.forward; Vector3 o = cam.transform.position;
+            float d = f.y < -0.05f ? Mathf.Min(120f, -o.y / f.y) : 45f;
+            _dof.farFocusStart.value = Mathf.Max(45f, d + 40f); _dof.farFocusEnd.value = _dof.farFocusStart.value + 90f;
+        }
         // ------------------------------------------------------------------------------------------------ drama volume
         Volume _drama; VolumeProfile _dramaProfile;
         /// <summary>0 = the clean live-play grade, 1 = the full cinematic grade (replays, cutaways, shows; a little at night). Set to -1 to follow the game.</summary>
@@ -263,6 +363,8 @@ namespace PixFootball.Gameplay
             smh.midtones.Override(new Vector4(p.MidtoneTint.R, p.MidtoneTint.G, p.MidtoneTint.B, 0f));
             smh.highlights.Override(new Vector4(p.HighlightTint.R * 1.04f, p.HighlightTint.G, p.HighlightTint.B * 0.93f, 0f));
             var cab = _dramaProfile.Add<ChromaticAberration>(false); cab.intensity.Override(Mathf.Min(1f, p.Chromatic + 0.07f));
+            var dgr = _dramaProfile.Add<FilmGrain>(false); dgr.type.Override(FilmGrainLookup.Thin1); dgr.intensity.Override(0.08f); dgr.response.Override(0.8f);   // v0.9 (GFX-441): grain lives in the cinematic grade only
+            var dmb = _dramaProfile.Add<MotionBlur>(false); dmb.intensity.Override(0.30f);   // replays and cutaways (GFX-431)
             var ind = _dramaProfile.Add<IndirectLightingController>(false); ind.indirectDiffuseLightingMultiplier.Override(Mathf.Max(0.5f, p.AmbientMultiplier * 0.62f));
             DramaWeight = DramaTarget(); _drama.weight = PixLook.Legacy ? 0f : DramaWeight;
         }
@@ -307,6 +409,7 @@ namespace PixFootball.Gameplay
             }
             PushGlobals();
             if (Fx != null) Fx.Update(dt, Preset, Camera.main);
+            UpdateDepthOfField(Camera.main);
         }
 
         Exposure _exposure;

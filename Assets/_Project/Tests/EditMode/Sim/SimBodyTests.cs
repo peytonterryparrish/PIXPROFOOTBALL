@@ -231,8 +231,8 @@ namespace PixFootball.Tests
             float fwd = Terminal(new Vec2(0f, 1f)), side = Terminal(new Vec2(1f, 0f)), back = Terminal(new Vec2(0f, -1f));
             Assert.Greater(fwd, side);
             Assert.Greater(side, back);
-            Assert.That(side / fwd, Is.InRange(0.65f, 0.9f));
-            Assert.That(back / fwd, Is.InRange(0.45f, 0.7f));
+            Assert.That(side / fwd, Is.InRange(0.5f, 0.75f));   // v0.9.0 (E-005 / E-390): the shuffle is 0.47-0.57 of the run (was 0.7-0.8): a defender shuffling laterally is clearly slower than a runner
+            Assert.That(back / fwd, Is.InRange(0.4f, 0.7f));
         }
 
         [Test]

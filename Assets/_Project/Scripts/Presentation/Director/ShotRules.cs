@@ -28,6 +28,8 @@ namespace PixFootball.Presentation
         public int PlaysSinceCrowd;
         /// <summary>v0.6: a human plays this game; cinematic cuts must never fight his camera (no pre-snap cuts after the intro, short post-whistle cuts only).</summary>
         public bool UserPlaying;
+        /// <summary>v0.9.0 CONNECT E-380: the wind-down the match director holds the play open for (seconds) and the delay before the first post-play shot; when WindSeconds &gt; 0 the shot plan is trimmed to fit (0 = legacy fixed budget).</summary>
+        public float WindSeconds, FirstShotDelay;
     }
 
     /// <summary>
@@ -36,7 +38,10 @@ namespace PixFootball.Presentation
     /// </summary>
     public static class ShotRules
     {
-        public const float MinLiveBeforeSnap = 0.6f, MaxPreSnapShot = 2.6f, MaxPostPlayTotal = 5.2f;
+        public const float MinLiveBeforeSnap = 0.6f, MaxPreSnapShot = 2.6f, MaxPostPlayTotal = 5.2f, MinTrimmedShot = 1.0f;
+
+        /// <summary>v0.9.0 CONNECT E-380/E-381: the post-play wind-down (seconds) per outcome. MUST match MatchDirector.PlayRoutine's `wind` (4.2 touchdown, 1.6 penalty, 2.9 otherwise).</summary>
+        public static float WindFor(bool touchdown, bool penalty) { return touchdown ? 4.2f : (penalty ? 1.6f : 2.9f); }
 
         public static List<ShotPlan> PreSnap(in DirectorContext c)
         {
@@ -87,12 +92,20 @@ namespace PixFootball.Presentation
             if (full && c.PlaysSinceCrowd >= 7 && l.Count > 0 && !Has(l, ShotKind.CrowdShot) && Total(l) < MaxPostPlayTotal - 1.4f) l.Add(new ShotPlan(ShotKind.CrowdShot, 1.4f));
             // v0.6: a human plays: keep the post-whistle cuts brief (no crowd / sideline cutaways)
             float budget = MaxPostPlayTotal;
-            if (c.UserPlaying) { bool td = c.Touchdown; budget = 3.0f; l.RemoveAll(s => s.Kind == ShotKind.CrowdShot && !td); for (int k = 0; k < l.Count; k++) if (l[k].Duration > 1.6f) l[k] = new ShotPlan(l[k].Kind, 1.6f); }
-            // never longer than the budget
+            // v0.9.0 CONNECT E-380: the plan must end with the match director's wind-down (it used to run 5.2 s against a 2.9 s wind and then stall the next play up to 3.2 s)
+            if (c.WindSeconds > 0f) budget = System.Math.Min(budget, System.Math.Max(0f, c.WindSeconds - c.FirstShotDelay));
+            if (c.UserPlaying) { bool td = c.Touchdown; budget = System.Math.Min(budget, 3.0f); l.RemoveAll(s => s.Kind == ShotKind.CrowdShot && !td); for (int k = 0; k < l.Count; k++) if (l[k].Duration > 1.6f) l[k] = new ShotPlan(l[k].Kind, 1.6f); }
+            // never longer than the budget: the shot that crosses it is trimmed to the wind end (kept if at least MinTrimmedShot long, dropped otherwise)
             float total = 0f;
             for (int i = 0; i < l.Count; i++)
             {
-                if (total + l[i].Duration > budget) { l.RemoveRange(i, l.Count - i); break; }
+                if (total + l[i].Duration > budget)
+                {
+                    float room = budget - total;
+                    if (c.WindSeconds > 0f && room >= MinTrimmedShot) { l[i] = new ShotPlan(l[i].Kind, room); l.RemoveRange(i + 1, l.Count - i - 1); }
+                    else l.RemoveRange(i, l.Count - i);
+                    break;
+                }
                 total += l[i].Duration;
             }
             return l;

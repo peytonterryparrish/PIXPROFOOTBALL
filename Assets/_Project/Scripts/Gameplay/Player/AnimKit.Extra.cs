@@ -26,6 +26,7 @@ namespace PixFootball.Gameplay
                 c = V(key, seed);
                 if (c == null || c.length > 9f) return default(ClipPlan);
                 tc = ClipTimingTable.Moment(c, 0.55f);
+                WarnUnmeasured(c);      // v0.9.0 CONNECT E-388
             }
             float start, speed = 1f;
             if (tc >= eta) start = tc - eta; else { start = 0f; speed = Mathf.Clamp(tc / eta, 0.5f, 1f); }
@@ -39,13 +40,14 @@ namespace PixFootball.Gameplay
             var c = V(key, seed);
             if (c == null || c.length > 9f) return default(ClipPlan);
             float t = ClipTimingTable.Moment(c, 0.55f);
+            WarnUnmeasured(c);      // v0.9.0 CONNECT E-388
             return P(c, Mathf.Max(0f, t - KickLead), Mathf.Min(c.length, t + 1.2f), 1f, 0.16f, 0.4f);
         }
 
         /// <summary>The holder of a field goal / PAT: receives the snap and places the ball.</summary>
         public static ClipPlan Holder(int seed)
         {
-            var c = V(ArtKeys.KickHolder, seed);
+            var c = HolderClip(seed);
             return c == null ? default(ClipPlan) : P(c, 0.12f, Mathf.Min(c.length, 3.2f), 1f, 0.2f, 0.35f);     // v0.7.0: starts 0.12 s in, so the hands-up catch (0.6 s into the take) is the snap arriving 0.45 s after the snap; kneels on through the kick
         }
 
@@ -125,6 +127,13 @@ namespace PixFootball.Gameplay
     {
         static readonly System.Collections.Generic.HashSet<string> _warned = new System.Collections.Generic.HashSet<string>();
         /// <summary>QA-668: a key without clips is logged once so missing animations are visible in testing instead of silently falling back to locomotion.</summary>
+        /// <summary>v0.9.0 CONNECT E-388: a kick clip whose contact moment was never measured falls back to 55 percent of its length; say so once (rebuild the timing table with ClipTimingBuilder).</summary>
+        public static void WarnUnmeasured(AnimationClip c)
+        {
+            ClipTimingTable.Entry e;
+            if (c != null && !ClipTimingTable.TryEntry(c, out e) && _warned.Add("timing:" + c.name)) Debug.LogWarning("[AnimKit] kick clip '" + c.name + "' has no measured contact moment (guessing 55% of its length): run ClipTimingBuilder");
+        }
+
         public static void WarnMissing(string key)
         {
             if (_warned.Add(key)) Debug.LogWarning("[AnimKit] no clip registered for key '" + key + "' (falls back to locomotion)");

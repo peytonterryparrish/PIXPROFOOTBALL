@@ -23,7 +23,7 @@ namespace PixFootball.Tests
                 Assert.IsNotNull(p);
                 Assert.IsFalse(string.IsNullOrEmpty(p.Name));
             }
-            Assert.AreEqual(16, Penalty.All.Count);
+            Assert.AreEqual(19, Penalty.All.Count);   // v0.9.0 (E-345): + RoughingTheKicker, RunningIntoKicker, KickCatchInterference
             Assert.IsTrue(Penalty.Get(PenaltyType.FalseStart).PreSnap);
             Assert.IsTrue(Penalty.Get(PenaltyType.IntentionalGrounding).LossOfDown);
             Assert.IsTrue(Penalty.Get(PenaltyType.DefensiveHolding).AutomaticFirstDown);
