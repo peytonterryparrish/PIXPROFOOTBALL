@@ -278,6 +278,7 @@ namespace PixFootball.Gameplay
                 if (!_ablated && dir.Phase == MatchPhase.PreSnap) { _ablated = true; ApplyAblate(dir); }
                 if (Flag("-pixAutotestMeasure") && Time.unscaledTime - matchStart > 80f) break;   // v0.9 GFX: 80 s of live play for A/B frame rates
                 if (_skipFrames > 0) _skipFrames--; else if (dir.Phase == MatchPhase.Live || dir.Phase == MatchPhase.PostPlay) _matchFrames.Add(Time.unscaledDeltaTime);
+                if (Flag("-pixAutotestMeasure")) SpikeLog(dir, matchStart);
                 if (plays != lastPlays) { lastPlays = plays; lastProgress = Time.unscaledTime; }
                 if (Time.unscaledTime - lastProgress > 120f) { Log("FAIL: match stalled for 120 s at '" + lastStatus + "' phase " + dir.Phase); break; }
 
@@ -346,6 +347,7 @@ namespace PixFootball.Gameplay
             float p99 = f[Mathf.Min(f.Count - 1, (int)(f.Count * 0.99f))], p95 = f[Mathf.Min(f.Count - 1, (int)(f.Count * 0.95f))];
             Log("FPS [match live play, 22 players] frames=" + f.Count + " avg=" + (f.Count / sum).ToString("0.0") + " min=" + (1f / max).ToString("0.0") + " 5%low=" + (1f / p95).ToString("0.0") + " 1%low=" + (1f / p99).ToString("0.0") + "  at " + Screen.width + "x" + Screen.height);
             if (_ftN > 0) Log("frame timing [live play] cpu=" + (_cpuSum / _ftN).ToString("0.0") + " ms  main thread=" + (_mainSum / _ftN).ToString("0.0") + " ms  render thread=" + (_renderSum / _ftN).ToString("0.0") + " ms  gpu=" + (_gpuSum / _ftN).ToString("0.0") + " ms  (" + _ftN + " samples)");
+            Log(RenderSizeReport());
         }
 
         // ============================================================================================ GPU / CPU cost sweep
@@ -403,6 +405,8 @@ namespace PixFootball.Gameplay
             Time.timeScale = 0f;   // freeze the simulation, keep rendering the same frame
             Log("perf sweep at " + Screen.width + "x" + Screen.height + " (simulation frozen on a 22-player pre-snap formation)");
             yield return MeasureFor("baseline", 4f);
+            Log(RenderSizeReport());
+            if (Flag("-pixGpuBreakdown")) { MotionVectorCensus(); yield return GpuBreakdown(3f); }
             var vols = FindObjectsByType<Volume>(FindObjectsSortMode.None);
             Action<string, Action, Action> trial = null;
             var list = new List<KeyValuePair<string, KeyValuePair<Action, Action>>>();
@@ -443,6 +447,9 @@ namespace PixFootball.Gameplay
             add("hide torso+legs+arms", () => { foreach (var r in uniform) r.enabled = false; }, () => { foreach (var r in uniform) r.enabled = true; });
             var saved = new Dictionary<Renderer, Material[]>(); Material plain = null;
             add("all player materials plain lit", () => { plain = new Material(Shader.Find("HDRP/Lit")); foreach (var r in parts) { saved[r] = r.sharedMaterials; var m = new Material[r.sharedMaterials.Length]; for (int i = 0; i < m.Length; i++) m[i] = plain; r.sharedMaterials = m; } }, () => { foreach (var kv in saved) kv.Key.sharedMaterials = kv.Value; });
+            // v0.9.1: renderers outside the players that write per-object motion vectors / skinned bodies outside the stage (officials, sideline)
+            var others = new List<Renderer>(); foreach (var r in FindObjectsByType<Renderer>(FindObjectsSortMode.None)) if (r.enabled && !r.transform.IsChildOf(dir.Stage.transform) && (r is SkinnedMeshRenderer || r.motionVectorGenerationMode == MotionVectorGenerationMode.Object)) others.Add(r);
+            add("others hidden", () => { foreach (var r in others) r.enabled = false; }, () => { foreach (var r in others) r.enabled = true; });
             foreach (var kv in list)
             {
                 kv.Value.Key();
@@ -454,6 +461,67 @@ namespace PixFootball.Gameplay
             Log("errors/exceptions logged: " + _errors);
         }
 
+
+
+        /// <summary>v0.9.1 perf: which visible renderers can draw into the object motion vector pass (skinned, or per-object motion), grouped by root object, with triangle counts.</summary>
+        void MotionVectorCensus()
+        {
+            var by = new Dictionary<string, int[]>();   // root -> {renderers, triangles, skinned}
+            foreach (var r in FindObjectsByType<Renderer>(FindObjectsSortMode.None))
+            {
+                if (!r.enabled || !r.gameObject.activeInHierarchy || r.shadowCastingMode == ShadowCastingMode.ShadowsOnly) continue;
+                var smr = r as SkinnedMeshRenderer;
+                if (smr == null && r.motionVectorGenerationMode != MotionVectorGenerationMode.Object) continue;
+                Mesh m = smr != null ? smr.sharedMesh : (r.GetComponent<MeshFilter>() != null ? r.GetComponent<MeshFilter>().sharedMesh : null);
+                int tris = 0; if (m != null) for (int s = 0; s < m.subMeshCount; s++) tris += (int)(m.GetIndexCount(s) / 3);
+                string key = r.transform.root.name + (smr != null ? " [skinned]" : r.isPartOfStaticBatch ? " [static]" : " [mesh]");
+                int[] v; if (!by.TryGetValue(key, out v)) by[key] = v = new int[2];
+                v[0]++; v[1] += tris;
+            }
+            var l = new List<KeyValuePair<string, int[]>>(by); l.Sort((a, b) => b.Value[1].CompareTo(a.Value[1]));
+            Log("motion vector census (visible renderers that are skinned or per-object motion):");
+            for (int i = 0; i < l.Count && i < 25; i++) Log("  mv " + l[i].Value[1].ToString().PadLeft(9) + " tris  " + l[i].Value[0].ToString().PadLeft(4) + " renderers  " + l[i].Key);
+        }
+
+        int _spikeLines, _lastLodSwitches, _lastGc;
+        /// <summary>v0.9.1 perf: one line per slow frame (over 20 ms) in live play: what happened in that frame (LOD switches, garbage collections, phase).</summary>
+        void SpikeLog(MatchDirector dir, float matchStart)
+        {
+            int sw = PlayerLod.Switches, gc = GC.CollectionCount(0);
+            float dt = Time.unscaledDeltaTime;
+            if (dt > 0.02f && _skipFrames <= 0 && _spikeLines < 80 && (dir.Phase == MatchPhase.Live || dir.Phase == MatchPhase.PostPlay))
+            {
+                _spikeLines++;
+                FrameTimingManager.CaptureFrameTimings(); string ft = "";
+                if (FrameTimingManager.GetLatestTimings(1, _ft) > 0) ft = " main " + _ft[0].cpuMainThreadFrameTime.ToString("0.0") + " render " + _ft[0].cpuRenderThreadFrameTime.ToString("0.0") + " gpu " + _ft[0].gpuFrameTime.ToString("0.0");
+                Log("  spike " + (dt * 1000f).ToString("0.0") + " ms at " + (Time.unscaledTime - matchStart).ToString("0.0") + " s, " + dir.Phase + ", lod switches " + (sw - _lastLodSwitches) + ", gc " + (gc - _lastGc) + ft);
+            }
+            _lastLodSwitches = sw; _lastGc = gc;
+        }
+        /// <summary>v0.9.1 perf: the actual render size of the gameplay camera (shows whether DLSS / FSR / render scale is really in use).</summary>
+        string RenderSizeReport()
+        {
+            var cam = Camera.main; if (cam == null) return "render size: no main camera";
+            var hd = cam.GetComponent<HDAdditionalCameraData>();
+            var hc = HDCamera.GetOrCreate(cam);
+            return "render size " + hc.actualWidth + "x" + hc.actualHeight + " of " + cam.pixelWidth + "x" + cam.pixelHeight + " (dynres scale " + DynamicResolutionHandler.instance.GetCurrentScale().ToString("0.00") + ", camera allowDynRes=" + (hd != null && hd.allowDynamicResolution) + " allowDLSS=" + (hd != null && hd.allowDeepLearningSuperSampling) + ")";
+        }
+
+        /// <summary>v0.9.1 perf: GPU time of every profiling sampler over a few frames (editor / development players only: release players have no samplers), top 40 logged.</summary>
+        IEnumerator GpuBreakdown(float seconds)
+        {
+            var names = new List<string>(); UnityEngine.Profiling.Sampler.GetNames(names);
+            var recs = new List<KeyValuePair<string, UnityEngine.Profiling.Recorder>>();
+            foreach (var n in names) { var r = UnityEngine.Profiling.Recorder.Get(n); if (r != null && r.isValid) { r.enabled = true; recs.Add(new KeyValuePair<string, UnityEngine.Profiling.Recorder>(n, r)); } }
+            if (recs.Count == 0) { Log("gpu breakdown: no samplers in this player"); yield break; }
+            var sum = new Dictionary<string, double>(); int frames = 0; float t = 0f;
+            yield return null;
+            while (t < seconds) { t += Time.unscaledDeltaTime; frames++; foreach (var kv in recs) { long g = kv.Value.gpuElapsedNanoseconds; if (g > 0) { double s; sum.TryGetValue(kv.Key, out s); sum[kv.Key] = s + g; } } yield return null; }
+            foreach (var kv in recs) kv.Value.enabled = false;
+            var top = new List<KeyValuePair<string, double>>(sum); top.Sort((a, b) => b.Value.CompareTo(a.Value));
+            Log("gpu breakdown (" + frames + " frames, ms per frame, nested samplers include their children):");
+            for (int i = 0; i < top.Count && i < 45; i++) Log("  gpu " + (top[i].Value / frames / 1e6).ToString("0.00").PadLeft(6) + "  " + top[i].Key);
+        }
         static void SetFog(Volume[] vols, bool on)
         {
             foreach (var v in vols) { Fog f; if (v.profile != null && v.profile.TryGet(out f)) f.enableVolumetricFog.value = on; }

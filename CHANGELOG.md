@@ -6,6 +6,22 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 Next: **College Network** returns (paused in 0.9.0): a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools. Its logic is in main (`League/Career/College*`); its screens live on the local branch `wip/v0.9-college-ui`.
 
+## [0.9.1] - 2026-10-22 - "Frame Rate"
+
+Performance fix for the v0.9.0 frame-rate regression, same look. Built player, 80 s of live play (`-pixAutotestMatchOnly -pixAutotestNoV3 -pixAutotestMeasure`), night, 2560 x 1440, High, Auto upscaler, RTX 5090 Laptop: v0.9.0 81.7 fps average / 50.4 1 %-low (GPU 12.8 ms, main thread 5.3 ms) -> v0.9.1 145.3 / 82.3 (GPU 6.3 ms, main thread 5.0 ms) on an otherwise idle machine. Runs taken while other Unity / Blender jobs ran on the same laptop gave 88-119 average and 22-30 1 %-low (CPU contention). Profiling notes: `Docs/QA/v091/perf.md`.
+
+### Fixed
+- **GPU skinning was off** (`ProjectSettings` `gpuSkinning 0`, `meshDeformation 0` since project setup): about 300 skinned player / official renderers were skinned on the CPU and uploaded every frame; the editor GPU profile showed 5.7 ms in the object motion-vector pass alone. Now GPU (batched) skinning: GPU time in live play 12.8 -> 6.3 ms.
+- **DLSS / FSR 2 never ran** (`QualityTiers.ApplyRenderScale` set `allowDynamicResolution = false` at 100 % render scale after `UpscalerControl.Apply` had set it, the scene-load order decided who won; the status line still said "DLSS active"). The camera flags are now set in one place (`UpscalerControl.Apply`, which honours the render-scale option); Auto now really renders at 1792 x 1008 under DLSS Quality at 1440 p. In the editor the upscaler flags stay off unless `-pixUpscaler` is given.
+- `PlayerLod.LevelFor` / `LevelForPixels` allocated an array per player per frame.
+- `GfxTests` LOD cases updated to the 400 / 200 px edges v0.9.0 shipped with (2 tests were stale).
+
+### Added
+- Autotest perf diagnostics: the render size actually used (live measure and `-pixAutotestPerf`), `-pixGpuBreakdown` (GPU time per HDRP pass and a motion-vector census; editor / development players), a spike log of slow live frames under `-pixAutotestMeasure`, sweep trial "others hidden" (skinned / moving renderers outside the players).
+
+### Known Issues
+- Short main-thread hitches remain around kickoffs and post-play (pile-ups, close-ups); they show up as a lower 1 %-low when the CPU is shared with other heavy programs.
+
 ## [0.9.0] - 2026-10-22 - "Match Engine"
 
 The match-engine release, answering the v0.8.0 playtest notes (`Docs/QA/v090/PLAYTEST_v080.md`). A 448-row audit (`Docs/QA/v090/ENGINE_AUDIT.md`, `ENGINE_AUDIT_issues.csv`, status of every row in `ENGINE_AUDIT_STATUS.md`) was worked by five tracks: LOCO (locomotion), QBSTANCE (stances, quarterback, kickers), CONNECT (animation connections), SIM (engine realism and pace), GFX (graphics in play). Track logs: `locomotion.md`, `qbstance.md`, `connect.md`, `sim.md`, `gfx.md`. Final audit status: 361 fixed, 54 partial, 14 handed over, 14 wontfix, 5 open. College Network UI is paused (its logic commit stays in main).
@@ -353,7 +369,8 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Some head models and logo source files still carry real-person / real-school names internally; to be replaced before any public release.
 
 
-[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.6.0...v0.7.0

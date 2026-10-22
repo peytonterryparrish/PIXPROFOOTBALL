@@ -98,11 +98,12 @@ namespace PixFootball.Gameplay
                 if (wantFsr2) { if (dr.FSR2QualitySetting != 2u || !dr.FSR2UseOptimalSettings) { dr.FSR2QualitySetting = 2u; dr.FSR2UseOptimalSettings = true; changed = true; } }       // Quality, resolution picked by the upscaler
                 if (wantDlss || wantFsr2) { if (!dr.enabled) { dr.enabled = true; changed = true; } if (!dr.useMipBias) { dr.useMipBias = true; changed = true; } }   // textures stay as sharp as the display resolution under an upscaler
                 if (changed && EditorAllowed()) { rps.dynamicResolutionSettings = dr; asset.currentPlatformRenderPipelineSettings = rps; }
+                bool upscale = EditorAllowed();   // the editor keeps the asset untouched unless -pixUpscaler: no upscaler camera flags there either
                 foreach (var cam in UnityEngine.Object.FindObjectsByType<HDAdditionalCameraData>(FindObjectsSortMode.None))
                 {
-                    cam.allowDeepLearningSuperSampling = wantDlss;
-                    cam.allowFidelityFX2SuperResolution = wantFsr2;
-                    cam.allowDynamicResolution = wantDlss || wantFsr2 || wantFsr1 || PixSettings.RenderScale < 0.999f;
+                    cam.allowDeepLearningSuperSampling = upscale && wantDlss;
+                    cam.allowFidelityFX2SuperResolution = upscale && wantFsr2;
+                    cam.allowDynamicResolution = (upscale && (wantDlss || wantFsr2 || wantFsr1)) || QualityTiers.EffectiveRenderScale < 0.999f;
                 }
                 TuneCameras(wantDlss || wantFsr2);
                 string auto = Mode == 3 ? "auto: " : "";

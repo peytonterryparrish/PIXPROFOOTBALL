@@ -52,6 +52,8 @@ namespace PixFootball.Gameplay
         static int _tierOverride = -1; static float _scaleOverride = -1f;
         public static int Current { get { return _tierOverride >= 0 ? _tierOverride : TierOfQualityLevel(PixSettings.Quality >= 0 ? PixSettings.Quality : QualitySettings.GetQualityLevel()); } }
         static float Scale { get { return _scaleOverride > 0f ? _scaleOverride : PixSettings.RenderScale; } }
+        /// <summary>The render scale in use (stored setting or the test override), 0.5 .. 1.</summary>
+        public static float EffectiveRenderScale { get { return Mathf.Clamp(Scale, 0.5f, 1f); } }
 
         /// <summary>Test / command line override that is not stored in the player settings (autotest: -pixTier, -pixRenderScale).</summary>
         public static void Override(int tier, float scale)
@@ -132,14 +134,13 @@ namespace PixFootball.Gameplay
         /// <summary>Render scale through HDRP dynamic resolution (hardware): 100% leaves dynamic resolution off.</summary>
         public static void ApplyRenderScale()
         {
-            float scale = Mathf.Clamp(Scale, 0.5f, 1f);
             if (!_scalerHooked)
             {
                 _scalerHooked = true;
                 DynamicResolutionHandler.SetDynamicResScaler(() => Mathf.Clamp(Scale, 0.5f, 1f) * 100f, DynamicResScalePolicyType.ReturnsPercentage);
             }
-            foreach (var cam in Object.FindObjectsByType<HDAdditionalCameraData>(FindObjectsSortMode.None))
-                cam.allowDynamicResolution = scale < 0.999f;
+            // v0.9.1: the camera flags are set in one place (UpscalerControl): this loop switched dynamic resolution off at 100 percent after the upscaler had switched it on, so DLSS / FSR 2 never ran
+            UpscalerControl.Apply();
         }
     }
 }

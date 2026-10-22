@@ -62,13 +62,15 @@ namespace PixFootball.Gameplay
             int lv = LevelFor(distance);
             if (current < 0 || lv == current) return lv;
             float b = Mathf.Max(0.1f, Bias);
-            float[] edge = { Near * b, Mid * b, Far * b };       // edge[i] separates level i from i+1
+            float e0 = Near * b, e1 = Mid * b, e2 = Far * b;   // edge(i) separates level i from i+1 (v0.9.1: no array per call, this runs for every player every frame)
             if (lv > current)       // moving away: stay at the finer level until 10 percent past the edge
-            { for (int i = current; i < lv; i++) if (distance < edge[i] * 1.10f) return i; }
+            { for (int i = current; i < lv; i++) if (distance < Edge(i, e0, e1, e2) * 1.10f) return i; }
             else                    // moving closer: stay at the coarser level until 10 percent inside the edge
-            { for (int i = current - 1; i >= lv; i--) if (distance > edge[i] * 0.90f) return i + 1; }
+            { for (int i = current - 1; i >= lv; i--) if (distance > Edge(i, e0, e1, e2) * 0.90f) return i + 1; }
             return lv;
         }
+
+        static float Edge(int i, float e0, float e1, float e2) { return i == 0 ? e0 : i == 1 ? e1 : e2; }
 
         public static int LevelFor(float distance)
         {
@@ -79,10 +81,14 @@ namespace PixFootball.Gameplay
             return 3;
         }
 
+        /// <summary>Level changes since start (autotest spike log).</summary>
+        public static int Switches;
+
         public void Apply(int level)
         {
             if (level == _level) return;
             _level = level;
+            Switches++;
             if (_photo != null) { _photo.SetLevel(level); return; }
             for (int i = 0; i < _bodies.Count; i++) { if (_bodies[i] != null) _bodies[i].sharedMesh = _bodyMeshes[i][Mathf.Clamp(level, 0, 3)]; }
             foreach (var r in _farHidden) if (r != null) r.enabled = level < 2;
@@ -116,11 +122,11 @@ namespace PixFootball.Gameplay
         /// <summary>Level for a projected size with hysteresis relative to the level in use.</summary>
         public static int LevelForPixels(float px, int current)
         {
-            float[] edge = { Lod0Px, Lod1Px, Lod2Px };   // edge[i] separates level i (larger) from i+1
-            int lv = px >= edge[0] ? 0 : px >= edge[1] ? 1 : px >= edge[2] ? 2 : 3;
+            // edge(i) separates level i (larger) from i+1
+            int lv = px >= Lod0Px ? 0 : px >= Lod1Px ? 1 : px >= Lod2Px ? 2 : 3;
             if (current < 0 || lv == current) return lv;
-            if (lv > current) { for (int i = current; i < lv; i++) if (px > edge[i] * (1f - Hysteresis)) return i; }     // shrinking: keep the finer level until 20 percent below the edge
-            else { for (int i = current - 1; i >= lv; i--) if (px < edge[i] * (1f + Hysteresis)) return i + 1; }  // growing: keep the coarser level until 20 percent above the edge
+            if (lv > current) { for (int i = current; i < lv; i++) if (px > Edge(i, Lod0Px, Lod1Px, Lod2Px) * (1f - Hysteresis)) return i; }     // shrinking: keep the finer level until 20 percent below the edge
+            else { for (int i = current - 1; i >= lv; i--) if (px < Edge(i, Lod0Px, Lod1Px, Lod2Px) * (1f + Hysteresis)) return i + 1; }  // growing: keep the coarser level until 20 percent above the edge
             return lv;
         }
 

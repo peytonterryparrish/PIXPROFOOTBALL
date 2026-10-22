@@ -16,11 +16,11 @@ namespace PixFootball.Tests
             try
             {
                 PlayerLod.Bias = 1.1f;   // High
-                // the Classic camera: 46 degree field of view, 1440 p; the QB is about 19-25 m away, the line 20-30 m, the deep secondary 40+ m
-                Assert.AreEqual(0, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(11f, 42f, 1440f), -1), "a carrier seen by the follow camera (11 m, 42 degrees) is LOD0");
+                // the Classic camera: 46 degree field of view, 1440 p, at the v0.9.0 release edges (LOD0 from 400 px, LOD1 from 200 px)
+                Assert.AreEqual(0, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(8.5f, 42f, 1440f), -1), "a carrier seen close by the follow camera (8.5 m, 42 degrees) is LOD0");
                 Assert.AreEqual(0, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(8f, 46f, 1440f), -1), "a close-up is LOD0");
                 Assert.AreEqual(1, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(14f, 46f, 1440f), -1), "the quarterback in the pocket (14 m) is LOD1");
-                Assert.AreEqual(1, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(19.5f, 46f, 1440f), -1), "the line of scrimmage (19-21 m) is LOD1");
+                Assert.AreEqual(1, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(17f, 46f, 1440f), -1), "the near line of scrimmage (17 m) is LOD1");
                 Assert.AreEqual(2, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(38f, 46f, 1440f), -1), "the secondary is LOD2 (the budget: LOD1 only for the near line)");
                 Assert.AreEqual(2, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(90f, 46f, 1440f), -1));
                 Assert.AreEqual(3, PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(250f, 46f, 1440f), -1));
@@ -63,7 +63,7 @@ namespace PixFootball.Tests
             try
             {
                 PlayerLod.Bias = 0.8f;
-                Assert.LessOrEqual(PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(14f, 46f, 1440f), -1), 1, "even on Low the quarterback is never worse than LOD1");
+                Assert.LessOrEqual(PlayerLod.LevelForPixels(PlayerLod.ScreenPixels(12f, 46f, 1440f), -1), 1, "even on Low a quarterback 12 m from the camera is never worse than LOD1");
             }
             finally { PlayerLod.Bias = bias; }
         }
