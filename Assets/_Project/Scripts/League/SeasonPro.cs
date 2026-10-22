@@ -39,7 +39,9 @@ namespace PixFootball.League
 
             List<Matchup> matchups = ScheduleGenerator.ProMatchups(league, year, place);
             int[] weekOf, bye;
-            if (!ScheduleGenerator.AssignProWeeks(matchups, league.Teams.Count, rng, out weekOf, out bye))
+            var divisionOf = new int[league.Teams.Count];
+            for (int i = 0; i < divisionOf.Length; i++) divisionOf[i] = league.Teams[i].DivisionId;
+            if (!ScheduleGenerator.AssignProWeeks(matchups, league.Teams.Count, rng, out weekOf, out bye, divisionOf))
                 throw new InvalidOperationException("Could not build a 17-game schedule.");
             for (int i = 0; i < matchups.Count; i++)
                 s.Games.Add(new ScheduledGame { Id = i, Week = weekOf[i], HomeId = matchups[i].Home, AwayId = matchups[i].Away, Kind = GameKind.Regular });

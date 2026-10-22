@@ -46,6 +46,7 @@ namespace PixFootball.Art
 
         static ArtLibrary _instance;
         static bool _loadAttempted;
+        static bool _warnLogged;
 
         /// <summary>Returns the library, or null if the licensed art is not present.</summary>
         public static ArtLibrary Load()
@@ -57,6 +58,7 @@ namespace PixFootball.Art
             _instance = UnityEditor.AssetDatabase.LoadAssetAtPath<ArtLibrary>(EditorAssetPath);
 #endif
             if (_instance == null) _instance = Resources.Load<ArtLibrary>(ResourcesName);
+            if (_instance == null && !_warnLogged) { _warnLogged = true; Debug.LogWarning("[PIX] ArtLibrary not found (Resources/" + ResourcesName + "): clips, sounds and prefabs that come from the licensed art will be missing."); }
             if (_instance != null) _instance.BuildMaps();
             return _instance;
         }
@@ -229,5 +231,23 @@ namespace PixFootball.Art
         public const string CoachClap = "coach_clap", CoachHeadsetIdle = "coach_headset_idle", CoachClipboardIdle = "coach_clipboard_idle";
         // kicking
         public const string KickOff = "kick_off", KickFieldGoal = "kick_field_goal", Punt = "punt", Snapper = "long_snap";
+        // v0.8 animation pass (BGS / Yan mocap + derived + authored clips; see Docs/QA/animation.md)
+        public const string KickHolder = "kick_holder", KickReturnCatch = "kick_return_catch", PuntFast = "punt_fast", KickOnside = "kick_onside", KickSquib = "kick_squib";
+        // ball-carrier locomotion set (carrying the ball): loops in 8 directions, circle runs, 90/180 plant-and-cut, stops (left / right foot planted)
+        public const string BcJog = "bc_jog", BcRun = "bc_run", BcSprint = "bc_sprint", BcCircle = "bc_circle", BcTurn90 = "bc_turn_90", BcTurn180 = "bc_turn_180", BcStop = "bc_stop", BcBackpedal = "bc_backpedal";
+        // non-carrier sprint set
+        public const string SprintAlt = "sprint_alt", SprintTurn = "sprint_turn", StopSprint = "stop_sprint", WalkStart = "walk_start", WalkStop = "walk_stop";
+        // pre-snap
+        public const string OlPocketShuffle = "ol_pocket_shuffle", OlPocketStep = "ol_pocket_step", OlPocketStand = "ol_pocket_stand", CbIdle = "cb_idle", CbShuffle = "cb_shuffle",
+            CbBreak = "cb_break", CbSprint = "cb_sprint", CbRotate = "cb_rotate", IdleLively = "idle_lively", IdleLook = "idle_look", HuddleIdle = "huddle_idle", HuddleBreak = "huddle_break",
+            QbCadenceStomp = "qb_cadence_stomp", QbCadenceClap = "qb_cadence_clap", QbCadenceRaise = "qb_cadence_raise", QbHandSignal = "qb_hand_signal";
+        // falls / get-ups / specials
+        public const string GetUpFaceUp = "getup_face_up", GetUpFaceDown = "getup_face_down", GetUpSide = "getup_side", FumbleDive = "fumble_dive", PressJam = "press_jam",
+            CatchToeTap = "catch_toe_tap", PushOob = "push_oob", BenchSit = "bench_sit", WrRelease = "wr_release", LbReadStep = "lb_read_step", Backpedal45 = "backpedal_diag",
+            Swat = "swat", CoachAmbient = "coach_ambient", HuddleLeader = "huddle_leader", IdleHelmet = "idle_helmet";
+        // distinct per-position stance clips (v0.8, QA-899..901): every position gets its own pose instead of one shared DL / safety clip
+        public const string StanceOl3ptL = "stance_ol_3pt_l", StanceOl3ptR = "stance_ol_3pt_r", StanceCenter = "stance_center", StanceTe = "stance_te", StanceDl3pt = "stance_dl_3pt",
+            StanceDl4pt = "stance_dl_4pt", StanceWide9 = "stance_wide9", StanceLb = "stance_lb", StanceCbPress = "stance_cb_press", StanceCbOff = "stance_cb_off", StanceS = "stance_s",
+            StanceWr = "stance_wr", StanceRb = "stance_rb", StanceKicker = "stance_kicker", StanceHolder = "stance_holder", StanceSnapper = "stance_snapper";
     }
 }

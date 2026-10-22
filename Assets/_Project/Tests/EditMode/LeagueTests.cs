@@ -340,7 +340,7 @@ namespace PixFootball.Tests
             Assert.AreEqual(41, defs.Count(d => d.IsBowl));
             Assert.AreEqual(6, defs.Count(d => d.IsPlayoffBowl));
             var cfp = defs.Where(d => d.IsPlayoffBowl).Select(d => d.Name).OrderBy(x => x).ToArray();
-            CollectionAssert.AreEqual(new[] { "Citrus Comet Bowl", "Cottoncrest Classic", "Crystal Cane Bowl", "Festival Flame Bowl", "Orchard Gold Bowl", "Thorncrest Bowl" }, cfp);
+            CollectionAssert.AreEqual(new[] { "Briarfield Bowl", "Emberfair Bowl", "Frostcane Bowl", "Linenfield Classic", "Ridgegold Bowl", "Tangelo Comet Bowl" }, cfp);
             Assert.IsTrue(defs.Any(d => d.Name == "Gridiron Crown Playoff" && d.Category == "playoff"));
             Assert.IsTrue(defs.Any(d => d.Name == "Gridiron Crown Championship" && d.Category == "national_championship"));
         }

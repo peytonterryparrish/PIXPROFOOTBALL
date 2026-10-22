@@ -145,8 +145,10 @@ namespace PixFootball.League
         public int KrAtt, KrYds, PrAtt, PrYds, RetTd;
         // misc
         public int Penalties, PenaltyYds;
+        /// <summary>Two-point conversions scored and safeties made (QA-611: they count toward <see cref="Points"/>).</summary>
+        public int TwoPtMade, Safeties;
 
-        public int Points { get { return (RushTd + RecTd + IntTd + RetTd) * 6 + FgMade * 3 + XpMade; } }
+        public int Points { get { return (RushTd + RecTd + IntTd + RetTd) * 6 + FgMade * 3 + XpMade + TwoPtMade * 2 + Safeties * 2; } }
         public int TotalTd { get { return RushTd + RecTd + IntTd + RetTd; } }
 
         public bool HasActivity
@@ -190,6 +192,7 @@ namespace PixFootball.League
             Punts += o.Punts; PuntYds += o.PuntYds; PuntIn20 += o.PuntIn20;
             KrAtt += o.KrAtt; KrYds += o.KrYds; PrAtt += o.PrAtt; PrYds += o.PrYds; RetTd += o.RetTd;
             Penalties += o.Penalties; PenaltyYds += o.PenaltyYds;
+            TwoPtMade += o.TwoPtMade; Safeties += o.Safeties;
         }
     }
 
@@ -342,11 +345,15 @@ namespace PixFootball.League
         public int DivisionId = -1;
         public bool IsCollege;
         public string StadiumName = "";
+        /// <summary>True when the stadium is a dome (decided by the city climate, see LeagueFactory.IsDomeCity): the weather system should not rain or snow on a dome game.</summary>
+        public bool IsDome { get { return StadiumName != null && StadiumName.EndsWith(" Dome"); } }
         public List<Player> Roster = new List<Player>();
         public DepthChart Depth = new DepthChart();
         public List<Coach> Staff = new List<Coach>();
         public long SalaryCap = LeagueRules.SalaryCap;
         public long DeadCap;
+        /// <summary>Dead money from this offseason's cuts that lands on next season's cap (QA-561).</summary>
+        public long DeadCapNext;
         /// <summary>Annual scouting points to spend on draft prospects.</summary>
         public int ScoutingPoints = 400;
         public int Prestige = 3;
@@ -473,6 +480,10 @@ namespace PixFootball.League
         public int Prestige = 3;
         /// <summary>Continuous prestige used to drift the star rating over the years (0-100).</summary>
         public float PrestigePoints = 50f;
+        /// <summary>Prestige on the shared 1-5 star scale (recruit stars and pro teams use 1-5): the sixth, elite tier shows as 5 stars; use <see cref="PrestigeLabel"/> to name it (QA-613).</summary>
+        public int PrestigeStars { get { return Prestige > 5 ? 5 : (Prestige < 1 ? 1 : Prestige); } }
+        /// <summary>Text for the prestige tier: "Elite" for the sixth tier, otherwise "n-star".</summary>
+        public string PrestigeLabel { get { return Prestige >= 6 ? "Elite" : PrestigeStars + "-star"; } }
         public Region Region;
         public string City = "";
         public string State = "";
@@ -516,13 +527,13 @@ namespace PixFootball.League
                 case Position.LT: return 2;
                 case Position.LG: return 2;
                 case Position.C: return 2;
-                case Position.RG: return 1;
+                case Position.RG: return 2;   // QA-576: a like-for-like backup at every line spot (OL 2/2/2/2/2 = 10)
                 case Position.RT: return 2;
                 case Position.LE: return 2;
                 case Position.DT: return 4;
                 case Position.RE: return 2;
                 case Position.LOLB: return 2;
-                case Position.MLB: return 3;
+                case Position.MLB: return 2;  // QA-576: one LB slot moves to the line so the roster still sums to 53
                 case Position.ROLB: return 2;
                 case Position.CB: return 6;
                 case Position.FS: return 2;
@@ -567,9 +578,10 @@ namespace PixFootball.League
         {
             switch (p)
             {
-                case Position.WR: return 3;
+                case Position.WR: return 4;   // QA-577: Empty fields four wide, Ace/Goal Line two tight ends, Dime four corners
+                case Position.TE: return 2;
                 case Position.DT: return 2;
-                case Position.CB: return 3;
+                case Position.CB: return 4;
                 default: return 1;
             }
         }
@@ -614,9 +626,9 @@ namespace PixFootball.League
                 case PositionBucket.FB: return 1;
                 case PositionBucket.WR: return 6;
                 case PositionBucket.TE: return 3;
-                case PositionBucket.OL: return 9;
+                case PositionBucket.OL: return 10;
                 case PositionBucket.DL: return 8;
-                case PositionBucket.LB: return 7;
+                case PositionBucket.LB: return 6;
                 case PositionBucket.CB: return 6;
                 case PositionBucket.S: return 4;
                 case PositionBucket.K: return 1;

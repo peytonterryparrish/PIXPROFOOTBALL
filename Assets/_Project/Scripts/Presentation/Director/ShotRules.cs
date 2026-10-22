@@ -26,6 +26,8 @@ namespace PixFootball.Presentation
         public Headline Headline;
         public bool Touchdown, Turnover, Score, BigPlay, HomeBenefits, CarrierKnown;
         public int PlaysSinceCrowd;
+        /// <summary>v0.6: a human plays this game; cinematic cuts must never fight his camera (no pre-snap cuts after the intro, short post-whistle cuts only).</summary>
+        public bool UserPlaying;
     }
 
     /// <summary>
@@ -40,6 +42,7 @@ namespace PixFootball.Presentation
         {
             var l = new List<ShotPlan>();
             if (c.Cinematics >= 2) return l;
+            if (c.UserPlaying && !c.GameStart) return l;   // v0.6: never a cut while the user picks plays / reads the defense
             float room = c.PreSnapSeconds - MinLiveBeforeSnap;
             if (room < 1.0f) return l;
             if (c.GameStart) { l.Add(new ShotPlan(ShotKind.SkySwoop, System.Math.Min(3.2f, room))); return l; }
@@ -82,11 +85,14 @@ namespace PixFootball.Presentation
                 l.Add(new ShotPlan(ShotKind.TightCarrier, 1.2f));
             }
             if (full && c.PlaysSinceCrowd >= 7 && l.Count > 0 && !Has(l, ShotKind.CrowdShot) && Total(l) < MaxPostPlayTotal - 1.4f) l.Add(new ShotPlan(ShotKind.CrowdShot, 1.4f));
+            // v0.6: a human plays: keep the post-whistle cuts brief (no crowd / sideline cutaways)
+            float budget = MaxPostPlayTotal;
+            if (c.UserPlaying) { bool td = c.Touchdown; budget = 3.0f; l.RemoveAll(s => s.Kind == ShotKind.CrowdShot && !td); for (int k = 0; k < l.Count; k++) if (l[k].Duration > 1.6f) l[k] = new ShotPlan(l[k].Kind, 1.6f); }
             // never longer than the budget
             float total = 0f;
             for (int i = 0; i < l.Count; i++)
             {
-                if (total + l[i].Duration > MaxPostPlayTotal) { l.RemoveRange(i, l.Count - i); break; }
+                if (total + l[i].Duration > budget) { l.RemoveRange(i, l.Count - i); break; }
                 total += l[i].Duration;
             }
             return l;

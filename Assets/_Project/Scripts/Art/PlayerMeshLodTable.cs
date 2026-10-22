@@ -13,7 +13,7 @@ namespace PixFootball.Art
         public const string ResourcesName = "PixMeshLods";
         public const string EditorPath = "Assets/_Licensed/Resources/PixMeshLods.asset";
 
-        [Serializable] public class Entry { public string key; public Mesh lod1, lod2; }
+        [Serializable] public class Entry { public string key; public Mesh lod1, lod2, lod3; }
         public List<Entry> entries = new List<Entry>();
         Dictionary<string, Entry> _map;
         static PlayerMeshLodTable _inst; static bool _tried;

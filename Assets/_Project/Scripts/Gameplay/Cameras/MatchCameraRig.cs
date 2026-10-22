@@ -9,6 +9,7 @@ namespace PixFootball.Gameplay
     /// right, follows the ball with a lead and frames the whole 11v11 formation; a behind-the-player chase camera (behind the quarterback
     /// looking downfield before the throw); and a helmet camera locked to the user-controlled player.
     /// </summary>
+    [DefaultExecutionOrder(-200)]
     public sealed class MatchCameraRig : MonoBehaviour
     {
         public Camera Main;
@@ -28,6 +29,12 @@ namespace PixFootball.Gameplay
         float _behindYaw, _fpYaw;
         bool _inited;
         float _zoom = 1f;
+        // v0.6 user camera (UserCameraMath): the director hands over what to look at, the rig smooths the pose
+        UserCameraInput _view; bool _hasView, _poseInit; Vector3 _sPos, _sLook; float _sFov = 40f, _viewYaw;
+        public CameraStyle Style { get { return PixSettings.UserCameraStyle; } }
+        /// <summary>Latest target pose of the user camera (tests and the camera gallery read it).</summary>
+        public UserCameraPose LastPose { get; private set; }
+        float _prefsT; UserCameraPreset _preset; float _trimH, _trimD, _trimF, _zoomOut = 1f;
 
         public static MatchCameraRig Create(Transform parent, Camera main)
         {
@@ -63,19 +70,8 @@ namespace PixFootball.Gameplay
             brc.Composition.DeadZone.Enabled = true; brc.Composition.DeadZone.Size = new Vector2(0.12f, 0.08f);
             Broadcast.Target.TrackingTarget = _bcTarget; Broadcast.Target.LookAtTarget = _bcLook;
 
-            Behind = MakeCam("CM_Behind", 58f);
-            var f2 = Behind.gameObject.AddComponent<CinemachineFollow>();
-            f2.FollowOffset = new Vector3(0f, 3.0f, -7.2f);
-            f2.TrackerSettings = TrackerSettings.Default;
-            f2.TrackerSettings.BindingMode = BindingMode.LockToTargetWithWorldUp;
-            f2.TrackerSettings.PositionDamping = new Vector3(0.25f, 0.25f, 0.18f);
-            f2.TrackerSettings.RotationDamping = Vector3.zero;
-            var rc2 = Behind.gameObject.AddComponent<CinemachineRotationComposer>();
-            rc2.Damping = new Vector2(0.15f, 0.25f);
-            Behind.Target.TrackingTarget = _behindFollow; Behind.Target.LookAtTarget = _behindLook;
-            // keep the chase camera out of the goal posts (they carry simple colliders in the match scene)
-            var deocc = Behind.gameObject.AddComponent<CinemachineDeoccluder>();
-            deocc.CollideAgainst = 1; deocc.AvoidObstacles.Enabled = true; deocc.AvoidObstacles.CameraRadius = 0.25f; deocc.AvoidObstacles.DistanceLimit = 0f;
+            // v0.6: the user camera is driven directly (UserCameraMath): behind the offense / defense, no procedural components
+            Behind = MakeCam("CM_Behind", 40f);
 
             FirstPerson = MakeCam("CM_FirstPerson", 76f);
             FirstPerson.gameObject.AddComponent<CinemachineHardLockToTarget>();
@@ -104,7 +100,18 @@ namespace PixFootball.Gameplay
             return cam;
         }
 
-        public void Cycle() { SetMode((CameraMode)(((int)Mode + 1) % 3), false); }
+        /// <summary>View button: Classic -> Madden -> Wide -> first person -> broadcast (last, so a stray press never lands on the TV camera) -> Classic.</summary>
+        public void Cycle()
+        {
+            if (Mode == CameraMode.Behind)
+            {
+                var s = PixSettings.UserCameraStyle;
+                if (s != CameraStyle.Wide) { PixSettings.UserCameraStyle = (CameraStyle)((int)s + 1); _prefsT = 0f; }
+                else SetMode(CameraMode.FirstPerson, false);
+            }
+            else if (Mode == CameraMode.FirstPerson) SetMode(CameraMode.Broadcast, false);
+            else { PixSettings.UserCameraStyle = CameraStyle.Classic; _prefsT = 0f; SetMode(CameraMode.Behind, false); }
+        }
 
         public void SetMode(CameraMode m, bool instant)
         {
@@ -168,11 +175,14 @@ namespace PixFootball.Gameplay
 
         public void SetFocus(Vector3 point, Vector3 velocity) { _focus = point; _focusVel = velocity; }
         public void SetUserVelocity(Vector3 v) { _userVel = v; }
+        /// <summary>v0.6: what the behind-the-offense / behind-the-defense camera frames this frame (the director calls it every frame).</summary>
+        public void SetUserView(in UserCameraInput c) { _view = c; _hasView = true; }
+
 
         /// <summary>Jumps every camera to the current focus (new play).</summary>
         public void Cut()
         {
-            _smoothFocus = _focus;
+            _smoothFocus = _focus; _poseInit = false;
             Broadcast.PreviousStateIsValid = false; Behind.PreviousStateIsValid = false;
             UpdateProxies(0.0167f, true);
         }
@@ -233,9 +243,40 @@ namespace PixFootball.Gameplay
                 _fpAnchor.SetPositionAndRotation(new Vector3(hp.x, hp.y + 0.03f, hp.z) + fl * 0.12f + bob, Quaternion.Euler(_fpPitch, _fpYaw, roll));
             }
 
+            // ---- v0.6 user camera: behind the offense / defense (Classic, Madden, Wide), driven from UserCameraMath with smoothing
+            if (_hasView)
+            {
+                // the settings change rarely: read the PlayerPrefs twice a second, not every frame (QA-682)
+                _prefsT -= dt;
+                if (_prefsT <= 0f || snap) { _prefsT = 0.5f; _preset = UserCameraPreset.Of(PixSettings.UserCameraStyle); _trimH = PixSettings.CameraHeightTrim; _trimD = PixSettings.CameraDistanceTrim; _trimF = PixSettings.CameraFovTrim; _zoomOut = PixSettings.CameraZoomOut; }
+                var preset = _preset;
+                var pose = UserCameraMath.Evaluate(_view, preset, _trimH, _trimD, _trimF, _zoomOut);
+                LastPose = pose;
+                _viewYaw = Mathf.Atan2(_view.ViewDir.x, _view.ViewDir.z) * Mathf.Rad2Deg;
+                if (snap || !_poseInit) { _sPos = pose.Position; _sLook = pose.LookAt; _sFov = pose.Fov; _poseInit = true; }
+                else
+                {
+                    float follow = _view.Follow ? 0.22f : 0.34f;
+                    // along the view direction the camera lags a little (smooth, weighty); sideways it tracks tighter
+                    Vector3 d = new Vector3(_view.ViewDir.x, 0f, _view.ViewDir.z).normalized, side = Vector3.Cross(Vector3.up, d);
+                    Vector3 dp = pose.Position - _sPos; dp.y = 0f;
+                    float along = Vector3.Dot(dp, d), lat = Vector3.Dot(dp, side);
+                    Vector3 step = d * (along * UserCameraMath.Alpha(dt, follow)) + side * (lat * UserCameraMath.Alpha(dt, follow * 0.7f));
+                    _sPos += step; _sPos.y = Mathf.Lerp(_sPos.y, pose.Position.y, UserCameraMath.Alpha(dt, 0.55f));
+                    Vector3 dl = pose.LookAt - _sLook; dl.y = 0f;
+                    float la = Vector3.Dot(dl, d), ll = Vector3.Dot(dl, side);
+                    _sLook += d * (la * UserCameraMath.Alpha(dt, follow)) + side * (ll * UserCameraMath.Alpha(dt, follow * 0.7f)); _sLook.y = Mathf.Lerp(_sLook.y, pose.LookAt.y, UserCameraMath.Alpha(dt, 0.55f));
+                    _sFov = Mathf.Lerp(_sFov, pose.Fov, UserCameraMath.Alpha(dt, 0.6f));
+                }
+                Vector3 fwd = _sLook - _sPos;
+                if (fwd.sqrMagnitude > 1e-4f) Behind.transform.SetPositionAndRotation(_sPos, Quaternion.LookRotation(fwd.normalized, Vector3.up));
+                var lens = Behind.Lens; lens.FieldOfView = _sFov; Behind.Lens = lens;
+            }
+
             switch (Mode)
             {
                 case CameraMode.Broadcast: MoveBasisYaw = Frame.TowardsPlusZ ? 270f : 90f; break;
+                case CameraMode.Behind: MoveBasisYaw = _hasView ? _viewYaw : _behindYaw; break;
                 default: MoveBasisYaw = _behindYaw; break;
             }
         }

@@ -65,6 +65,32 @@ namespace PixFootball.League
         private static readonly string[] ConferenceNames = { "Liberty Conference", "Frontier Conference" };
         private static readonly string[] ConferenceAbbr = { "LIB", "FRO" };
         private static readonly string[] StadiumSuffix = { "Stadium", "Field", "Park", "Coliseum", "Dome", "Grounds" };
+        private static readonly string[] OpenSuffix = { "Stadium", "Field", "Park", "Coliseum", "Grounds" };
+
+        // Cities that play indoors because of their climate (very cold, very hot or wet). Every other city gets an open-air ground, so a dome never snows on and an open stadium can (QA-590).
+        private static readonly string[] DomeCities =
+        {
+            "Minnesota", "Detroit", "Indianapolis", "Seattle", "Las Vegas", "Houston", "Dallas", "Arizona", "New Orleans", "Atlanta",
+            "Milwaukee", "Omaha", "Fargo", "Duluth", "Anchorage", "Tucson", "El Paso", "Orlando", "Sioux Falls", "Des Moines"
+        };
+
+        /// <summary>True when the city plays in a dome (fixed list by climate, not random).</summary>
+        public static bool IsDomeCity(string city)
+        {
+            return !string.IsNullOrEmpty(city) && Array.IndexOf(DomeCities, city) >= 0;
+        }
+
+        /// <summary>Deterministic stadium name for a city (the second argument is an ignored roll that only keeps the league generator's random stream identical to older versions): "X Dome" for the dome cities, otherwise an open-air suffix picked by a stable hash of the city name.</summary>
+        public static string StadiumNameFor(string city, int unusedRollKeptForTheRngStream = 0)
+        {
+            if (IsDomeCity(city)) return city + " Dome";
+            unchecked
+            {
+                int h = 17;
+                for (int i = 0; city != null && i < city.Length; i++) h = h * 31 + city[i];
+                return city + " " + OpenSuffix[(h & 0x7fffffff) % OpenSuffix.Length];
+            }
+        }
 
         /// <summary>One resolved team slot (generated fallback or loaded from teams.csv).</summary>
         private struct Slot
@@ -177,7 +203,7 @@ namespace PixFootball.League
                             PrimaryColor = def.Primary, SecondaryColor = def.Secondary, TertiaryColor = def.Tertiary,
                             Key = def.Key, Logo = def.Logo,
                             ConferenceId = c, DivisionId = div.Id, IsCollege = false,
-                            StadiumName = def.City + " " + StadiumSuffix[rng.Range(0, StadiumSuffix.Length)]
+                            StadiumName = StadiumNameFor(def.City, rng.Range(0, StadiumSuffix.Length))
                         };
                         div.TeamIds.Add(id);
                         conf.TeamIds.Add(id);
@@ -287,7 +313,7 @@ namespace PixFootball.League
         {
             p.Experience = Math.Max(0, p.Age - 22 + (rng.Chance(0.2f) ? 1 : 0));
             p.DraftYear = year - p.Experience;
-            p.DraftRound = rng.Chance(0.12f) ? 0 : Math.Min(7, 1 + (int)(-Math.Log(1.0 - rng.NextDouble() * 0.97) * 2.6));
+            p.DraftRound = rng.Chance(0.12f) ? 0 : DraftRoundFor(p.Ratings.Overall(p.Position), rng);
             p.DraftPick = p.DraftRound == 0 ? 0 : Math.Min(224, (p.DraftRound - 1) * 32 + rng.Range(1, 33));
             p.Bio.JerseyNumber = PickJersey(p.Position, rng, teamJerseys);
             p.Bio.College = colleges != null && colleges.Count > 0 ? colleges[rng.Range(0, colleges.Count)] : "";
@@ -326,6 +352,13 @@ namespace PixFootball.League
             new[] { 1, 19 },      // K
             new[] { 1, 19 }       // P
         };
+
+        /// <summary>Draft round of a generated veteran (QA-579): roughly uniform over the seven rounds, shifted toward the early rounds by overall (about 15 percent first-rounders).</summary>
+        public static int DraftRoundFor(int overall, Rng rng)
+        {
+            float u = rng.NextFloat() + (68f - overall) / 45f * 0.5f;
+            return Math.Max(1, Math.Min(7, 1 + (int)Math.Floor(u * 7f)));
+        }
 
         internal static int PickJersey(Position pos, Rng rng, HashSet<int> used)
         {
@@ -394,7 +427,7 @@ namespace PixFootball.League
             {
                 Id = id, Name = first + " " + last, Role = role, Age = rng.Range(38, 69),
                 OffenseRating = Rate(rng, 66f + quality), DefenseRating = Rate(rng, 66f + quality),
-                Development = Rate(rng, 65f + quality * 0.5f), Scouting = Rate(rng, 64f),
+                Development = Rate(rng, 65f + quality * 0.5f), Scouting = Rate(rng, 64f + quality * 0.5f),
                 Aggression = rng.Range(15, 90), OffScheme = (OffenseScheme)rng.Range(0, 5), DefScheme = (DefenseScheme)rng.Range(0, 5)
             };
             switch (c.OffScheme)

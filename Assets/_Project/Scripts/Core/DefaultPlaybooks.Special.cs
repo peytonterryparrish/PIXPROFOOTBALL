@@ -54,7 +54,7 @@ namespace PixFootball.Core
                 St(Position.CB, -20f, 3f), St(Position.CB, 20f, 3f), St(Position.FS, -8f, 20f), St(Position.SS, 8f, 20f) }));
 
             list.Add(new Formation(FieldGoalF, PlaySide.Special, "FieldGoal", new[] {
-                St(Position.K, 3f, -7f, "K"), St(Position.QB, 0f, -7f, "H"), St(Position.C, 0f, 0f, "C"), St(Position.LG, -1.5f, 0f), St(Position.RG, 1.5f, 0f),
+                St(Position.K, 1.5f, -8.5f, "K"), St(Position.QB, 0f, -7f, "H"), St(Position.C, 0f, 0f, "C"), St(Position.LG, -1.5f, 0f), St(Position.RG, 1.5f, 0f),
                 St(Position.LT, -3f, 0f), St(Position.RT, 3f, 0f), St(Position.TE, -4.5f, 0f), St(Position.TE, 4.5f, 0f),
                 St(Position.WR, -6f, -1f), St(Position.WR, 6f, -1f) }));
 
@@ -196,9 +196,9 @@ namespace PixFootball.Core
                 var a = new Assignment[11];
                 RunGap[] dl = { RunGap.CLeft, RunGap.BLeft, RunGap.BRight, RunGap.CRight };
                 for (int i = 0; i < 4; i++) a[i] = new RushAssignment { Gap = dl[i], Contain = i == 0 || i == 3 };
-                a[4] = edge ? (Assignment)new BlitzAssignment { Gap = RunGap.DLeft, Edge = true } : new RushAssignment { Gap = RunGap.ALeft };
-                a[5] = new RushAssignment { Gap = RunGap.ARight };
-                a[6] = edge ? (Assignment)new BlitzAssignment { Gap = RunGap.DRight, Edge = true } : new RushAssignment { Gap = RunGap.BRight };
+                a[4] = edge ? (Assignment)new BlitzAssignment { Gap = RunGap.DLeft, Edge = true } : (safe ? (Assignment)Lane(fb, 4, 5, 8f) : new RushAssignment { Gap = RunGap.ALeft });
+                a[5] = safe ? (Assignment)Lane(fb, 5, 6, 8f) : new RushAssignment { Gap = RunGap.ARight };   // QA-539: Safe Return rushes only the four linemen and peels the rest back as blockers for the return
+                a[6] = edge ? (Assignment)new BlitzAssignment { Gap = RunGap.DRight, Edge = true } : (safe ? (Assignment)Lane(fb, 6, 4, 8f) : new RushAssignment { Gap = RunGap.None });   // QA-541: the middle rush no longer sends two men through the right B gap
                 a[7] = edge && !safe ? (Assignment)new BlitzAssignment { Gap = RunGap.DLeft, Edge = true, Delay = 0.2f } : Lane(fb, 7, 1, 10f);
                 a[8] = edge && !safe ? (Assignment)new BlitzAssignment { Gap = RunGap.DRight, Edge = true, Delay = 0.2f } : Lane(fb, 8, 2, 10f);
                 var ret = new ReturnerAssignment { FairCatchAllowed = false };

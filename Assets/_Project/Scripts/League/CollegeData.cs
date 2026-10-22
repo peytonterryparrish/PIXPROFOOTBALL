@@ -14,6 +14,10 @@ namespace PixFootball.League
         public string Conference;
         public string ConferenceId;
         public string Logo;
+        /// <summary>Unique short place label from the short_name column (e.g. "Amber Falls"); empty in an old file: then it is derived from the name.</summary>
+        public string ShortName = "";
+        /// <summary>Two-letter state code from the state column (may be empty).</summary>
+        public string State = "";
 
         public bool IsIndependent { get { return string.IsNullOrEmpty(ConferenceId) || ConferenceId == "independent"; } }
 
@@ -27,11 +31,22 @@ namespace PixFootball.League
             }
         }
 
-        /// <summary>Everything before the nickname ("Amber Falls").</summary>
+        /// <summary>Everything before the nickname ("Maroon" for "Maroon Sunforgers"): the display prefix that makes <c>Prefix + " " + Nickname</c> the school name again.</summary>
+        public string NamePrefix
+        {
+            get
+            {
+                int i = Name.LastIndexOf(' ');
+                return i < 0 ? Name : Name.Substring(0, i);
+            }
+        }
+
+        /// <summary>The unique place label of the school: the short_name column when the file has one, otherwise the name prefix ("Amber Falls"). Used for rosters, standings and bios (QA-558/559).</summary>
         public string Place
         {
             get
             {
+                if (!string.IsNullOrEmpty(ShortName)) return ShortName;
                 int i = Name.LastIndexOf(' ');
                 return i < 0 ? Name : Name.Substring(0, i);
             }
@@ -124,7 +139,7 @@ namespace PixFootball.League
                 list.Add(new SchoolDef
                 {
                     Id = Get(r, h, "id"), Name = name, Conference = Get(r, h, "conference"),
-                    ConferenceId = Get(r, h, "conference_id"), Logo = Get(r, h, "logo")
+                    ConferenceId = Get(r, h, "conference_id"), Logo = Get(r, h, "logo"), ShortName = Get(r, h, "short_name"), State = Get(r, h, "state")
                 });
             }
             return list;

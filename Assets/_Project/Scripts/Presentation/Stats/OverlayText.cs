@@ -80,8 +80,29 @@ namespace PixFootball.Presentation
                 return string.Join(", ", parts.ToArray());
             }
             if (s.FgAtt > 0) return s.FgMade + "/" + s.FgAtt + " FG" + (s.XpAtt > 0 ? ", " + s.XpMade + "/" + s.XpAtt + " XP" : "");
+            if (s.XpAtt > 0) return s.XpMade + "/" + s.XpAtt + " XP";   // a kicker with only extra points (QA-843)
             if (s.KrAtt > 0) return s.KrAtt + " KR, " + s.KrYds + " YDS";
             return "";
+        }
+
+        /// <summary>Joins the non-empty parts with the separator, so a missing stat line never leaves a dangling " - " (QA-875).</summary>
+        public static string JoinNonEmpty(string separator, params string[] parts)
+        {
+            var sb = new StringBuilder();
+            if (parts == null) return "";
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (string.IsNullOrEmpty(parts[i])) continue;
+                if (sb.Length > 0) sb.Append(separator);
+                sb.Append(parts[i]);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>The player-of-the-game sub line: "QB - MIAMI REEFRUNNERS - 5/6, 159 YDS, 2 TD", without a dangling separator when the stat line is empty.</summary>
+        public static string PotgSubLine(Player p, string teamName, StatLine s)
+        {
+            return JoinNonEmpty(" - ", p != null ? PositionLabel(p.Position) : "", (teamName ?? "").ToUpperInvariant(), StatLine(s, p != null ? p.Position : Position.QB));
         }
 
         /// <summary>"#12 J. DOE - 18/24, 231 YDS, 2 TD" (hyphen so every font renders it).</summary>
@@ -112,6 +133,7 @@ namespace PixFootball.Presentation
                 case "Downs": return "TURNOVER ON DOWNS";
                 case "Safety": return "SAFETY";
                 case "End of Half": return "END OF HALF";
+                case "End of Regulation": return "END OF REGULATION";
                 case "End of Game": return "END OF GAME";
                 default: return (d.Result ?? "").ToUpperInvariant();
             }
@@ -120,7 +142,22 @@ namespace PixFootball.Presentation
         /// <summary>Whether a finished drive deserves a summary card (a one-play drive that ended in a punt does not).</summary>
         public static bool WorthSummary(DriveRecord d) { return d != null && (d.Plays >= 3 || d.Points > 0 || d.Result == "Interception" || d.Result == "Fumble"); }
 
-        public static string Pct(int a, int b) { return b <= 0 ? "-" : a + "/" + b; }
+        /// <summary>"made/attempts" ("-" when there were no attempts). Not a percentage (QA-843).</summary>
+        public static string Ratio(int made, int attempts) { return attempts <= 0 ? "-" : made + "/" + attempts; }
+
+        /// <summary>Kept for old callers: same as <see cref="Ratio"/>.</summary>
+        public static string Pct(int a, int b) { return Ratio(a, b); }
+
+        /// <summary>Extra comparison rows that do not fit the standard card: 4TH DOWN, SACKS (taken, yards lost), PASSING (completions/attempts) and RED ZONE.</summary>
+        public static List<CompareRow> CompareExtra(TeamBoxScore home, TeamBoxScore away)
+        {
+            var l = new List<CompareRow>();
+            l.Add(new CompareRow("4TH DOWN", Ratio(away.FourthDownConv, away.FourthDownAtt), Ratio(home.FourthDownConv, home.FourthDownAtt)));
+            l.Add(new CompareRow("COMP / ATT", Ratio(away.PassCmp, away.PassAtt), Ratio(home.PassCmp, home.PassAtt)));
+            l.Add(new CompareRow("SACKED", away.Sacked + " - " + away.SackYdsLost, home.Sacked + " - " + home.SackYdsLost));
+            l.Add(new CompareRow("RED ZONE", Ratio(away.RedZoneTds, away.RedZoneTrips), Ratio(home.RedZoneTds, home.RedZoneTrips)));
+            return l;
+        }
 
         /// <summary>Team comparison rows (away on the left, home on the right, like the scorebug).</summary>
         public static List<CompareRow> Compare(TeamBoxScore home, TeamBoxScore away)
@@ -168,7 +205,7 @@ namespace PixFootball.Presentation
             return d + " & " + (goalToGo ? "GOAL" : distance.ToString());
         }
 
-        /// <summary>The temperature at kickoff for the stadium card: stable for a seed, 34 to 79 F, a little cooler at night.</summary>
+        /// <summary>The temperature at kickoff for the stadium card: stable for a seed, 36 to 76 F by day, 31 to 71 F at night (5 degrees cooler).</summary>
         public static int KickoffTemperature(int seed, bool night, string city)
         {
             int ch = 17;
@@ -177,6 +214,19 @@ namespace PixFootball.Presentation
             h = (h ^ (h >> 13)) & 0x7fffffff;
             int t = 36 + h % 41;
             return night ? Math.Max(30, t - 5) : t;
+        }
+
+        /// <summary>Same, but the match weather decides the range (QA-844): snow is always at or below freezing, rain and fog stay mild, clear and overcast keep the plain value.</summary>
+        public static int KickoffTemperature(int seed, bool night, string city, WeatherKind weather)
+        {
+            int t = KickoffTemperature(seed, night, city);
+            switch (weather)
+            {
+                case WeatherKind.Snow: return Math.Min(t, 24 + (t % 9));        // 24..32 F
+                case WeatherKind.Rain: return Math.Max(40, Math.Min(t, 62));
+                case WeatherKind.Fog: return Math.Max(36, Math.Min(t, 56));
+                default: return t;
+            }
         }
     }
 }

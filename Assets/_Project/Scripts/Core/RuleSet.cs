@@ -26,7 +26,7 @@ namespace PixFootball.Core
         /// <summary>First downs stop the clock for the whole game (college).</summary>
         public bool ClockStopsOnFirstDown = false;
         /// <summary>If &gt; 0, first downs stop the clock in Q2/Q4 once the clock is at or below this many seconds.</summary>
-        public int FirstDownStopWindowSeconds = 120;
+        public int FirstDownStopWindowSeconds = 0;
         public int LastMinutesWindowSeconds = 120;
         public int PlayClockLive = 40;
         public int PlayClockDead = 25;
@@ -97,8 +97,8 @@ namespace PixFootball.Core
                 FeetInBounds = 2,
                 HashWidthFeet = 40f,
                 HasTwoMinuteWarning = false,
-                ClockStopsOnFirstDown = true,
-                FirstDownStopWindowSeconds = 0,
+                ClockStopsOnFirstDown = false,        // current NCAA rule: first downs stop the clock only in the last two minutes of each half
+                FirstDownStopWindowSeconds = 120,
                 Challenges = 0,
                 ThirdChallengeIfBothWon = false,
                 BoothReview = true,

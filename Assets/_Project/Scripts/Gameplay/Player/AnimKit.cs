@@ -25,6 +25,33 @@ namespace PixFootball.Gameplay
             }
         }
 
+        /// <summary>v0.6 photoreal bodies: the position picks the pool, a clearly heavy or light player moves one size (a 255 lb tight end uses the large body, a 215 lb receiver the medium one). Linemen are always large; quarterbacks and kickers keep their size.</summary>
+        public static PlayerSize SizeOf(Position p, int weightLb)
+        {
+            var s = SizeOf(p);
+            if (weightLb <= 0) return s;
+            switch (Of(p))
+            {
+                case PlayerRole.LB: case PlayerRole.TE: case PlayerRole.RB:
+                    return weightLb >= 250 ? PlayerSize.Large : weightLb <= 190 ? PlayerSize.Small : PlayerSize.Medium;
+                case PlayerRole.WR: case PlayerRole.DB:
+                    return weightLb >= 214 ? PlayerSize.Medium : PlayerSize.Small;
+                default: return s;
+            }
+        }
+
+        /// <summary>Hint for PlayerAppearance.FromSeed: 0 skill, 1 quarterback, 2 line, 3 receiver / defensive back.</summary>
+        public static int AppearanceRole(Position p)
+        {
+            switch (Of(p))
+            {
+                case PlayerRole.QB: return 1;
+                case PlayerRole.OL: case PlayerRole.DL: return 2;
+                case PlayerRole.WR: case PlayerRole.DB: return 3;
+                default: return 0;
+            }
+        }
+
         /// <summary>Body mesh by position: linemen large, backers / tight ends / backs / quarterbacks medium, everyone else small.</summary>
         public static PlayerSize SizeOf(Position p)
         {
@@ -55,6 +82,8 @@ namespace PixFootball.Gameplay
         public bool Partner;                         // this player is the second actor of a paired clip
         public bool ShotgunQb;
         public bool Pitch;
+        public PlayKind Kind;                        // scrimmage / kickoff / punt / field goal (kick animation choice)
+        public bool Carrying;                        // this player has the ball: the carrier locomotion tree (ball tucked) plays
     }
 
     public struct ClipPlan
@@ -62,20 +91,27 @@ namespace PixFootball.Gameplay
         public AnimationClip Clip;
         public float Start, End, Speed, FadeIn, FadeOut;
         public bool Loop, Hold;
+        /// <summary>Keep the legs of the locomotion layer while the player is running (throws, catches, hand-offs made on the move).</summary>
+        public bool UpperBody;
+        /// <summary>Initial offset into the window for a looping clip (staggers a line of identical stances without moving the loop point).</summary>
+        public float Phase;
         public bool Valid { get { return Clip != null; } }
     }
 
     /// <summary>Maps simulation actions onto ArtLibrary mocap clips (see Docs/ARCHITECTURE.md, v0.2 animation mapping).</summary>
-    public static class AnimKit
+    public static partial class AnimKit
     {
         static ArtLibrary Lib { get { return ArtLibrary.Load(); } }
 
-        static ClipPlan P(AnimationClip c, float start = 0f, float end = 0f, float speed = 1f, float fadeIn = 0.12f, float fadeOut = 0.18f, bool loop = false, bool hold = false)
+        static ClipPlan P(AnimationClip c, float start = 0f, float end = 0f, float speed = 1f, float fadeIn = 0.18f, float fadeOut = 0.28f, bool loop = false, bool hold = false)
         {
             return new ClipPlan { Clip = c, Start = start, End = end, Speed = speed, FadeIn = fadeIn, FadeOut = fadeOut, Loop = loop, Hold = hold };
         }
 
-        static AnimationClip V(string key, int seed) { var l = Lib; return l != null ? l.ClipVariant(key, seed) : null; }
+        /// <summary>Upper-body plan: keeps the legs of the locomotion layer while the player runs (QA-648).</summary>
+        static ClipPlan Up(ClipPlan p) { p.UpperBody = true; return p; }
+
+        static AnimationClip V(string key, int seed) { var l = Lib; var c = l != null ? l.ClipVariant(key, seed) : null; if (c == null && l != null) WarnMissing(key); return c; }
 
         /// <summary>Variant of a key whose clip name contains every token (best score); falls back to the seeded variant.</summary>
         static AnimationClip Pick(string key, int seed, params string[] tokens)
@@ -103,6 +139,7 @@ namespace PixFootball.Gameplay
         }
 
         // =========================================================================================================
+        [System.Obsolete("Superseded by StanceClips / StanceRules (QA-657); kept only for tests and the free-roam fallback")]
         public static ClipPlan Stance(PlayerRole role, bool shotgunQb, int seed, bool specialTeams)
         {
             if (specialTeams) return default(ClipPlan);
@@ -124,53 +161,42 @@ namespace PixFootball.Gameplay
             float a = c.length > 8f ? 2.8f : 0f, b = c.length > 8f ? c.length - 2.8f : 0f;
             // stagger the loops so the line does not breathe in unison
             float start = a + ((seed * 0.37f) % 1f) * Mathf.Min((c.length - 2f * a) * 0.5f, 8f);
-            return P(c, start, b, 1f, 0.2f, 0.12f, true);
+            return P(c, start, b, 1f, 0.3f, 0.25f, true);
         }
 
+        /// <summary>An offensive lineman / blocker who is not engaged yet: the pass-pro ready footwork (BGS pocket mocap), not an engaged drive-block take (QA-659).</summary>
         public static ClipPlan Block(int seed)
         {
+            var pocket = PocketStand(seed, (seed & 1) == 0);
+            if (pocket.Valid) return pocket;
             var c = V("ol_pass_set", seed % 5);
-            return c == null ? default(ClipPlan) : P(c, 0f, 0f, 1f, 0.15f, 0.15f, true);
+            return c == null ? default(ClipPlan) : P(c, 0f, 0f, 1f, 0.25f, 0.25f, true);
         }
 
-        /// <summary>Engaged blockers: the offense plays the A actor, the defender the B actor of the same take.</summary>
+        /// <summary>Engaged blockers: the offense plays the A actor, the defender the B actor of the same take (only takes that have their twin: QA-661).</summary>
         public static ClipPlan Engaged(AnimHints h)
         {
             string key = "ol_pass_set";
-            if (h.Defender)
+            switch (h.Rush)
             {
-                switch (h.Rush)
-                {
-                    case RushMove.Bull: key = "dl_bull_rush"; break;
-                    case RushMove.Swim: case RushMove.Rip: case RushMove.Speed: key = "dl_rush_swim"; break;
-                    case RushMove.Spin: key = "dl_rush_spin"; break;
-                }
+                case RushMove.Bull: key = "dl_bull_rush"; break;
+                case RushMove.Swim: case RushMove.Rip: case RushMove.Speed: key = "dl_rush_swim"; break;
+                case RushMove.Spin: key = "dl_rush_spin"; break;
             }
-            else
-            {
-                switch (h.Rush)
-                {
-                    case RushMove.Bull: key = "dl_bull_rush"; break;
-                    case RushMove.Swim: case RushMove.Rip: case RushMove.Speed: key = "dl_rush_swim"; break;
-                    case RushMove.Spin: key = "dl_rush_spin"; break;
-                }
-            }
-            var main = V(key, h.Seed);
-            if (main == null) return default(ClipPlan);
-            // short Motus takes only: the long BoNES packs are far too slow for a live block
-            if (main.length > 4f) main = V(key, 0);
-            bool pairedKey = key.StartsWith("dl_");
+            // QA-662: short takes only (a long take cannot loop seamlessly in a live block), played once and held on the last pose
+            AnimationClip a, b;
+            if (!TryPair(key, h.Seed, 4.2f, out a, out b) && !TryPair("ol_pass_set", h.Seed, 4.2f, out a, out b)) return default(ClipPlan);
             // for the dl_* keys the A actor is the defender; for ol_* keys the A actor is the blocker
+            bool pairedKey = key.StartsWith("dl_");
             bool playB = pairedKey ? !h.Defender : h.Defender;
-            AnimationClip c = playB ? Partner(key + "_b", main, h.Seed) : main;
-            if (c == null) c = main;
-            return P(c, 0f, Mathf.Min(c.length, 3.2f), 1f, 0.15f, 0.2f, true);
+            var c = playB ? b : a;
+            return P(c, 0f, Mathf.Min(c.length, 4.2f), 1f, 0.22f, 0.3f, false, true);
         }
 
         public static ClipPlan Shed(int seed)
         {
             var c = V("dl_shed", seed);
-            return c == null ? default(ClipPlan) : P(c, 0.2f, Mathf.Min(c.length, 2.6f), 1.5f, 0.1f, 0.25f);
+            return c == null ? default(ClipPlan) : P(c, 0.2f, Mathf.Min(c.length, 2.6f), 1.5f, 0.15f, 0.3f);
         }
 
         public static ClipPlan Throw(AnimHints h)
@@ -186,20 +212,19 @@ namespace PixFootball.Gameplay
             if (c == null || c.length > 6f) c = V("qb_throw_bullet", 0);
             if (c == null) return default(ClipPlan);
             float rel = ClipTimingTable.Moment(c, 0.45f);
-            const float windup = 0.26f;
+            const float windup = 0.32f;
             float speed = 1.1f;
             float start = Mathf.Max(0f, rel - windup * speed);
-            return P(c, start, Mathf.Min(c.length, rel + 0.9f), speed, 0.07f, 0.25f);
+            return Up(P(c, start, Mathf.Min(c.length, rel + 0.9f), speed, 0.12f, 0.3f));
         }
 
         public static ClipPlan Handoff(AnimHints h)
         {
-            var a = V("handoff", h.Seed);
-            if (a == null) return default(ClipPlan);
-            var c = h.Partner ? Partner("handoff_b", a, h.Seed) : a;
-            if (c == null) c = a;
+            AnimationClip a, b;
+            if (!TryPair("handoff", h.Seed, 6f, out a, out b)) { a = V("handoff", h.Seed); b = null; if (a == null) return default(ClipPlan); }
+            var c = h.Partner && b != null ? b : a;
             float t = ClipTimingTable.Moment(c, 0.4f);
-            return P(c, Mathf.Max(0f, t - 0.3f), Mathf.Min(c.length, t + 0.7f), 1f, 0.08f, 0.25f);
+            return Up(P(c, Mathf.Max(0f, t - 0.3f), Mathf.Min(c.length, t + 0.7f), 1f, 0.14f, 0.3f));
         }
 
         public static ClipPlan Catch(AnimHints h)
@@ -229,7 +254,7 @@ namespace PixFootball.Gameplay
             }
             if (c == null) return default(ClipPlan);
             float t = ClipTimingTable.Moment(c, 0.35f);
-            return P(c, Mathf.Max(0f, t - 0.14f), Mathf.Min(c.length, t + 0.85f), 1f, 0.06f, 0.25f);
+            return Up(P(c, Mathf.Max(0f, t - 0.2f), Mathf.Min(c.length, t + 0.85f), 1f, 0.12f, 0.3f));
         }
 
         static readonly System.Collections.Generic.List<MoveTakeTable.Take> _spinTakes = new System.Collections.Generic.List<MoveTakeTable.Take>();
@@ -246,14 +271,14 @@ namespace PixFootball.Gameplay
             if (clip == null) return default(ClipPlan);
             float dur = Mathf.Max(0.3f, take.t1 - take.t0);
             float speed = Mathf.Clamp(dur / 0.5f, 1f, 1.8f);
-            return P(clip, Mathf.Max(0f, take.t0 - 0.18f * speed), Mathf.Min(clip.length, take.t1 + 0.3f * speed), speed, 0.06f, 0.2f);
+            return P(clip, Mathf.Max(0f, take.t0 - 0.18f * speed), Mathf.Min(clip.length, take.t1 + 0.3f * speed), speed, 0.12f, 0.28f);
         }
 
         public static ClipPlan Jump(int seed)
         {
             var c = V("catch_jump", seed);
             if (c == null) return default(ClipPlan);
-            return P(c, 0.1f, Mathf.Min(c.length, 1.3f), 1.15f, 0.06f, 0.2f);
+            return P(c, 0.1f, Mathf.Min(c.length, 1.3f), 1.15f, 0.1f, 0.28f);
         }
 
         public static string TackleKey(TackleType t)
@@ -267,37 +292,38 @@ namespace PixFootball.Gameplay
             }
         }
 
-        /// <summary>Both actors of a tackle: tackler = A take, carrier (Partner) = the matching B take, aligned by variant name.</summary>
+        /// <summary>Both actors of a tackle: tackler = A take, carrier (Partner) = the matching B take. Among the best-scoring variants with a twin the pick is seeded (QA-664).</summary>
         public static ClipPlan Tackle(AnimHints h, bool carrier)
         {
             string key = h.Sack ? "qb_sack" : TackleKey(h.Tackle);
             string approach = h.Approach_Back ? "Back" : "Front";
             string tail = approach + h.Side;
             var l = Lib; if (l == null) return default(ClipPlan);
-            AnimationClip a = null; int bs = -1;
+            var best = new System.Collections.Generic.List<AnimationClip>(); int bs = -1;
             for (int i = 0; i < l.ClipVariantCount(key); i++)
             {
                 var cl = l.ClipVariant(key, i);
                 if (cl.length > 8.5f) continue;
+                if (carrier && TwinOf(key + "_b", cl) == null) continue;     // QA-661: never pair with an unrelated take
                 int s = 0;
                 if (cl.name.Contains(approach)) s += 3;
                 if (cl.name.Contains(tail)) s += 2;
                 if (key == "tackle_success") s = 1;
-                // keep variants stable per seed among equal scores
-                if (s > bs || (s == bs && (h.Seed & 1) == 1)) { bs = s; a = cl; }
+                if (s > bs) { bs = s; best.Clear(); }
+                if (s == bs) best.Add(cl);
             }
-            if (a == null) return default(ClipPlan);
-            var c = carrier ? Partner(key + "_b", a, h.Seed) : a;
+            if (best.Count == 0) { WarnMissing(key); return default(ClipPlan); }
+            var a = best[((h.Seed % best.Count) + best.Count) % best.Count];
+            var c = carrier ? TwinOf(key + "_b", a) : a;
             if (c == null) c = a;
-            bool big = key == "tackle_success";
             float start = key == "tackle_wrap" || key == "qb_sack" ? 0.55f : (key == "tackle_dive" ? 0.5f : 0f);
-            return P(c, start, Mathf.Min(c.length, 5.2f), 1f, 0.06f, 0.3f, false, false);
+            return P(c, start, Mathf.Min(c.length, 5.2f), 1f, 0.1f, 0.35f, false, false);
         }
 
         public static ClipPlan Fall(int seed)
         {
             var c = Pick("fall", seed, "Stand");
-            return c == null ? default(ClipPlan) : P(c, 0f, Mathf.Min(c.length, 2.0f), 1f, 0.08f, 0.3f, false, true);
+            return c == null ? default(ClipPlan) : P(c, 0f, Mathf.Min(c.length, 2.0f), 1f, 0.12f, 0.4f, false, true);
         }
 
         /// <summary>v0.5 sideline / end-zone reactions from the broadcast layer: teammates cheer ("cheer", "celebrate_td*"), defenders hang their heads ("frustration").</summary>

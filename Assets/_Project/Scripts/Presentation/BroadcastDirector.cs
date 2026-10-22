@@ -61,11 +61,15 @@ namespace PixFootball.Presentation
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Boot()
         {
-            SceneManager.sceneLoaded += (scene, mode) =>
-            {
-                var d = FindAnyObjectByType<MatchDirector>();
-                if (d != null && d.GetComponent<BroadcastDirector>() == null && FindAnyObjectByType<BroadcastDirector>() == null) d.gameObject.AddComponent<BroadcastDirector>();
-            };
+            // a named handler, removed before it is added: with Enter Play Mode options (no domain reload) a session no longer stacks one more handler per run (QA-874)
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            var d = FindAnyObjectByType<MatchDirector>();
+            if (d != null && d.GetComponent<BroadcastDirector>() == null && FindAnyObjectByType<BroadcastDirector>() == null) d.gameObject.AddComponent<BroadcastDirector>();
         }
 
         void Awake() { Instance = this; }
@@ -77,6 +81,7 @@ namespace PixFootball.Presentation
             _attached = true;
             _dir = d;
             _rec = gameObject.AddComponent<ReplayRecorder>(); _rec.Attach(d);
+            _lib.Dropped = _rec.Recycle;   // trimmed clips give their frames back to the recorder pool (QA-858)
             _player = new GameObject("ReplayPlayer").AddComponent<ReplayPlayer>(); _player.transform.SetParent(transform, false);
             _player.Warm(8, 8, 9);
             _cam = BroadcastCamera.Create(transform, d.MainCamera, d.Cams);
@@ -107,6 +112,7 @@ namespace PixFootball.Presentation
         {
             if (_trk != null || _dir.Flow == null) return;
             _trk = new GameTracker(Flow.Home, Flow.Away, Flow.Abbr(CoreTeam.Home), Flow.Abbr(CoreTeam.Away), _dir.Config.QuarterMinutes);
+            if (Flow.State != null && Flow.State.Rules != null && Flow.State.Rules.OvertimeMinutes > 0) _trk.OvertimeSeconds = Flow.State.Rules.OvertimeMinutes * 60;   // time of possession in overtime uses the real period length (QA-841)
         }
 
         Func<int, Player> Lookup(PlaySimulation sim)
@@ -132,12 +138,14 @@ namespace PixFootball.Presentation
             EnsureTracker();
             AbortShots();
             _sim = sim; _frame = frame;
+            _ov.ClearStale();   // the last play's stat strip / ticker / score card do not follow the teams into the next snap (QA-096 / 228 / 236 / 240 / 264)
             _rec.Begin(sim, frame);
             _trk.BeginPlay(State);
             _preShotsScheduled = false; _nextPlayShown = false;
             _impactMax = 0f; _bigHit = false; _bigHitTime = -1f;
             _situation = State.Phase == GamePhase.Scrimmage ? SituationText() : (State.Quarter <= 4 ? "Q" + State.Quarter : "OT") + "  " + State.ClockDisplay;
             _quarterBefore = State.Quarter; _clockBefore = State.ClockDisplay;
+            _downBefore = State.Phase == GamePhase.Scrimmage ? State.Down : 0;
             // drive bookkeeping for the camera director
             if (sim.Kind == PlayKind.Scrimmage)
             {
@@ -150,12 +158,14 @@ namespace PixFootball.Presentation
             _lastQuarterSeen = State.Quarter;
         }
         bool _firstPlayOfDrive, _firstPlayOfHalf;
+        int _downBefore;
 
         public void OnSnap(PlaySimulation sim)
         {
             if (!_attached) return;
             _rec.MarkSnap();
             AbortShots();
+            _ov.ClearStale();
             _ov.Clear(OverlaySlot.Side); _ov.Clear(OverlaySlot.BottomRight); _ov.Clear(OverlaySlot.Center);
             _impactMax = 0f; _bigHit = false; _bigHitTime = -1f;
             _firstPlay = false;
@@ -212,7 +222,7 @@ namespace PixFootball.Presentation
                 Touchdown = r != null && r.Touchdown, Turnover = r != null && r.Turnover, Safety = r != null && r.Safety,
                 OffenseIsHome = o.Offense == CoreTeam.Home, Quarter = _quarterBefore, ClockSeconds = state.ClockSeconds,
                 ScoreMargin = o.Offense == CoreTeam.Home ? state.HomeScore - state.AwayScore : state.AwayScore - state.HomeScore,
-                Impact = _impactMax, BigHit = _bigHit, ThirdOrFourthDownConversion = false, Overtime = state.Quarter > 4
+                Impact = _impactMax, BigHit = _bigHit, ThirdOrFourthDownConversion = _downBefore >= 3 && o.Headline == Headline.FirstDown, Overtime = state.Quarter > 4
             };
             float score = HighlightScorer.Score(_lastFacts);
             _lastFacts.Impact = _impactMax;
@@ -331,13 +341,13 @@ namespace PixFootball.Presentation
             if (o.Headline == Headline.Penalty && o.PenaltyCall != null)
             {
                 var pc = o.PenaltyCall;
-                _ov.ShowPenalty("PENALTY - " + pc.Def.Name.ToUpperInvariant(), Flow.Abbr(pc.CommittedBy) + "   " + Math.Abs(pc.Def.ProYards) + (Math.Abs(pc.Def.ProYards) == 1 ? " YARD" : " YARDS"), VisOf(pc.CommittedBy));
+                _ov.ShowPenalty("PENALTY - " + pc.Def.Name.ToUpperInvariant(), Flow.Abbr(pc.CommittedBy) + (Flow.PenaltyNumber(pc) > 0 ? " #" + Flow.PenaltyNumber(pc) : "") + "   " + (o.PenaltyYards >= 0 ? o.PenaltyYards : Math.Abs(pc.Def.ProYards)) + ((o.PenaltyYards >= 0 ? o.PenaltyYards : Math.Abs(pc.Def.ProYards)) == 1 ? " YARD" : " YARDS"), VisOf(pc.CommittedBy));
             }
             // scoring cards
             if (o.ScoringTeam.HasValue && o.Headline != Headline.Penalty)
-                _ov.ShowScoreUpdate(VisOf(CoreTeam.Away), state.AwayScore, VisOf(CoreTeam.Home), state.HomeScore, o.Text, state.ClockDisplay);
+                _ov.ShowScoreUpdate(VisOf(CoreTeam.Away), state.AwayScore, VisOf(CoreTeam.Home), state.HomeScore, o.Text, state.ClockDisplay, 5.5f, o.ScoringTeam.Value == CoreTeam.Away ? 0 : 1);
             // two-minute warning
-            bool twoMin = (state.Quarter == 2 || state.Quarter == 4) && state.ClockSeconds <= 120f && state.ClockSeconds > 0f;
+            bool twoMin = (state.Quarter == 2 || state.Quarter == 4) && state.ClockSeconds <= 120f && state.ClockSeconds > 0f && _dir.Config.QuarterMinutes > 2;   // a 2-minute quarter is two minutes long: no warning card
             if (twoMin && !(state.Quarter == 2 ? _twoMinHalf1 : _twoMinHalf2))
             {
                 if (state.Quarter == 2) _twoMinHalf1 = true; else _twoMinHalf2 = true;
@@ -353,7 +363,7 @@ namespace PixFootball.Presentation
                 case Headline.Interception: return "INTERCEPTION";
                 case Headline.Sack: return "SACK";
                 case Headline.FumbleLost: return "TAKEAWAY";
-                default: return o.Result != null && o.Result.Yards >= 20 ? "BIG PLAY" : "";
+                default: return o.Result != null && o.Headline != Headline.Incomplete && o.Result.Yards >= 20 ? "BIG PLAY" : "";   // an incompletion is never a big play (QA-141)
             }
         }
 

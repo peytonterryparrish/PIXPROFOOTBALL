@@ -62,6 +62,17 @@ namespace PixFootball.EditorTools
                 mi.clipAnimations = clips;
                 mi.SaveAndReimport(); changed++;
             }
+            // v0.8: cleaned pair takes (Animations/Clean/*.anim) carry the same switch in their clip settings
+            foreach (string g in AssetDatabase.FindAssets("t:AnimationClip", new[] { "Assets/_Licensed/DraftFever/Animations/Clean" }))
+            {
+                string p = AssetDatabase.GUIDToAssetPath(g);
+                var ac = AssetDatabase.LoadAssetAtPath<AnimationClip>(p);
+                if (ac == null || !(ac.name.EndsWith("_A") || ac.name.EndsWith("_B") || ac.name.EndsWith("_a") || ac.name.EndsWith("_b"))) continue;
+                var st = AnimationUtility.GetAnimationClipSettings(ac);
+                if (st.keepOriginalPositionXZ == original) continue;
+                st.keepOriginalPositionXZ = original; AnimationUtility.SetAnimationClipSettings(ac, st); EditorUtility.SetDirty(ac); changed++;
+            }
+            AssetDatabase.SaveAssets();
             Debug.Log("[Contact] keepOriginalPositionXZ=" + original + " on " + changed + " models");
         }
 
@@ -85,6 +96,13 @@ namespace PixFootball.EditorTools
 
         [MenuItem("PIX Football/Assets/Build Contact Table")]
         public static void Run()
+        {
+            BatchWatchdog.Arm(30);
+            // QA-1045: whatever happens between the two import passes, the pair takes go back to the project import (Center of Mass)
+            try { RunInner(); } finally { SetOriginalPositions(false); }
+        }
+
+        static void RunInner()
         {
             ArtLibrary.ResetCache();
             var lib = ArtLibrary.Load();
@@ -209,7 +227,7 @@ namespace PixFootball.EditorTools
             var l = anim.GetBoneTransform(HumanBodyBones.LeftUpperLeg); var r = anim.GetBoneTransform(HumanBodyBones.RightUpperLeg);
             var res = new Sample[n];
             PlayableGraph g;
-            AnimationPlayableUtilities.PlayClip(anim, clip, out g);
+            PixFootball.EditorTools.AnimPlay.PlayClip(anim, clip, out g);
             g.Evaluate(0f);
             float prevYaw = 90f;
             for (int i = 0; i < n; i++)
@@ -359,7 +377,7 @@ namespace PixFootball.EditorTools
         {
             var anim = go.GetComponent<Animator>();
             PlayableGraph graph;
-            AnimationPlayableUtilities.PlayClip(anim, clip, out graph);
+            PixFootball.EditorTools.AnimPlay.PlayClip(anim, clip, out graph);
             graph.Evaluate(0f);
             const float s = 0.05f;
             float acc = 0f; while (acc + s <= t) { graph.Evaluate(s); acc += s; }

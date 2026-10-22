@@ -89,7 +89,7 @@ namespace PixFootball.Sim
         /// </summary>
         private void CheckInterference()
         {
-            if (_dpiChecked || !S.Options.Penalties || S.PendingPenalty != null || S.TargetId < 0) return;
+            if (_dpiChecked || !S.Options.Penalties || !S.FoulOpen(SimSide.Defense) || S.TargetId < 0) return;
             BallSim ball = S.Ball;
             SimAgent R = S.Agents[S.TargetId];
             if (R.Body.FallenTime > 0.3f) return;
@@ -109,7 +109,7 @@ namespace PixFootball.Sim
             float air = Math.Max(0f, ball.Pos.Y - S.PassThrowY);
             float aw = SimMath.Rating01(D.R.Awareness);
             float cov = SimMath.Rating01(D.Assign is CoverageAssignment && ((CoverageAssignment)D.Assign).IsMan ? D.R.ManCoverage : D.R.ZoneCoverage);
-            float p = 0.13f + 0.0125f * Math.Min(air, 34f);
+            float p = 0.19f + 0.0155f * Math.Min(air, 34f);
             p *= (1.6f - aw) / 0.85f * (1.5f - cov) / 0.75f;
             Vec2 toBall = ball.Pos.XY - D.Pos;
             bool looking = toBall.LenSq() > 0.01f && D.Facing.Dot(toBall.Norm()) > 0.3f;
@@ -144,7 +144,7 @@ namespace PixFootball.Sim
             if (a.Facing.Dot((S.Ball.Pos.XY - a.Pos).Norm()) < -0.3f) p *= 0.5f;
             bool engage = S.Rng.NextFloat() < p;
             if (engage) _tried.Add(a.Id);
-            else { _lock[a.Id] = float.MaxValue; }
+            else { _lock[a.Id] = S.Time + 0.3f; }   // he may get a hand up on a later look at the ball (no permanent blind spot)
             return engage;
         }
 
@@ -228,7 +228,7 @@ namespace PixFootball.Sim
                     if (d < fd) { fd = d; first = _near[i]; }
                 }
                 float skill = SimMath.Rating01(first.R.Catching);
-                float p = (first.Side == SimSide.Offense ? 0.28f + 0.40f * skill : (0.06f + 0.30f * skill) * 0.7f) - 0.10f * SimMath.Clamp01(ball.Vel.Length / 18f);
+                float p = (first.Side == SimSide.Offense ? 0.20f + 0.30f * skill : 0.05f + 0.15f * skill) - 0.06f * SimMath.Clamp01(ball.Vel.Length / 18f);
                 if (rng.NextFloat() < p)
                 {
                     if (first.Side == SimSide.Offense) Catch(first, false, null);
@@ -256,7 +256,7 @@ namespace PixFootball.Sim
                 hands *= 1f - 0.25f * SimMath.Clamp01((speed - 20f) / 18f);
                 if (bestD.Facing.Dot((ball.Pos.XY - bestD.Pos).Norm()) < -0.2f) hands *= 0.5f;
                 // an interception needs the ball to be reachable and "thrown to" him: more likely when the receiver is already beaten
-                hands *= 0.75f;
+                hands *= 0.36f;
                 if (rng.NextFloat() < hands) Intercept(bestD);
                 else Deflect(bestD, 1.0f);
                 return;
@@ -283,10 +283,8 @@ namespace PixFootball.Sim
 
             // pass interference: the defender grabs a receiver he is beaten by
             bool contact = (R.Pos - D.Pos).Length < 1.5f;
-            if (S.Options.Penalties && contact && S.PendingPenalty == null)
+            if (S.Options.Penalties && contact && S.FoulOpen(SimSide.Offense))
             {
-                Vec2 toR = (R.Pos - D.Pos).Norm();
-                bool defBehind = D.Facing.Dot(bd) < 0.15f;
                 if (margin < -12f)
                 {
                     float pOpi = 0.035f * (1.2f - SimMath.Rating01(R.R.Awareness));
@@ -303,12 +301,12 @@ namespace PixFootball.Sim
             }
             else
             {
-                float pInt = 0.04f + 0.26f * SimMath.Rating01(D.R.Catching) + (margin < -14f ? 0.07f : 0f);
+                float pInt = 0.03f + 0.22f * SimMath.Rating01(D.R.Catching) + (margin < -14f ? 0.06f : 0f);
                 pInt -= 0.10f * SimMath.Clamp01((ball.Vel.Length - 22f) / 16f);
                 // a defender who is beaten (behind the receiver, relative to the passer) can only get a hand in; the pick needs position
                 Vec2 towardPasser = (S.Agents[Math.Max(0, S.PasserId)].Pos - R.Pos).Norm();
                 float front = (D.Pos - R.Pos).Dot(towardPasser);
-                pInt *= SimMath.Clamp(0.30f + 0.55f * front, 0.12f, 1f) * 0.72f;
+                pInt *= SimMath.Clamp(0.30f + 0.55f * front, 0.12f, 1f) * 0.30f;
                 if (rng.NextFloat() < pInt) Intercept(D);
                 else Deflect(D, 1.0f);
             }
@@ -322,7 +320,7 @@ namespace PixFootball.Sim
         {
             BallSim ball = S.Ball;
             float skill = SimMath.Rating01(r.R.Catching);
-            float p = 0.80f + 0.17f * skill;
+            float p = 0.755f + 0.17f * skill;
             float difficulty = 0f;
             float speed = ball.Vel.Length;
             difficulty += 0.18f * SimMath.Clamp01((speed - 22f) / 16f) * (1.25f - skill);
@@ -346,12 +344,15 @@ namespace PixFootball.Sim
             if (r.Body.StumbleTime > 0f) difficulty += 0.15f;
             if (contester != null) difficulty += 0.14f;
             p -= difficulty * (1.1f - 0.5f * skill);
+            if (S.Options.BallSlickness > 0f) p -= 0.07f * S.Options.BallSlickness * (1.1f - 0.5f * skill);
             return SimMath.Clamp(p, 0.04f, 0.995f);
         }
 
         private bool InBoundsCatch(SimAgent r)
         {
-            float x = r.Pos.X;
+            // the lead foot (toward his direction of travel / facing), not the body centre, is what has to come down in bounds
+            Vec2 toe = r.Speed > 1.5f ? r.Vel.Norm() : r.Facing;
+            float x = r.Pos.X + toe.X * 0.22f;
             if (x < 0f || x > FieldGeometry.Width) return false;
             if (r.Pos.Y > 110f || r.Pos.Y < -10f) return false;
             float d = FieldGeometry.DistanceToSideline(x);
@@ -377,6 +378,7 @@ namespace PixFootball.Sim
             if (contested && d != null)
             {
                 float pFum = 0.03f * (1.5f - SimMath.Rating01(r.R.Carrying)) * (0.8f + d.R.Tackling / 200f);
+                if (S.Options.BallSlickness > 0f) pFum *= 1f + 0.8f * S.Options.BallSlickness;
                 if (S.Rng.NextFloat() < pFum && S.Phase == PlayPhase.Live)
                     S.Fumble(r, d, (r.Pos - d.Pos).Norm() * 1.2f);
             }
@@ -422,6 +424,7 @@ namespace PixFootball.Sim
             if (d < 1.15f && ball.Pos.Z < 2.3f && ball.Pos.Z > 0.2f)
             {
                 float pFum = 0.010f * (1.5f - SimMath.Rating01(r.R.Catching));
+                if (S.Options.BallSlickness > 0f) pFum *= 1f + 0.8f * S.Options.BallSlickness;
                 S.GiveBall(r);
                 S.RusherId = r.Id;
                 S.LogEvent(SimEventType.Catch, r.Id, ball.Thrower, new Vec3(r.Pos, 0f), TackleType.None, 0f, "pitch");

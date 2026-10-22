@@ -8,6 +8,8 @@ namespace PixFootball.Gameplay
     public class TeamInfo
     {
         public string Id, City, Nickname, Name, Conference, Division, PrimaryHex, SecondaryHex, TertiaryHex, LogoKey;
+        /// <summary>Fixed three-letter code from the abbr column ("" for an old file without it).</summary>
+        public string Abbr = "";
         public TeamColors Colors { get { return TeamColors.FromHex(PrimaryHex, SecondaryHex, TertiaryHex); } }
         public Color PrimaryUi { get { Color c; ColorUtility.TryParseHtmlString(PrimaryHex, out c); return c; } }
         public Color SecondaryUi { get { Color c; ColorUtility.TryParseHtmlString(SecondaryHex, out c); return c; } }
@@ -43,39 +45,45 @@ namespace PixFootball.Gameplay
 
         static List<TeamInfo> Load()
         {
-            var list = new List<TeamInfo>();
             var rt = PixRuntimeAssets.Load();
             string csv = rt != null && rt.teamsCsv != null ? rt.teamsCsv.text : null;
 #if UNITY_EDITOR
             if (csv == null && System.IO.File.Exists("Assets/_Project/Data/Pro/teams.csv")) csv = System.IO.File.ReadAllText("Assets/_Project/Data/Pro/teams.csv");
 #endif
-            if (string.IsNullOrEmpty(csv))
+            if (string.IsNullOrEmpty(csv)) Debug.LogError("TeamCatalog: teams.csv is missing from PixRuntimeAssets (a damaged build): falling back to ONE built-in team. Re-run the build / asset setup.");
+            return Parse(csv);
+        }
+
+        /// <summary>Parses teams.csv (BOM and quotes handled by the one shared CSV reader). Missing / empty text gives the single built-in fallback team.</summary>
+        public static List<TeamInfo> Parse(string csv)
+        {
+            var list = new List<TeamInfo>();
+            var rows = string.IsNullOrEmpty(csv) ? new List<string[]>() : PixFootball.League.CollegeData.ParseCsv(csv);
+            if (rows.Count > 1)
             {
-                list.Add(new TeamInfo { Id = DefaultTeamId, City = "Buffalo", Nickname = "Ironhorns", Name = "Buffalo Ironhorns", PrimaryHex = "#0C3CB4", SecondaryHex = "#FC0C24", TertiaryHex = "#FFFFFF", LogoKey = "ProV6/buffalo_ironhorns" });
-                return list;
+                var h = new Dictionary<string, int>();
+                for (int i = 0; i < rows[0].Length; i++) h[rows[0][i].Trim().ToLowerInvariant()] = i;
+                for (int i = 1; i < rows.Count; i++)
+                {
+                    string[] f = rows[i];
+                    if (f.Length < 10) continue;
+                    list.Add(new TeamInfo
+                    {
+                        Id = Col(f, h, "id", 0), City = Col(f, h, "city", 1), Nickname = Col(f, h, "nickname", 2), Name = Col(f, h, "name", 3), Conference = Col(f, h, "conference", 4), Division = Col(f, h, "division", 5),
+                        PrimaryHex = Col(f, h, "primary", 6), SecondaryHex = Col(f, h, "secondary", 7), TertiaryHex = Col(f, h, "tertiary", 8), LogoKey = Col(f, h, "logo", 9), Abbr = Col(f, h, "abbr", -1)
+                    });
+                }
             }
-            var lines = csv.Replace("\r", "").Split('\n');
-            for (int i = 1; i < lines.Length; i++)
-            {
-                if (string.IsNullOrWhiteSpace(lines[i])) continue;
-                var f = Split(lines[i]);
-                if (f.Count < 10) continue;
-                list.Add(new TeamInfo { Id = f[0], City = f[1], Nickname = f[2], Name = f[3], Conference = f[4], Division = f[5], PrimaryHex = f[6], SecondaryHex = f[7], TertiaryHex = f[8], LogoKey = f[9] });
-            }
+            if (list.Count == 0)
+                list.Add(new TeamInfo { Id = DefaultTeamId, City = "Buffalo", Nickname = "Ironhorns", Name = "Buffalo Ironhorns", PrimaryHex = "#0C3CB4", SecondaryHex = "#FC0C24", TertiaryHex = "#FFFFFF", LogoKey = "ProV6/buffalo_ironhorns", Abbr = "BUF" });
             return list;
         }
 
-        static List<string> Split(string line)
+        static string Col(string[] row, Dictionary<string, int> h, string name, int fallbackIndex)
         {
-            var r = new List<string>(); var sb = new System.Text.StringBuilder(); bool q = false;
-            foreach (char c in line)
-            {
-                if (c == '"') q = !q;
-                else if (c == ',' && !q) { r.Add(sb.ToString()); sb.Length = 0; }
-                else sb.Append(c);
-            }
-            r.Add(sb.ToString());
-            return r;
+            int i;
+            if (!h.TryGetValue(name, out i)) i = fallbackIndex;
+            return i >= 0 && i < row.Length ? row[i].Trim() : "";
         }
     }
 }

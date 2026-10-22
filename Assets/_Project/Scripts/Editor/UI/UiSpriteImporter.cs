@@ -63,7 +63,7 @@ namespace PixFootball.EditorTools
         static readonly Dictionary<string, CacheEntry> s_Cache = new Dictionary<string, CacheEntry>(StringComparer.OrdinalIgnoreCase);
 
         // Bump when the rules below change so Unity re-imports existing assets.
-        public override uint GetVersion() { return 2; }
+        public override uint GetVersion() { return 3; }
 
         static bool InScope(string assetPath)
         {
@@ -88,9 +88,12 @@ namespace PixFootball.EditorTools
             ti.textureType = TextureImporterType.Sprite;
             ti.spriteImportMode = SpriteImportMode.Single;
             ti.mipmapEnabled = false;
+            // glass icons (rasterised from SVG at 192 px, shown at 24-64 canvas units): mipmaps + trilinear keep thin lines from sparkling when minified at 1440p / 2160p
+            bool glassIcon = path.Contains("/UI/Glass/Icons/");
+            if (glassIcon) ti.mipmapEnabled = true;
             // College/conference/bowl/pro team logos are pixel art: keep them crisp.
             bool pixelArt = path.Contains("/Logos/CollegeV2/") || path.Contains("/Logos/ConferenceBowl/") || path.Contains("/Logos/ProV6/");
-            ti.filterMode = pixelArt ? FilterMode.Point : FilterMode.Bilinear;
+            ti.filterMode = pixelArt ? FilterMode.Point : (glassIcon ? FilterMode.Trilinear : FilterMode.Bilinear);
             ti.wrapMode = TextureWrapMode.Clamp;
             ti.alphaSource = TextureImporterAlphaSource.FromInput;
             ti.alphaIsTransparency = true;
@@ -112,7 +115,7 @@ namespace PixFootball.EditorTools
 
             // Compression: crisp & uncompressed for small sprites, BC7 (HQ) for big art.
             var standalone = ti.GetPlatformTextureSettings("Standalone");
-            if (longest > 0 && longest <= UncompressedMaxSide)
+            if (longest > 0 && longest <= UncompressedMaxSide && !glassIcon)
             {
                 ti.textureCompression = TextureImporterCompression.Uncompressed;
                 standalone.overridden = false;

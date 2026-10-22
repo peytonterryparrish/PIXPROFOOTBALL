@@ -62,7 +62,7 @@ namespace PixFootball.Sim
                 if (!a.IsReceiverEligible || _reads.Contains(i)) continue;
                 if (a.Assign is RouteAssignment) rest.Add(i);
             }
-            rest.Sort((p, q) => S.Agents[q].Pos.Y.CompareTo(S.Agents[p].Pos.Y));
+            rest.SortStable((p, q) => S.Agents[q].Pos.Y.CompareTo(S.Agents[p].Pos.Y));
             _reads.AddRange(rest);
 
             ScreenReceiver = (_qa.Action == QbAction.ScreenPass && _reads.Count > 0) ? S.Agents[_reads[0]] : null;
@@ -76,7 +76,7 @@ namespace PixFootball.Sim
             }
             int protectors = 0;
             for (int i = 0; i < 11; i++) { var pb = S.Agents[i].Assign as BlockAssignment; if (pb != null && (pb.Block == BlockKind.PassPro || pb.Block == BlockKind.Chip)) protectors++; }
-            _hotMode = _isPass && _qa.Action != QbAction.HailMary && _qa.Action != QbAction.ScreenPass && S.DefPlay.PassRushers >= Math.Max(5, protectors - (_qa.Action == QbAction.Rollout || _qa.Action == QbAction.Boot ? 0 : 0));
+            _hotMode = _isPass && _qa.Action != QbAction.HailMary && _qa.Action != QbAction.ScreenPass && S.DefPlay.PassRushers >= 5 && S.DefPlay.PassRushers > protectors - 1;   // the blitz is hot when the rushers outnumber (or match) the blockers
             ComputeDropPoint();
         }
 
@@ -106,9 +106,16 @@ namespace PixFootball.Sim
         public void OnSnap()
         {
             if (S.Kind == PlayKind.Kickoff || S.Kind == PlayKind.Punt || S.Kind == PlayKind.FieldGoal) return;
-            SimAgent center = S.Agents[4];
+            SimAgent center = S.Snapper;
             _qb.QbClock = 0f;
-            if (_qa == null) return;
+            if (_qa == null)
+            {
+                // a malformed play without a quarterback assignment: the ball goes to the first real ball carrier (or the quarterback) so the play cannot hang
+                SimAgent alt = null;
+                for (int i = 1; i < 11 && alt == null; i++) { var cc = S.Agents[i].Assign as CarryAssignment; if (cc != null && !cc.IsFake) alt = S.Agents[i]; }
+                S.GiveBall(alt ?? _qb);
+                return;
+            }
             switch (_qa.Action)
             {
                 case QbAction.Kneel: _qb.QbState = QbPhase.Kneel; break;
@@ -130,7 +137,13 @@ namespace PixFootball.Sim
             }
             else
             {
-                S.GiveBall(_qb);
+                // under center: a short snap (the ball travels the yard from the center's hands into the quarterback's, about a tenth of a second)
+                Vec3 to = new Vec3(_qb.Pos + new Vec2(0f, 0.1f), 1.0f);
+                Vec3 vel; float tf;
+                BallPhysics.SolveLaunch(from, to, 7.5f, false, out vel, out tf);
+                S.Ball.Launch(BallState.Snap, from, vel, center.Id);
+                _qb.QbPendingState = _qb.QbState;
+                _qb.QbState = QbPhase.WaitSnap;
             }
         }
 
@@ -185,15 +198,15 @@ namespace PixFootball.Sim
                 var wps = ra.Waypoints;
                 while (idx < wps.Count && budget > 0f)
                 {
-                    Vec2 w = S.Rel(wps[idx].Point);
+                    Vec2 w = S.RouteRel(wps[idx].Point);
                     float seg = (w - p).Length;
                     if (seg <= budget) { budget -= seg; p = w; idx++; }
                     else { p = p + (w - p).Norm() * budget; budget = 0f; }
                 }
                 if (budget > 0f && wps.Count > 0)
                 {
-                    Vec2 last = S.Rel(wps[wps.Count - 1].Point);
-                    Vec2 prev = wps.Count > 1 ? S.Rel(wps[wps.Count - 2].Point) : a.Pos;
+                    Vec2 last = S.RouteRel(wps[wps.Count - 1].Point);
+                    Vec2 prev = wps.Count > 1 ? S.RouteRel(wps[wps.Count - 2].Point) : a.Pos;
                     Vec2 dir = (last - prev).Norm();
                     if (!ContinuesDownfield(ra.Route)) budget *= 0.2f;
                     p = p + dir * budget;
@@ -224,18 +237,19 @@ namespace PixFootball.Sim
             var ra = (RouteAssignment)a.Assign;
             a.Intent = AgentAction.Route;
             if (S.PassThrown && S.TargetId == a.Id && S.Ball.State == BallState.Pass) { TrackBall(a); return; }
-            if (S.PassThrown && S.Ball.State == BallState.Pass && !a.RouteDone)
-            {
-                // not the target: keep running the route but nothing special
-            }
             if (S.Phase != PlayPhase.Live) return;
             var wps = ra.Waypoints;
             float vmax = a.Body.EffectiveVMax;
 
-            if (a.JamTime > 0f)
+            // jammed at the line: the route keeps running (waypoints still advance) but at a third of the pace for the jam time
+            float jamScale = a.JamTime > 0f ? 0.38f : 1f;
+            // the Hail Mary: the receivers converge on the landing zone in front of the goal line instead of running five parallel go routes
+            if (_qa != null && _qa.Action == QbAction.HailMary && S.Time > 1.3f)
             {
-                // jammed at the line: slowed and pushed off the stem
-                a.Want = new Vec2(0f, 1f) * (vmax * 0.35f);
+                Vec2 zone = new Vec2(S.BallX0 + SimMath.Clamp((a.Pos.X - S.BallX0) * 0.3f, -5f, 5f), Math.Min(Math.Max(a.Pos.Y + 4f, S.LosY + 55f), 98f));
+                Vec2 toZone = zone - a.Pos;
+                a.Want = toZone.Norm() * Math.Min(vmax * 0.97f, Math.Max(0f, toZone.Length * 3f));
+                a.HasFace = true; a.FaceDir = (_qb.Pos - a.Pos).Norm();
                 return;
             }
 
@@ -254,8 +268,8 @@ namespace PixFootball.Sim
                 return;
             }
 
-            Vec2 target = S.Rel(wps[a.PathIdx].Point);
-            Vec2 prevPt = a.PathIdx == 0 ? S.Rel(Vec2.Zero) + new Vec2(S.OffForm.Slots[a.Slot].X, S.OffForm.Slots[a.Slot].Y) : S.Rel(wps[a.PathIdx - 1].Point);
+            Vec2 target = S.RouteRel(wps[a.PathIdx].Point);
+            Vec2 prevPt = a.PathIdx == 0 ? S.Rel(Vec2.Zero) + new Vec2(S.OffForm.Slots[a.Slot].X, S.OffForm.Slots[a.Slot].Y) : S.RouteRel(wps[a.PathIdx - 1].Point);
             float dist = (target - a.Pos).Length;
 
             // corner angle at this waypoint
@@ -263,16 +277,17 @@ namespace PixFootball.Sim
             if (a.PathIdx + 1 < wps.Count)
             {
                 Vec2 d1 = (target - prevPt).Norm();
-                Vec2 d2 = (S.Rel(wps[a.PathIdx + 1].Point) - target).Norm();
+                Vec2 d2 = (S.RouteRel(wps[a.PathIdx + 1].Point) - target).Norm();
                 cornerAng = SimMath.AngleBetween(d1, d2);
             }
-            float arrive = cornerAng > 0.8f ? 0.85f : 1.3f;
+            // real route runners plant AT the break depth: sharp breaks are reached to within a third of a yard, gentle bends round off
+            float arrive = SimMath.Lerp(1.3f, 0.35f, SimMath.Clamp01((cornerAng - 0.5f) / 0.9f));
             // vertical stems get a longer leash so fast receivers do not loop back
             if (dist < arrive)
             {
                 a.PathIdx++;
                 if (a.PathIdx >= wps.Count) { a.RouteDone = true; FinishRoute(a, ra); return; }
-                target = S.Rel(wps[a.PathIdx].Point);
+                target = S.RouteRel(wps[a.PathIdx].Point);
                 dist = (target - a.Pos).Length;
             }
 
@@ -291,7 +306,7 @@ namespace PixFootball.Sim
             }
             Vec2 dir = (target - a.Pos).Norm();
             // press release / defender contact: gentle weave around a trailing/leveraging defender is skipped; keep the stem
-            a.Want = dir * vRoute;
+            a.Want = dir * (vRoute * jamScale);
             a.RouteClock += PlaySimulation.Dt;
         }
 
@@ -301,8 +316,8 @@ namespace PixFootball.Sim
             a.Intent = AgentAction.Route;
             float vmax = a.Body.EffectiveVMax;
             var wps = ra.Waypoints;
-            Vec2 last = wps.Count > 0 ? S.Rel(wps[wps.Count - 1].Point) : a.Pos;
-            Vec2 prev = wps.Count > 1 ? S.Rel(wps[wps.Count - 2].Point) : a.Pos;
+            Vec2 last = wps.Count > 0 ? S.RouteRel(wps[wps.Count - 1].Point) : a.Pos;
+            Vec2 prev = wps.Count > 1 ? S.RouteRel(wps[wps.Count - 2].Point) : a.Pos;
             if (ScrambleDrillActive()) { ScrambleDrillMove(a); return; }
             if (ContinuesDownfield(ra.Route))
             {
@@ -399,7 +414,7 @@ namespace PixFootball.Sim
                 }
                 if (!nominalOk || (ball.Pos.Z > stand * 1.05f && (ball.Pos.XY - a.Pos).Length < 7f))
                 {
-                    for (int k = 0; k < 40; k++)
+                    for (int k = 0; k < 70; k++)
                     {
                         BallPhysics.Advance(ref p, ref v, 0.05f);
                         t += 0.05f;
@@ -446,7 +461,7 @@ namespace PixFootball.Sim
                 a.HasFace = true; a.FaceDir = new Vec2(0f, 1f);
                 return;
             }
-            if (ca.IsFake && a.PathIdx >= ca.Path.Count - 1 && (S.Rel(ca.Path[ca.Path.Count - 1]) - a.Pos).Length < 1.6f && S.PassThrown == false)
+            if (ca.IsFake && ca.Path.Count > 0 && a.PathIdx >= ca.Path.Count - 1 && (S.Rel(ca.Path[ca.Path.Count - 1]) - a.Pos).Length < 1.6f && S.PassThrown == false)
             {
                 S.Blocks.FakeCarrierBlock(a);
                 return;
@@ -459,6 +474,7 @@ namespace PixFootball.Sim
             float v = ca.IsFake ? vmax * 0.95f : vmax * 0.82f;
             if (!ca.IsFake && _shotgun && !S.Blocks.HandedOff && (_qb.QbState == QbPhase.WaitSnap || _qb.QbState == QbPhase.Mesh) && (a.Pos - _qb.Pos).Length < 7.5f)
                 v = Math.Min(v, _qb.QbState == QbPhase.WaitSnap ? 1.6f : 3.4f);
+            if (!ca.IsFake && a.PathIdx >= ca.Path.Count - 1 && to.Length < 1.0f) { a.Want = Vec2.Zero; a.HasFace = true; a.FaceDir = new Vec2(0f, 1f); return; }   // he waits at the mesh point instead of walking into the quarterback
             a.Want = to.Norm() * Math.Min(v, Math.Max(2.5f, to.Length * 5f));
         }
 

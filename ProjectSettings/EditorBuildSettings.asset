@@ -14,4 +14,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/_Project/Scenes/Match_Pro.unity
     guid: c7cc89205f95eb44c85767f658ca5dfd
+  - enabled: 1
+    path: Assets/_Project/Scenes/MenuBackdrop_Glass.unity
+    guid: 84772df07ed8ffc4abe21c9ac5cebc84
   m_configObjects: {}

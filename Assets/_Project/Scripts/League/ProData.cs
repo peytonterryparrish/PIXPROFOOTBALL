@@ -19,6 +19,8 @@ namespace PixFootball.League
         public string Secondary = "#FFFFFF";
         public string Tertiary = "#FFFFFF";
         public string Logo;
+        /// <summary>Fixed 3-letter code from the abbr column (empty when the file has none: then it is derived).</summary>
+        public string Abbr = "";
     }
 
     /// <summary>Loader for the committed pro-league team list.</summary>
@@ -46,7 +48,7 @@ namespace PixFootball.League
                     Primary = NormalizeHex(Get(r, h, "primary"), "#000000"),
                     Secondary = NormalizeHex(Get(r, h, "secondary"), "#FFFFFF"),
                     Tertiary = NormalizeHex(Get(r, h, "tertiary"), "#FFFFFF"),
-                    Logo = Get(r, h, "logo")
+                    Logo = Get(r, h, "logo"), Abbr = CleanAbbr(Get(r, h, "abbr"))
                 });
             }
             return list;
@@ -73,14 +75,14 @@ namespace PixFootball.League
         /// <summary>Preferred short codes for the official teams (keyed by team id). Anything else is derived.</summary>
         private static readonly Dictionary<string, string> Preferred = new Dictionary<string, string>
         {
-            { "buffalo_ironhorns", "BUF" }, { "miami_reefrunners", "MIA" }, { "new_england_sentinels", "NE" }, { "new_york_skybolts", "NYS" },
+            { "buffalo_ironhorns", "BUF" }, { "miami_reefrunners", "MIA" }, { "new_england_sentinels", "NEW" }, { "new_york_skybolts", "NYS" },
             { "baltimore_nightwings", "BAL" }, { "cincinnati_embercats", "CIN" }, { "cleveland_foundry", "CLE" }, { "pittsburgh_ironforge", "PIT" },
             { "houston_stampede", "HOU" }, { "indianapolis_bluechargers", "IND" }, { "jacksonville_goldclaws", "JAX" }, { "tennessee_stormguard", "TEN" },
-            { "denver_ridgebacks", "DEN" }, { "kansas_city_firebirds", "KC" }, { "las_vegas_blackjacks", "LV" }, { "los_angeles_thunderhawks", "LAT" },
+            { "denver_ridgebacks", "DEN" }, { "kansas_city_firebirds", "KCF" }, { "las_vegas_blackjacks", "LVB" }, { "los_angeles_thunderhawks", "LAT" },
             { "dallas_outriders", "DAL" }, { "new_york_colossi", "NYC" }, { "philadelphia_talons", "PHI" }, { "washington_redforts", "WAS" },
-            { "chicago_bruisers", "CHI" }, { "detroit_silvermanes", "DET" }, { "green_bay_lumberjacks", "GB" }, { "minnesota_frostgiants", "MIN" },
-            { "atlanta_redtails", "ATL" }, { "carolina_nightcats", "CAR" }, { "new_orleans_brassguard", "NO" }, { "tampa_bay_corsairs", "TB" },
-            { "arizona_sunhawks", "ARI" }, { "los_angeles_goldhorns", "LAG" }, { "san_francisco_goldrush", "SF" }, { "seattle_tidewolves", "SEA" }
+            { "chicago_bruisers", "CHI" }, { "detroit_silvermanes", "DET" }, { "green_bay_lumberjacks", "GBL" }, { "minnesota_frostgiants", "MIN" },
+            { "atlanta_redtails", "ATL" }, { "carolina_nightcats", "CAR" }, { "new_orleans_brassguard", "NOB" }, { "tampa_bay_corsairs", "TBC" },
+            { "arizona_sunhawks", "ARI" }, { "los_angeles_goldhorns", "LAG" }, { "san_francisco_goldrush", "SFG" }, { "seattle_tidewolves", "SEA" }
         };
 
         /// <summary>
@@ -94,6 +96,7 @@ namespace PixFootball.League
             for (int i = 0; i < teams.Count; i++)
             {
                 string code;
+                if (teams[i].Abbr != null && teams[i].Abbr.Length == 3 && used.Add(teams[i].Abbr)) { result[i] = teams[i].Abbr; continue; }
                 if (!string.IsNullOrEmpty(teams[i].Id) && Preferred.TryGetValue(teams[i].Id, out code) && used.Add(code)) result[i] = code;
             }
             for (int i = 0; i < teams.Count; i++)
@@ -113,6 +116,7 @@ namespace PixFootball.League
             {
                 var ini = new StringBuilder();
                 for (int i = 0; i < words.Length && ini.Length < 3; i++) { string w = Letters(words[i]); if (w.Length > 0) ini.Append(w[0]); }
+                if (ini.Length == 2) { string last = Letters(words[words.Length - 1]); if (last.Length >= 2) cands.Add(ini.ToString() + last[1]); }
                 cands.Add(ini.ToString());
             }
             if (city.Length >= 3) cands.Add(city.Substring(0, 3));
@@ -121,8 +125,8 @@ namespace PixFootball.League
             if (city.Length >= 2 && nick.Length >= 1) cands.Add(city.Substring(0, 2) + nick[nick.Length - 1]);
             for (int i = 0; i < cands.Count; i++)
             {
-                string c = cands[i].ToUpperInvariant();
-                if (c.Length >= 2 && used.Add(c)) return c;
+                string c = cands[i].ToUpperInvariant();   // always exactly 3 letters (fixed-width scorebug and ticker)
+                if (c.Length == 3 && used.Add(c)) return c;
             }
             string basis = (city + nick + "XXX").ToUpperInvariant();
             for (int a = 0; a < basis.Length; a++)
@@ -133,6 +137,16 @@ namespace PixFootball.League
                         if (used.Add(s)) return s;
                     }
             for (int n = 0; ; n++) { string s = "T" + n.ToString("00"); if (used.Add(s)) return s; }
+        }
+
+        /// <summary>The abbr column cleaned to exactly three upper-case letters, otherwise empty (then the code is derived).</summary>
+        public static string CleanAbbr(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            s = s.Trim().ToUpperInvariant();
+            if (s.Length != 3) return "";
+            for (int i = 0; i < 3; i++) if (s[i] < 'A' || s[i] > 'Z') return "";
+            return s;
         }
 
         private static string Letters(string s)

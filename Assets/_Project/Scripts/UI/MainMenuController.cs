@@ -9,7 +9,7 @@ using UnityEngine.UI;
 namespace PixFootball.UI
 {
     /// <summary>Main menu (UI-3 style: dark navy, blue + gold accents): Free Roam, Settings, Quit; menu music; 3D player stage.</summary>
-    public class MainMenuController : MonoBehaviour
+    public partial class MainMenuController : MonoBehaviour
     {
         public Transform StageAnchor;
         public Camera StageCamera;
@@ -22,7 +22,7 @@ namespace PixFootball.UI
 
         void Awake()
         {
-            GameSession.SetPaused(false);
+            GameSession.ResetTime();
             UiKit.EnsureEventSystem();
             BuildUi();
             BuildStage();
@@ -34,11 +34,12 @@ namespace PixFootball.UI
         IEnumerator SelectFirst(GameObject g)
         {
             yield return null;
-            if (g != null && EventSystem.current != null) EventSystem.current.SetSelectedGameObject(g);
+            if (g != null && EventSystem.current != null) { UiAudio.Mute(0.25f); EventSystem.current.SetSelectedGameObject(g); }
         }
 
         void BuildUi()
         {
+            if (UiTheme.IsGlass) { BuildGlassUi(); return; }
             var canvas = UiKit.CreateCanvas("MenuCanvas", 10, transform);
             var root = (RectTransform)canvas.transform;
 
@@ -55,11 +56,9 @@ namespace PixFootball.UI
             {
                 var logo = UiKit.Panel(menu, "Logo", Color.white, logoSprite); logo.preserveAspect = true;
                 UiKit.Anchor(logo.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(110, -44), new Vector2(430, 442));
-                var tag = UiKit.Label(menu, "PLAY NOW", 52, UiColors.Gold, true, TextAlignmentOptions.TopLeft, "Mode");
-                UiKit.Anchor(tag.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(580, -150), new Vector2(400, 70)); tag.characterSpacing = 6f;
-                var rule = UiKit.Panel(menu, "TagRule", UiColors.Gold); UiKit.Anchor(rule.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(586, -222), new Vector2(200, 6));
-                var verTag = UiKit.Label(menu, "v" + GameplayInfo.Version + "  /  KICKOFF", 24, UiColors.TextSecondary, true, TextAlignmentOptions.TopLeft, "Build");
-                UiKit.Anchor(verTag.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(586, -238), new Vector2(400, 40)); verTag.characterSpacing = 3f;
+                var rule = UiKit.Panel(menu, "TagRule", UiColors.Gold); UiKit.Anchor(rule.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(586, -190), new Vector2(200, 6));
+                var verTag = UiKit.Label(menu, "VERSION " + GameplayInfo.Version, 24, UiColors.TextSecondary, true, TextAlignmentOptions.TopLeft, "Build");
+                UiKit.Anchor(verTag.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(586, -206), new Vector2(400, 40)); verTag.characterSpacing = 3f;
             }
             else
             {
@@ -73,59 +72,131 @@ namespace PixFootball.UI
             UiKit.Anchor(col, new Vector2(0, 1f), new Vector2(0, 1f), new Vector2(110, -520), new Vector2(640, 480));
             var v = col.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 14; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false;
             _firstButton = UiKit.MenuButton(col, "PLAY NOW", OpenTeamSelect, 640, 90, 40);
-            UiKit.MenuButton(col, "FREE ROAM", () => GameSession.StartFreeRoam(), 640, 90, 40);
+            var roam = UiKit.MenuButton(col, "FREE ROAM", () => StartWithFade(GameSession.StartFreeRoam), 640, 90, 40);
             var settingsBtn = UiKit.MenuButton(col, "SETTINGS", OpenSettings, 640, 90, 40);
-            UiKit.MenuButton(col, "QUIT", GameSession.Quit, 640, 90, 40);
+            var quit = UiKit.MenuButton(col, "QUIT", ConfirmQuit, 640, 90, 40);
             _settingsBtn = settingsBtn;
 
+            // one-line description of the highlighted entry (what each mode is)
+            _desc = UiKit.Label(menu, "", 28, UiColors.TextSecondary, false, TextAlignmentOptions.TopLeft, "Desc");
+            UiKit.Anchor(_desc.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(116, -950), new Vector2(640, 90));
+            _desc.textWrappingMode = TextWrappingModes.Normal;
+            Describe(_firstButton, "Pick two teams, the rules and the weather, then play a full game.");
+            Describe(roam, "Run around the empty stadium: test the moves, the cameras and the lighting.");
+            Describe(settingsBtn, "Video, gameplay, camera, broadcast and audio options.");
+            Describe(quit, "Close the game.");
+
             // ---- settings ----
-            _settings = SettingsPanel.Build(root, CloseSettings);
+            _canvasRoot = root;
+            _settings = SettingsPanel.Build(root, CloseSettings); _settings.OnReset = RebuildSettings;
             _settingsRoot = _settings.gameObject; _settingsRoot.SetActive(false);
-            _teamSelect = TeamSelectPanel.Build(root, CloseTeamSelect);
+            _teamSelect = TeamSelectPanel.Build(root, CloseTeamSelect, StartMatchWithFade);
             _teamRoot = _teamSelect.gameObject; _teamRoot.SetActive(false);
 
-            // ---- footer prompts ----
+            // ---- footer prompts (controller glyphs or keycaps, whichever device is in use; BACK only where B does something) ----
             var bar = UiKit.Panel(root, "Footer", UiColors.BgPanelDark); UiKit.Anchor(bar.rectTransform, new Vector2(0, 0), new Vector2(0, 0), Vector2.zero, new Vector2(0, 76)); bar.rectTransform.anchorMax = new Vector2(1, 0); bar.rectTransform.sizeDelta = new Vector2(0, 76);
             var row = UiKit.Rect(bar.rectTransform, "Prompts"); UiKit.Anchor(row, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(110, 0), new Vector2(1100, 56));
-            var h = row.gameObject.AddComponent<HorizontalLayoutGroup>(); h.spacing = 48; h.childAlignment = TextAnchor.MiddleLeft; h.childControlWidth = true; h.childControlHeight = true; h.childForceExpandWidth = false;
-            UiKit.FooterPrompt(row, "glyph_a", "SELECT", 48); UiKit.FooterPrompt(row, "glyph_b", "BACK", 48); UiKit.FooterPrompt(row, "glyph_analog_all", "NAVIGATE", 56);
-            var ver = UiKit.Label(bar.rectTransform, "PIX FOOTBALL  v" + GameplayInfo.Version, 24, UiColors.TextMuted, false, TextAlignmentOptions.MidlineRight, "Version");
+            _footer = PromptFooter.Attach(row, 48, 26, 48);
+            SetFooter(false);
+            var ver = UiKit.Label(bar.rectTransform, "PIX FOOTBALL  v" + GameplayInfo.Version, 24, UiColors.TextSecondary, false, TextAlignmentOptions.MidlineRight, "Version");
             UiKit.Anchor(ver.rectTransform, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-60, 0), new Vector2(600, 40));
         }
 
         Button _settingsBtn;
+        Transform _canvasRoot;
+        PromptFooter _footer;
+        TextMeshProUGUI _desc;
 
-        void OpenSettings()
+        void SetFooter(bool withBack)
         {
-            _menuRoot.SetActive(false); _settingsRoot.SetActive(true);
+            if (_footer == null) return;
+            if (withBack) _footer.Set(PromptFooter.Item("glyph_a", "SELECT"), PromptFooter.Item("glyph_b", "BACK"), PromptFooter.Item("glyph_analog_all", "NAVIGATE"));
+            else _footer.Set(PromptFooter.Item("glyph_a", "SELECT"), PromptFooter.Item("glyph_analog_all", "NAVIGATE"));
+        }
+
+        void Describe(Button b, string text)
+        {
+            var d = b.gameObject.AddComponent<MenuDescription>(); d.Target = _desc; d.Text = text;
+        }
+
+        /// <summary>"Reset all options" changed every stored value: build the settings pages again so they show the defaults.</summary>
+        void RebuildSettings()
+        {
+            int idx = _settingsRoot.transform.GetSiblingIndex();
+            Destroy(_settingsRoot);
+            _settings = SettingsPanel.Build(_canvasRoot, CloseSettings); _settings.OnReset = RebuildSettings;
+            _settingsRoot = _settings.gameObject; _settingsRoot.transform.SetSiblingIndex(idx);
             StartCoroutine(SelectFirst(_settings.First != null ? _settings.First.gameObject : null));
         }
 
+        void OpenSettings()
+        {
+            GlassSection("SETTINGS");
+            _menuRoot.SetActive(false); _settingsRoot.SetActive(true); SetFooter(true);
+            StartCoroutine(SelectFirst(_settings.First != null ? _settings.First.gameObject : null));
+        }
+
+        // also driven by the autotest through SendMessage("OpenTeamSelect")
         void OpenTeamSelect()
         {
-            _menuRoot.SetActive(false); _teamRoot.SetActive(true);
+            GlassSection("TEAM SELECT");
+            _menuRoot.SetActive(false); _teamRoot.SetActive(true); SetFooter(true);
             StartCoroutine(SelectFirst(_teamSelect.First != null ? _teamSelect.First.gameObject : null));
         }
 
         void CloseTeamSelect()
         {
-            _teamRoot.SetActive(false); _menuRoot.SetActive(true);
+            GlassSection("MAIN MENU");
+            _teamRoot.SetActive(false); _menuRoot.SetActive(true); SetFooter(false);
             StartCoroutine(SelectFirst(_firstButton != null ? _firstButton.gameObject : null));
         }
 
         void CloseSettings()
         {
+            GlassSection("MAIN MENU");
             PixSettings.Save(); PixSettings.Apply();
-            _settingsRoot.SetActive(false); _menuRoot.SetActive(true);
+            _settingsRoot.SetActive(false); _menuRoot.SetActive(true); SetFooter(false);
             StartCoroutine(SelectFirst(_settingsBtn != null ? _settingsBtn.gameObject : null));
+        }
+
+        /// <summary>QUIT asks first: one slip of A on the first column no longer closes the game (QA-802).</summary>
+        void ConfirmQuit()
+        {
+            UiDialog.Show(_menuRoot.transform.parent, "Quit the game?", "Return to the desktop. Settings are already saved.", "QUIT", "STAY", GameSession.Quit, null);
+        }
+
+        void StartMatchWithFade(MatchConfig cfg) { StartWithFade(() => GameSession.StartMatch(cfg)); }
+
+        /// <summary>The menu music fades out before the scene changes instead of cutting off (QA-801).</summary>
+        void StartWithFade(System.Action load)
+        {
+            if (_leaving) return;
+            _leaving = true;
+            StartCoroutine(FadeAndLoad(load));
+        }
+
+        bool _leaving;
+
+        IEnumerator FadeAndLoad(System.Action load)
+        {
+            float t = 0f, v0 = _music != null ? _music.volume : 0f;
+            while (t < 0.45f)
+            {
+                t += Time.unscaledDeltaTime;
+                if (_music != null) _music.volume = Mathf.Lerp(v0, 0f, t / 0.45f);
+                yield return null;
+            }
+            load();
         }
 
         void BuildStage()
         {
             if (StageAnchor == null) return;
             var view = SimAgentView.Create(StageAnchor, PlayerSize.Medium, TeamColors.Home, "MenuPlayer");
+            view.SetIdentity(12, PixFootball.Core.Position.QB);
             view.transform.localPosition = Vector3.zero; view.transform.localRotation = Quaternion.identity;
             view.SnapYaw(StageAnchor.eulerAngles.y);
+            if (UiTheme.IsGlass) PixFootball.UI.Glass.GlassStage.Attach(gameObject, StageAnchor, StageCamera != null ? StageCamera : Camera.main);
         }
 
         void StartMusic()
@@ -134,23 +205,35 @@ namespace PixFootball.UI
             _music = gameObject.AddComponent<AudioSource>();
             _music.loop = false; _music.playOnAwake = false; _music.spatialBlend = 0f;
             if (rt != null && rt.menuMusic.Count > 0) NextTrack();
+            else Debug.LogWarning("[PIX] No menu music in PixRuntimeAssets (build the runtime assets): the main menu is silent.");
         }
+
+        float _trackEndsAt, _trackStart;
 
         void NextTrack()
         {
             var rt = PixRuntimeAssets.Load();
             if (rt == null || rt.menuMusic.Count == 0) return;
             _track = (_track + 1 + (_track < 0 ? Random.Range(0, rt.menuMusic.Count) : 0)) % rt.menuMusic.Count;
-            _music.clip = rt.menuMusic[_track]; _music.volume = PixSettings.MusicVolume; _music.Play();
+            _music.clip = rt.menuMusic[_track]; _music.volume = 0f; _music.Play();
+            _trackStart = Time.unscaledTime; _trackEndsAt = Time.unscaledTime + rt.menuMusic[_track].length;
         }
 
         void Update()
         {
-            if (_music != null)
-            {
-                _music.volume = PixSettings.MusicVolume;
-                if (_music.clip != null && !_music.isPlaying) NextTrack();
-            }
+            if (_music == null || _leaving) return;
+            // the next track starts when this one has run its time, not whenever isPlaying reads false (a focus loss or an audio device reset must not skip a song)
+            if (_music.clip != null && Time.unscaledTime >= _trackEndsAt + 0.25f) NextTrack();
+            float fadeIn = Mathf.Clamp01((Time.unscaledTime - _trackStart) / 1.5f);
+            _music.volume = PixSettings.MusicVolume * fadeIn;
         }
+    }
+
+    /// <summary>Shows a one-line description for a menu row while it is highlighted.</summary>
+    public sealed class MenuDescription : MonoBehaviour, UnityEngine.EventSystems.ISelectHandler, UnityEngine.EventSystems.IPointerEnterHandler
+    {
+        public TextMeshProUGUI Target; public string Text;
+        public void OnSelect(UnityEngine.EventSystems.BaseEventData e) { if (Target != null) Target.text = Text; }
+        public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData e) { if (Target != null) Target.text = Text; }
     }
 }

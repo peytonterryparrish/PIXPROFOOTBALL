@@ -21,7 +21,8 @@ namespace PixFootball.Sim
         public const float CrossbarYards = CrossbarFeet / 3f;
         /// <summary>The posts stand on the end line, 10 yards behind the goal line (Y = 110 in sim coordinates).</summary>
         public const float PlaneY = 110f;
-        public const float UprightTopYards = 12f;
+        /// <summary>Top of the uprights above the ground: crossbar 10 ft + 35 ft of upright = 45 ft = 15 yards.</summary>
+        public const float UprightTopYards = 15f;
 
         /// <summary>
         /// Is a ball crossing the goal plane at lateral x and height z (yards) a good kick? Must clear the crossbar and pass between
@@ -31,7 +32,7 @@ namespace PixFootball.Sim
         {
             float half = WidthYards * 0.5f - BallPhysics.BallRadius * 0.6f;
             return System.Math.Abs(x - PixFootball.Core.FieldGeometry.CenterX) < half
-                   && z > CrossbarYards + BallPhysics.BallRadius * 0.4f && z < UprightTopYards * 3f;
+                   && z > CrossbarYards + BallPhysics.BallRadius * 0.4f && z < UprightTopYards;
         }
     }
 }

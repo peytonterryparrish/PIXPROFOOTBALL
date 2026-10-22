@@ -5,20 +5,30 @@ using UnityEngine;
 
 namespace PixFootball.Gameplay
 {
-    /// <summary>Stadium audio for a match: crowd bed that swells with the action, roars and boos on big plays, whistles, hits, catches and kicks.</summary>
+    /// <summary>
+    /// Stadium audio for a match: crowd bed that swells with the action, roars and boos on big plays, whistles, hits, catches and kicks.
+    /// One-shots (hits, catches, kicks, blocks, whistles) play on a small round-robin pool of sources so a second tackle never cuts the first and a new pitch never re-pitches a
+    /// sound that is still playing; they follow the SFX slider, the crowd follows the Crowd slider, and everything pauses with the game (AudioListener.pause).
+    /// </summary>
     public sealed class MatchAudio : MonoBehaviour
     {
-        AudioSource _bed, _roar, _sfx, _whistle, _crack;
+        const int PoolSize = 8;
+        AudioSource _bed, _roar;
+        AudioSource[] _pool;
+        int _poolNext;
         PixRuntimeAssets _rt;
-        float _bedTarget = 0.4f, _roarLeft, _boo;
+        float _bedTarget = 0.4f, _roarLeft, _boo, _quietHold;
 
         public void Init()
         {
             _rt = PixRuntimeAssets.Load();
-            _bed = Make(true); _roar = Make(false); _sfx = Make(false); _whistle = Make(false); _crack = Make(false);
+            _bed = Make(true); _roar = Make(false);
+            _pool = new AudioSource[PoolSize];
+            for (int i = 0; i < PoolSize; i++) _pool[i] = Make(false);
             AudioClip bed = _rt != null && _rt.sfxBeds.Count > 0 ? _rt.sfxBeds[0] : (_rt != null ? _rt.crowdAmbience : null);
             _bed.clip = bed; _bed.volume = 0.4f * PixSettings.CrowdVolume;
             if (bed != null) _bed.Play();
+            else if (_rt == null) Debug.LogWarning("[PIX] PixRuntimeAssets missing: the match has no crowd or effect sounds.");
         }
 
         AudioSource Make(bool loop)
@@ -30,38 +40,49 @@ namespace PixFootball.Gameplay
 
         static AudioClip Pick(List<AudioClip> l) { return l != null && l.Count > 0 ? l[Random.Range(0, l.Count)] : null; }
 
+        /// <summary>Plays a clip on the next free source of the pool at the given pitch / volume (times the SFX slider).</summary>
+        void Shot(AudioClip c, float volume, float pitch, float pan = 0f)
+        {
+            if (c == null || _pool == null) return;
+            // prefer a source that is not playing; otherwise recycle the oldest one
+            AudioSource s = null;
+            for (int i = 0; i < PoolSize; i++)
+            {
+                var cand = _pool[(_poolNext + i) % PoolSize];
+                if (!cand.isPlaying) { s = cand; _poolNext = (_poolNext + i + 1) % PoolSize; break; }
+            }
+            if (s == null) { s = _pool[_poolNext]; _poolNext = (_poolNext + 1) % PoolSize; }
+            s.clip = c; s.pitch = pitch; s.volume = Mathf.Clamp01(volume * PixSettings.SfxVolume); s.panStereo = Mathf.Clamp(pan, -1f, 1f);
+            s.Play();
+        }
+
         public void Whistle()
         {
             var c = _rt != null ? (Pick(_rt.sfxWhistle) ?? _rt.whistle) : null;
-            if (c != null) { _whistle.pitch = Random.Range(0.97f, 1.03f); _whistle.PlayOneShot(c, 0.55f); }
+            Shot(c, 0.55f, Random.Range(0.97f, 1.03f));
         }
 
         /// <summary>
         /// Hit sound by impact energy (0..1): a pad crack always, a body thud layered under it from a medium hit up, a second heavy thud and a lower pitch on the big ones.
-        /// The pitch drops and the volume rises with the energy; the crack is scheduled a few milliseconds ahead of the thud like the real sound.
+        /// The pitch drops and the volume rises with the energy. <paramref name="pan"/> (-1 left .. 1 right) places the hit across the stereo field.
         /// </summary>
-        public void Hit(float intensity)
+        public void Hit(float intensity, float pan = 0f)
         {
             intensity = Mathf.Clamp01(intensity);
             if (_rt == null) return;
             var crack = Pick(_rt.sfxHit) ?? Pick(_rt.sfxTackle);
             var thud = intensity > 0.3f ? Pick(_rt.sfxTackle) : null;
-            if (crack != null)
-            {
-                _crack.clip = crack; _crack.pitch = Random.Range(0.96f, 1.08f) - 0.12f * intensity; _crack.volume = Mathf.Lerp(0.35f, 0.95f, intensity);
-                _crack.Play();
-            }
+            Shot(crack, Mathf.Lerp(0.35f, 0.95f, intensity), Random.Range(0.96f, 1.08f) - 0.12f * intensity, pan);
             if (thud != null)
             {
-                _sfx.pitch = Random.Range(0.92f, 1.04f) - 0.16f * intensity;
-                _sfx.PlayOneShot(thud, Mathf.Lerp(0.4f, 1f, intensity));
-                if (intensity > 0.72f) { var t2 = Pick(_rt.sfxTackle); if (t2 != null && t2 != thud) _sfx.PlayOneShot(t2, 0.55f * intensity); }
+                Shot(thud, Mathf.Lerp(0.4f, 1f, intensity), Random.Range(0.92f, 1.04f) - 0.16f * intensity, pan);
+                if (intensity > 0.72f) { var t2 = Pick(_rt.sfxTackle); if (t2 != null && t2 != thud) Shot(t2, 0.55f * intensity, Random.Range(0.9f, 0.98f), pan); }
             }
         }
 
-        public void Catch() { var c = _rt != null ? Pick(_rt.sfxCatch) : null; if (c != null) { _sfx.pitch = Random.Range(0.95f, 1.05f); _sfx.PlayOneShot(c, 0.7f); } }
-        public void Kick() { var c = _rt != null ? Pick(_rt.sfxKick) : null; if (c != null) { _sfx.pitch = Random.Range(0.95f, 1.0f); _sfx.PlayOneShot(c, 0.9f); } }
-        public void BlockHit() { var c = _rt != null ? Pick(_rt.sfxHit) : null; if (c != null) { _sfx.pitch = Random.Range(0.9f, 1.1f); _sfx.PlayOneShot(c, 0.35f); } }
+        public void Catch(float pan = 0f) { Shot(_rt != null ? Pick(_rt.sfxCatch) : null, 0.7f, Random.Range(0.95f, 1.05f), pan); }
+        public void Kick() { Shot(_rt != null ? Pick(_rt.sfxKick) : null, 0.9f, Random.Range(0.95f, 1.0f)); }
+        public void BlockHit(float pan = 0f) { Shot(_rt != null ? Pick(_rt.sfxHit) : null, 0.35f, Random.Range(0.9f, 1.1f), pan); }
 
         /// <summary>Crowd roar; strength 0..1.</summary>
         public void Cheer(float strength)
@@ -70,7 +91,7 @@ namespace PixFootball.Gameplay
             if (c == null) return;
             _roar.pitch = 1f; _roar.volume = Mathf.Clamp01(0.35f + 0.5f * strength) * PixSettings.CrowdVolume;
             _roar.clip = c; _roar.Play(); _roarLeft = Mathf.Min(c.length, 6f);
-            _bedTarget = 0.6f;
+            _bedTarget = 0.6f; _quietHold = 0f;
         }
 
         /// <summary>Boos: the crowd bed dropped in pitch and pushed up for a few seconds.</summary>
@@ -79,14 +100,16 @@ namespace PixFootball.Gameplay
             _boo = 3.2f;
         }
 
-        public void Quiet() { _bedTarget = 0.3f; }
+        /// <summary>The crowd hushes (turnover, injury): held for about five seconds, then it drifts back to the normal bed.</summary>
+        public void Quiet() { _bedTarget = 0.3f; _quietHold = 5f; }
         public void Stir(float level) { _bedTarget = Mathf.Max(_bedTarget, 0.3f + 0.3f * level); }
 
         void Update()
         {
             float dt = Time.unscaledDeltaTime;
             if (_roarLeft > 0f) { _roarLeft -= dt; if (_roarLeft < 1.2f) _roar.volume = Mathf.MoveTowards(_roar.volume, 0f, dt * 0.5f); }
-            _bedTarget = Mathf.MoveTowards(_bedTarget, 0.38f, dt * 0.08f);
+            if (_quietHold > 0f) _quietHold -= dt;
+            else _bedTarget = Mathf.MoveTowards(_bedTarget, 0.38f, dt * 0.08f);
             float boo = _boo > 0f ? 1f : 0f; if (_boo > 0f) _boo -= dt;
             if (_bed != null)
             {
@@ -96,15 +119,25 @@ namespace PixFootball.Gameplay
             }
         }
 
+        /// <summary>Stereo pan of a sim position relative to the screen centre line, using the main camera (right of the screen = +1).</summary>
+        static float PanOf(in PlayEvent e, PlayFrame frame)
+        {
+            var cam = Camera.main;
+            if (cam == null) return 0f;
+            Vector3 vp = cam.WorldToViewportPoint(frame.ToUnity(e.Pos));
+            if (vp.z <= 0f) return 0f;
+            return Mathf.Clamp((vp.x - 0.5f) * 1.4f, -0.8f, 0.8f);
+        }
+
         /// <summary>Reacts to a simulation event (hits, catches, kicks, blocks).</summary>
-        public void OnEvent(in PlayEvent e)
+        public void OnEvent(in PlayEvent e, PlayFrame frame)
         {
             switch (e.Type)
             {
-                case SimEventType.Tackle: case SimEventType.Sack: Hit(Mathf.Clamp01(e.Value / 8f + (e.Tackle == TackleType.BigHit ? 0.5f : 0.2f))); break;
-                case SimEventType.Catch: case SimEventType.Interception: case SimEventType.Recovery: Catch(); break;
+                case SimEventType.Tackle: case SimEventType.Sack: Hit(Mathf.Clamp01(e.Value / 8f + (e.Tackle == TackleType.BigHit ? 0.5f : 0.2f)), PanOf(e, frame)); break;
+                case SimEventType.Catch: case SimEventType.Interception: case SimEventType.Recovery: Catch(PanOf(e, frame)); break;
                 case SimEventType.Kick: Kick(); break;
-                case SimEventType.Pancake: BlockHit(); Stir(0.3f); break;
+                case SimEventType.Pancake: BlockHit(PanOf(e, frame)); Stir(0.3f); break;
                 case SimEventType.Throw: Stir(0.2f); break;
                 case SimEventType.Whistle: Whistle(); break;
                 case SimEventType.Fumble: Stir(0.8f); break;

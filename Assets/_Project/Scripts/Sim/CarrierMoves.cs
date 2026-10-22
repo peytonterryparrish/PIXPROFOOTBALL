@@ -19,6 +19,20 @@ namespace PixFootball.Sim
         // Timers
         // =====================================================================================
 
+        /// <summary>Contest geometry of a carrier move: how far away a defender may be to be affected, the forward bias and the width.</summary>
+        private static bool ContestParams(CarrierMove m, out float range, out float fwd, out float width)
+        {
+            switch (m)
+            {
+                case CarrierMove.JukeLeft: case CarrierMove.JukeRight: range = 2.8f; fwd = 0.2f; width = 0.9f; return true;
+                case CarrierMove.Spin: range = 2.0f; fwd = -0.2f; width = 1.0f; return true;
+                case CarrierMove.StiffArm: range = 2.2f; fwd = -0.1f; width = 1.0f; return true;
+                case CarrierMove.Truck: range = 2.0f; fwd = 0.4f; width = 1.0f; return true;
+                case CarrierMove.Hurdle: range = 2.5f; fwd = 0.3f; width = 1.0f; return true;
+            }
+            range = fwd = width = 0f; return false;
+        }
+
         public void Update()
         {
             for (int i = 0; i < 22; i++)
@@ -26,6 +40,9 @@ namespace PixFootball.Sim
                 SimAgent a = S.Agents[i];
                 if (a.Move == CarrierMove.None) continue;
                 a.MoveTime -= PlaySimulation.Dt;
+                // the contest is decided when a defender actually reaches the move (60% of the old range), not the instant the button is pressed
+                float r, f, w;
+                if (!a.MoveResolved && a.MoveTime > 0f && ContestParams(a.Move, out r, out f, out w)) Contest(a, r * 0.62f, f, w, a.Move);
                 if (a.MoveTime <= 0f) EndMove(a);
             }
         }
@@ -33,8 +50,11 @@ namespace PixFootball.Sim
         private void EndMove(SimAgent a)
         {
             CarrierMove m = a.Move;
+            bool wasted = !a.MoveResolved && m != CarrierMove.Dive && m != CarrierMove.None;
             a.Move = CarrierMove.None;
             a.MoveTime = 0f;
+            // a move thrown at nobody costs him a step and delays the next one
+            if (wasted) { a.Body.Vel = a.Body.Vel * 0.88f; a.MoveCooldown += 0.35f; }
             if (m == CarrierMove.Dive)
             {
                 a.Body.Fall(0.9f);
@@ -62,7 +82,7 @@ namespace PixFootball.Sim
         public bool TryMove(SimAgent c, CarrierMove m)
         {
             if (!CanMove(c)) return false;
-            if (c.Side == S.BallSide == false && !c.HasBall) { /* defenders only dive */ }
+
             Vec2 heading = c.Speed > 1.2f ? c.Vel.Norm() : c.Facing;
             c.MoveDir = heading;
             c.MoveResolved = false;
@@ -80,7 +100,6 @@ namespace PixFootball.Sim
                     float jukeV = 2.2f + 2.6f * SimMath.Rating01(c.R.Elusiveness) * 0.6f + 1.8f * c.Body.Agility01;
                     c.Body.Knock(side * jukeV);
                     c.Body.Vel = c.Body.Vel * 0.93f;
-                    Contest(c, 2.8f, 0.2f, 0.9f, m);
                     break;
                 }
                 case CarrierMove.Spin:
@@ -88,16 +107,17 @@ namespace PixFootball.Sim
                     c.MoveTotal = c.MoveTime = 0.45f;
                     c.MoveCooldown = 1.35f;
                     c.Body.SpeedMultiplier = 0.88f;
-                    Vec2 side = heading.Perp() * (S.Rng.NextFloat() < 0.5f ? 1f : -1f);
+                    // spin away from the nearest threat (toward open grass), random only when nobody is near
+                    float spinSgn = S.Rng.NextFloat() < 0.5f ? 1f : -1f;
+                    { SimAgent nt = null; float nd = 4f; for (int q = 0; q < 22; q++) { SimAgent o = S.Agents[q]; if (o.Side == c.Side || o.State == AgentState.Down) continue; float dd = (o.Pos - c.Pos).Length; if (dd < nd) { nd = dd; nt = o; } } if (nt != null) spinSgn = (nt.Pos - c.Pos).Dot(heading.Perp()) > 0f ? -1f : 1f; }
+                    Vec2 side = heading.Perp() * spinSgn;
                     c.Body.Knock(side * 1.2f);
-                    Contest(c, 2.0f, -0.2f, 1.0f, m);
                     break;
                 }
                 case CarrierMove.StiffArm:
                 {
                     c.MoveTotal = c.MoveTime = 0.4f;
                     c.MoveCooldown = 1.0f;
-                    Contest(c, 2.2f, -0.1f, 1.0f, m);
                     break;
                 }
                 case CarrierMove.Truck:
@@ -105,7 +125,6 @@ namespace PixFootball.Sim
                     c.MoveTotal = c.MoveTime = 0.4f;
                     c.MoveCooldown = 1.3f;
                     c.Body.SpeedMultiplier = 0.9f;
-                    Contest(c, 2.0f, 0.4f, 1.0f, m);
                     break;
                 }
                 case CarrierMove.Hurdle:
@@ -113,7 +132,6 @@ namespace PixFootball.Sim
                     c.MoveTotal = c.MoveTime = 0.6f;
                     c.MoveCooldown = 1.2f;
                     c.Body.SpeedMultiplier = 0.95f;
-                    Contest(c, 2.5f, 0.3f, 1.0f, m);
                     break;
                 }
                 case CarrierMove.Dive:
@@ -155,13 +173,13 @@ namespace PixFootball.Sim
             {
                 case CarrierMove.JukeLeft:
                 case CarrierMove.JukeRight:
-                    win = Sigmoid((elu - defMove) / 15f - 0.30f);
+                    win = Sigmoid((elu - defMove) / 15f - 0.90f);
                     break;
                 case CarrierMove.Spin:
-                    win = Sigmoid(((0.6f * c.R.Elusiveness + 0.25f * c.R.Agility + 0.15f * c.R.BreakTackle) - (0.55f * t.R.Tackling + 0.25f * t.R.Agility + 0.2f * t.R.Awareness)) / 14f - 0.55f);
+                    win = Sigmoid(((0.6f * c.R.Elusiveness + 0.25f * c.R.Agility + 0.15f * c.R.BreakTackle) - (0.55f * t.R.Tackling + 0.25f * t.R.Agility + 0.2f * t.R.Awareness)) / 14f - 1.00f);
                     break;
                 case CarrierMove.StiffArm:
-                    win = Sigmoid(((0.45f * c.R.Strength + 0.35f * c.R.BreakTackle + 0.2f * c.R.Carrying) - (0.5f * t.R.Tackling + 0.3f * t.R.Strength + 0.2f * t.R.Awareness)) / 12f - 0.3f);
+                    win = Sigmoid(((0.45f * c.R.Strength + 0.35f * c.R.BreakTackle + 0.2f * c.R.Carrying) - (0.5f * t.R.Tackling + 0.3f * t.R.Strength + 0.2f * t.R.Awareness)) / 12f - 0.6f);
                     break;
                 case CarrierMove.Truck:
                 {
@@ -207,7 +225,7 @@ namespace PixFootball.Sim
                 if (m == CarrierMove.Truck)
                 {
                     c.Body.Vel = c.Body.Vel * 0.55f;
-                    if (S.Rng.NextFloat() < 0.035f * (1.5f - SimMath.Rating01(c.R.Carrying))) S.Fumble(c, t, (t.Pos - c.Pos).Norm() * -1.5f);
+                    if (S.Rng.NextFloat() < 0.035f * (1.5f - SimMath.Rating01(c.R.Carrying)) * (1f + 0.8f * S.Options.BallSlickness)) S.Fumble(c, t, (t.Pos - c.Pos).Norm() * -1.5f);
                 }
                 else if (m == CarrierMove.Hurdle) c.Body.Stumble(0.5f);
                 else if (m == CarrierMove.Spin) c.Body.Vel = c.Body.Vel * 0.85f;

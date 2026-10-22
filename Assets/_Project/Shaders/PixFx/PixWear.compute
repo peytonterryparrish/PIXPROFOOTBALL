@@ -1,0 +1,34 @@
+// Field wear texture updates (v0.6): additive soft stamps (tackles, piles, footsteps) and snow-print refill. 8-bit RGBA, saturating.
+#pragma kernel Stamp
+#pragma kernel Decay
+
+RWTexture2D<float4> _Result;
+int _TexW;
+int _TexH;
+int2 _Origin;           // first pixel of the stamp's bounding box
+float4 _Center;         // pixel centre (xy), pixel radius (zw, x and y: the texture is not square in metres per pixel when the pitch is not)
+float4 _Color;          // channel weights added at the centre
+float4 _Decay4;         // subtracted from the texture by Decay
+
+float Hash(float2 p) { return frac(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453); }
+
+[numthreads(8, 8, 1)]
+void Stamp(uint3 id : SV_DispatchThreadID)
+{
+    int2 p = _Origin + int2(id.xy);
+    if (p.x < 0 || p.y < 0 || p.x >= _TexW || p.y >= _TexH) return;
+    float2 d = (float2(p) + 0.5 - _Center.xy) / _Center.zw;
+    float r2 = dot(d, d);
+    if (r2 >= 1.0) return;
+    float a = 1.0 - r2;
+    a = a * a;
+    a *= 0.78 + 0.22 * Hash(float2(p));
+    _Result[p] = saturate(_Result[p] + _Color * a);
+}
+
+[numthreads(8, 8, 1)]
+void Decay(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_TexW || id.y >= (uint)_TexH) return;
+    _Result[id.xy] = saturate(_Result[id.xy] - _Decay4);
+}

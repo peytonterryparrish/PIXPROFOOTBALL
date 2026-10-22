@@ -21,7 +21,14 @@ namespace PixFootball.Sim
             {
                 q.HasFace = true; q.FaceDir = new Vec2(0f, 1f);
                 if (S.Ball.Holder == q.Id) q.QbState = q.QbPendingState;
-                else if (S.Ball.State != BallState.Snap && !q.HasBall) { /* bad snap: scramble for it */ }
+                else if (S.Ball.State != BallState.Snap && !q.HasBall)
+                {
+                    // a bad snap: he goes after the loose ball (and the loose-ball logic lets him fall on it)
+                    Vec2 toBall = S.Ball.Pos.XY - q.Pos;
+                    q.Want = toBall.Norm() * q.Body.EffectiveVMax * 0.9f;
+                    q.HasFace = true; q.FaceDir = toBall.LenSq() > 0.2f ? toBall.Norm() : new Vec2(0f, 1f);
+                    q.Intent = AgentAction.Run;
+                }
                 return;
             }
 
@@ -94,7 +101,7 @@ namespace PixFootball.Sim
                 // step toward the runner, pitch once he is on the edge
                 q.FaceDir = (tgt.Pos - q.Pos).Norm();
                 q.Want = Vec2.Zero;
-                if (S.Time >= 0.28f && dist < 7.5f && dist > 2.0f && Math.Abs(tgt.Vel.X) > 1.5f) { S.PitchBall(q, tgt); q.QbState = QbPhase.Done; }
+                if ((S.Time >= 0.28f && dist < 7.5f && dist > 2.0f && Math.Abs(tgt.Vel.X) > 1.5f) || (S.Time >= 0.8f && dist < 9.5f && dist > 1.5f)) { S.PitchBall(q, tgt); q.QbState = QbPhase.Done; }   // a deadline: the pitch goes even if the back is slow to the edge
                 else if (S.Time > 1.1f) q.QbState = QbPhase.Done;
                 return;
             }
@@ -102,7 +109,7 @@ namespace PixFootball.Sim
             // handoff: shuffle toward the mesh point
             Vec2 meshPt = tgt.Pos + tgt.Vel * 0.18f;
             Vec2 toMesh = meshPt - q.Pos;
-            Vec2 start = S.BallX0 + 0f > 0f ? new Vec2(S.BallX0 + S.OffForm.Slots[0].X, S.LosY + S.OffForm.Slots[0].Y) : q.Pos;
+            Vec2 start = new Vec2(S.BallX0 + S.OffForm.Slots[0].X, S.LosY + S.OffForm.Slots[0].Y);
             if ((q.Pos - start).Length > 5.6f) toMesh = Vec2.Zero;
             q.FaceDir = toMesh.LenSq() > 0.04f ? toMesh.Norm() : new Vec2(0f, 1f);
             q.Want = toMesh.Norm() * Math.Min(5.2f, toMesh.Length * 5f);
@@ -161,7 +168,7 @@ namespace PixFootball.Sim
         {
             q.Intent = AgentAction.Handoff;
             q.HasFace = true;
-            Vec2 toward = _fakeTarget != null ? _fakeTarget.Pos - q.Pos : new Vec2(0f, -1f);
+            Vec2 toward = _fakeTarget != null ? _fakeTarget.Pos - q.Pos : new Vec2(0f, 1f);   // QA-372: a fake with no runner to sell to faces downfield, never his own end zone
             q.FaceDir = toward.LenSq() > 0.04f ? toward.Norm() : new Vec2(0f, 1f);
             q.Want = Vec2.Zero;
             S.PlayAction(q, AgentAction.Handoff, 0.2f);
@@ -192,7 +199,7 @@ namespace PixFootball.Sim
         {
             q.QbState = QbPhase.Set;
             q.QbSetAt = S.Time;
-            q.ReadIdx = 0;
+            if (!_rolling || q.ReadIdx == 0) q.ReadIdx = 0;   // a rolling quarterback keeps the progression he already worked through
             q.ReadTimer = 0.05f;
             q.QbLastAdvance = S.Time;
         }
@@ -225,6 +232,22 @@ namespace PixFootball.Sim
                 if (dd < 4.5f && dd > 0.1f && (d.State != AgentState.Engaged || (d.Engagement != null && d.Engagement.Lev < -0.5f)))
                     push = push + rel.Norm() * ((4.5f - dd) / 4.5f);
             }
+            // climb the pocket: rushers are winning around the outside while the middle is still clean, so the passer steps up (never past 2.5 yd behind the line)
+            bool edgeThreat = false, interiorThreat = false;
+            for (int j = 11; j < 22; j++)
+            {
+                SimAgent d = S.Agents[j];
+                if (d.State == AgentState.Down || d.Body.FallenTime > 0f) continue;
+                float dx = Math.Abs(d.Pos.X - q.Pos.X), dyAhead = d.Pos.Y - q.Pos.Y;
+                bool losing = d.State != AgentState.Engaged || (d.Engagement != null && d.Engagement.Lev < -0.3f);
+                if (dx > 2.2f && dx < 7f && dyAhead > -3.5f && dyAhead < 4.5f && (d.Pos - q.Pos).Length < 6.8f && losing) edgeThreat = true;
+                else if (dx <= 2.2f && dyAhead > 0f && dyAhead < 3.8f && losing) interiorThreat = true;
+            }
+            if (edgeThreat && !interiorThreat && !_rolling && q.Pos.Y < S.LosY - 3.2f && q.QbClock > 1.0f)
+                push = push * 0.5f + new Vec2(0f, 1.1f);
+            // sliding away from a rusher is mostly lateral: a rusher in front no longer drives him straight back into the safeties
+            if (push.Y < 0f) push = new Vec2(push.X, push.Y * 0.25f);
+            if (q.Pos.Y < S.LosY - 9f && push.Y < 0f) push = new Vec2(push.X, 0f);
             if (push.LenSq() < 0.01f) return Vec2.Zero;
             float mag = Math.Min(1f, push.Length);
             return push.Norm() * (2.6f * mag * (0.5f + 0.5f * q.Body.Agility01));
@@ -248,8 +271,8 @@ namespace PixFootball.Sim
             Vec2 prev = new Vec2(S.BallX0 + S.OffForm.Slots[r.Slot].X, S.LosY + S.OffForm.Slots[r.Slot].Y);
             for (int i = 0; i + 1 < ra.Waypoints.Count; i++)
             {
-                Vec2 a = S.Rel(ra.Waypoints[i].Point);
-                Vec2 b = S.Rel(ra.Waypoints[i + 1].Point);
+                Vec2 a = S.RouteRel(ra.Waypoints[i].Point);
+                Vec2 b = S.RouteRel(ra.Waypoints[i + 1].Point);
                 float ang = SimMath.AngleBetween((a - prev).Norm(), (b - a).Norm());
                 if (ang > 0.6f) { tCut = ra.Waypoints[i].Time; break; }
                 prev = a;
@@ -280,7 +303,7 @@ namespace PixFootball.Sim
         }
 
         /// <summary>How much easier (openness threshold) and how much more attractive (ranking) a hot-routed receiver is to the quarterback.</summary>
-        public const float HotReadEdge = 0.10f, HotReadBonus = 0.18f;
+        public const float HotReadEdge = 0.22f, HotReadBonus = 0.34f;
 
         /// <summary>True for a receiver the user gave a hot route at the line.</summary>
         public static bool IsHotRead(SimAgent r)
@@ -382,7 +405,7 @@ namespace PixFootball.Sim
                 // 2) leave the pocket
                 if (!hot && (press < 0.55f || q.R.Speed >= 80) && TryStartScramble(q, press)) return;
                 // 3) live to play another down
-                if (aw > 0.35f && (press >= 0.50f || S.Time > holdMax + 0.05f)) { ThrowAway(q); return; }
+                if (aw > 0.35f && S.State.Down < 4 && (press >= 0.50f || S.Time > holdMax + 0.05f)) { ThrowAway(q); return; }   // on fourth down nobody throws it away
                 if (bestIdx >= 0 && bestOpen > 0.2f && S.Time > holdMax + 0.6f) BeginThrow(q, S.Agents[_reads[bestIdx]], bestStyle, Vec2.Zero);
             }
             else
@@ -396,7 +419,7 @@ namespace PixFootball.Sim
         public float EvalReceiver(SimAgent q, SimAgent r, out Vec3 aim, out float tf, out ThrowStyle style)
         {
             Vec3 from = new Vec3(q.Pos, 1.9f);
-            float windup = 0.28f;
+            float windup = 0.26f - 0.06f * SimMath.Rating01(q.R.Awareness);   // the same constant BeginThrow uses
             float t = 0.9f;
             Vec2 T = r.Pos;
             aim = new Vec3(T, 1.6f);
@@ -421,7 +444,7 @@ namespace PixFootball.Sim
                 lastVel = vel;
                 t = tf;
             }
-            if (!feasible || tf > 2.7f) return -1f;
+            if (!feasible || tf > 3.4f) return -1f;
             // sampled height of the planned flight at each fraction of its horizontal run (for lane checks)
             for (int k = 0; k < _zAt.Length; k++) _zAt[k] = 0f;
             {
@@ -508,7 +531,7 @@ namespace PixFootball.Sim
         public static float StyleSpeed(ThrowStyle style, float d, int power, out bool high)
         {
             float vmax = BallPhysics.MaxThrowSpeed(power);
-            float flat = SimMath.Clamp(16f + 1.0f * d, 19f, vmax);
+            float flat = SimMath.Clamp(14.0f + 0.45f * d, 16.5f, vmax); // ~37 mph on a 10-yard out, 52 mph on a 30-yard dig: real flight times (0.55 s at 10 yd, 1.0 s at 25 yd)
             high = false;
             float minV = (float)Math.Sqrt(SimMath.Gravity * Math.Max(1f, d)) * 1.12f;
             switch (style)
@@ -604,6 +627,15 @@ namespace PixFootball.Sim
                 sideX = near.Pos.X < FieldGeometry.CenterX ? -1.5f : FieldGeometry.Width + 1.5f;
                 ty = Math.Max(near.Pos.Y, S.LosY + 1.0f);
             }
+            // do not throw it into the rusher: if a free defender stands on the line to that sideline, use the other one
+            for (int j = 11; j < 22; j++)
+            {
+                SimAgent dj = S.Agents[j];
+                if (dj.State == AgentState.Engaged || dj.State == AgentState.Down) continue;
+                float tp;
+                Vec2 cp = SimMath.ClosestOnSegment(q.Pos, new Vec2(sideX, ty), dj.Pos, out tp);
+                if (tp > 0.05f && tp < 0.7f && (cp - dj.Pos).Length < 1.5f) { sideX = sideX < 0f ? FieldGeometry.Width + 1.5f : -1.5f; break; }
+            }
             Vec3 from = new Vec3(q.Pos, 1.9f);
             Vec3 aim = new Vec3(sideX, ty, 1.5f);
             bool grounding = false;
@@ -658,6 +690,7 @@ namespace PixFootball.Sim
 
         private void ReleaseThrow(SimAgent q)
         {
+            float windScale0 = BallPhysics.WindScale; BallPhysics.WindScale = 0.55f; // the passer allows for about half of the wind
             SimAgent t = S.Agents[q.ThrowTarget];
             Vec3 from = new Vec3(q.Pos + q.Facing * 0.25f, 1.95f);
             float t_ = 0.9f;
@@ -699,6 +732,7 @@ namespace PixFootball.Sim
             float sp2 = StyleSpeed(style, d2, power, out high);
             BallPhysics.SolveLaunch(from, aimErr, sp2, high, out vel, out tf);
 
+            BallPhysics.WindScale = windScale0;
             S.Ball.Launch(BallState.Pass, from, vel, q.Id);
             S.OnPassReleased(q, t, false);
             q.HasBall = false;
@@ -711,7 +745,7 @@ namespace PixFootball.Sim
         {
             if (!q.HasBall) return;
             // the dropback is automatic; a firm stick push after the exchange takes the quarterback off the script
-            if (q.QbState == QbPhase.Dropback && input.Move.Length > 0.45f && S.Time > 0.7f) q.QbState = QbPhase.Scramble;
+            if (q.QbState == QbPhase.Dropback && input.Move.Length > 0.6f && S.Time > 1.0f && (_dropPoint - q.Pos).Length < 2.5f) q.QbState = QbPhase.Scramble;   // after he has dropped, not mid-drop
             bool manual = q.QbState == QbPhase.Set || q.QbState == QbPhase.Scramble;
             if (q.QbState == QbPhase.Windup)
             {

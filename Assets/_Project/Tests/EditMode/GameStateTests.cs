@@ -559,12 +559,16 @@ namespace PixFootball.Tests
         }
 
         [Test]
-        public void CollegeClockStopsOnFirstDownButProDoesNot()
+        public void CollegeClockStopsOnFirstDownOnlyInTheLastTwoMinutesAndProNever()
         {
             var c = Start(RuleSet.College());
             c.Apply(PlayResult.Run(12, 5f));
-            Assert.IsFalse(c.ClockRunning);
-            Assert.AreEqual(c.Rules.RestartOnReadyRunoff, c.PendingRunoff);
+            Assert.IsTrue(c.ClockRunning, "college first downs no longer stop the clock early in a half");
+            var cl = Start(RuleSet.College());
+            cl.Quarter = 4; cl.ClockSeconds = 100f;
+            cl.Apply(PlayResult.Run(12, 5f));
+            Assert.IsFalse(cl.ClockRunning, "but they do inside the last two minutes");
+            Assert.AreEqual(cl.Rules.RestartOnReadyRunoff, cl.PendingRunoff);
 
             var p = Start();
             p.Apply(PlayResult.Run(12, 5f));
@@ -574,7 +578,7 @@ namespace PixFootball.Tests
             var late = Start();
             late.Quarter = 4; late.ClockSeconds = 100f; late.TwoMinuteWarningSecondHalf = true;
             late.Apply(PlayResult.Run(12, 5f));
-            Assert.IsFalse(late.ClockRunning, "pro first downs stop the clock inside the last two minutes");
+            Assert.IsTrue(late.ClockRunning, "the NFL clock keeps running after a first down, even inside two minutes");
         }
 
         [Test]

@@ -205,6 +205,7 @@ namespace PixFootball.Core
         public static ZoneRegion DeepMiddle(float depth = 16f) { return new ZoneRegion(ZoneKind.DeepMiddle, 0f, depth, 20f, 30f); }
         public static ZoneRegion Robber() { return new ZoneRegion(ZoneKind.Robber, 0f, 7f, 10f, 6f); }
         public static ZoneRegion BuzzRight() { return new ZoneRegion(ZoneKind.Buzz, 12f, 8f, 10f, 8f); }
+        public static ZoneRegion BuzzLeft() { return new ZoneRegion(ZoneKind.Buzz, -12f, 8f, 10f, 8f); }
         public static ZoneRegion Quarter(int index, float depth = 13f)
         {
             float[] xs = { -20f, -6.7f, 6.7f, 20f };
@@ -372,6 +373,14 @@ namespace PixFootball.Core
             return null;
         }
 
+        /// <summary>QA-544: names repeat across formations (Cover 3 Sky, Slants ...); this finds the play of that name in the given formation (id matches win).</summary>
+        public Play FindPlay(string nameOrId, string formationName)
+        {
+            foreach (Play p in AllPlays) if (p.Id == nameOrId) return p;
+            foreach (Play p in AllPlays) if (p.Name == nameOrId && p.FormationName == formationName) return p;
+            return FindPlay(nameOrId);
+        }
+
         public List<Play> PlaysFor(string formationName)
         {
             var list = new List<Play>();
@@ -403,7 +412,15 @@ namespace PixFootball.Core
         public void Merge(Playbook other)
         {
             foreach (Formation f in other.Formations) if (FindFormation(f.Name) == null) Formations.Add(f);
-            foreach (PlaySet s in other.Sets) Sets.Add(s);
+            // QA-545: a play id already present is not added a second time (merging two default books used to double every play and fail validation)
+            var have = new HashSet<string>();
+            foreach (Play p in AllPlays) have.Add(p.Id);
+            foreach (PlaySet s in other.Sets)
+            {
+                var fresh = new PlaySet(s.Name, s.Side);
+                foreach (Play p in s.Plays) if (have.Add(p.Id)) fresh.Plays.Add(p);
+                if (fresh.Plays.Count > 0) Sets.Add(fresh);
+            }
         }
 
         /// <summary>Structural validation. Returns true when no errors were found.</summary>
@@ -456,6 +473,58 @@ namespace PixFootball.Core
                         errors.Add(tag + "stunt partner out of range");
                 }
                 ValidateSideAssignments(p, tag, errors);
+            }
+            ValidateLegality(errors);
+            return errors.Count == before;
+        }
+
+        /// <summary>Lateral limit (yards from the ball) of any route waypoint: nobody runs out of bounds on purpose.</summary>
+        public const float RouteHalfWidth = 24.5f;
+
+        /// <summary>
+        /// Football legality of the offensive formations and routes: at least seven players on the line of scrimmage, at most four in the
+        /// backfield, one quarterback, the five interior linemen on the line and the two outermost men on it eligible receivers (not linemen),
+        /// every route inside the sideline. Special-teams units are not checked (they have their own rules). Returns true when no errors were found.
+        /// </summary>
+        public bool ValidateLegality(List<string> errors)
+        {
+            int before = errors.Count;
+            foreach (Formation f in Formations)
+            {
+                if (f.Side != PlaySide.Offense || f.Slots == null || f.Slots.Length != Formation.SlotCount) continue;
+                if (f.Unit.Length != 2 || !char.IsDigit(f.Unit[0])) continue;   // personnel groupings only ("11", "21", "12"...)
+                int onLine = 0, back = 0, qbs = 0;
+                float minX = float.MaxValue, maxX = float.MinValue; Position left = Position.QB, right = Position.QB;
+                foreach (SlotSpec s in f.Slots)
+                {
+                    if (s.Position == Position.QB) qbs++;
+                    if (s.Y >= -1.05f)
+                    {
+                        onLine++;
+                        if (s.X < minX) { minX = s.X; left = s.Position; }
+                        if (s.X > maxX) { maxX = s.X; right = s.Position; }
+                    }
+                    else back++;
+                }
+                if (qbs != 1) errors.Add("Formation " + f.Name + ": needs exactly one quarterback (has " + qbs + ")");
+                if (onLine < 7) errors.Add("Formation " + f.Name + ": only " + onLine + " players on the line of scrimmage (7 required)");
+                if (back > 4) errors.Add("Formation " + f.Name + ": " + back + " players in the backfield (4 at most)");
+                for (int i = 0; i < Formation.SlotCount; i++)
+                    if (PositionGroup.IsOffensiveLine(f.Slots[i].Position) && f.Slots[i].Y < -1.05f)
+                        errors.Add("Formation " + f.Name + ": lineman " + f.Slots[i].Label + " is off the line");
+                if (PositionGroup.IsOffensiveLine(left) || PositionGroup.IsOffensiveLine(right))
+                    errors.Add("Formation " + f.Name + ": an ineligible lineman is the outermost player on the line (illegal numbering)");
+            }
+            foreach (Play p in AllPlays)
+            {
+                if (p.Side != PlaySide.Offense || p.Assignments == null) continue;
+                foreach (Assignment a in p.Assignments)
+                {
+                    var r = a as RouteAssignment;
+                    if (r == null) continue;
+                    foreach (RouteWaypoint w in r.Waypoints)
+                        if (Math.Abs(w.Point.X) > RouteHalfWidth + 0.01f) errors.Add("Play '" + p.Name + "' [" + p.FormationName + "]: a route leaves the field (x = " + w.Point.X.ToString("0.0") + ")");
+                }
             }
             return errors.Count == before;
         }

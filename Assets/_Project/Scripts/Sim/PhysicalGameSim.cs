@@ -35,7 +35,7 @@ namespace PixFootball.Sim
     /// <see cref="PlaySimulation"/> and feeds the results to <see cref="GameState"/>. Usable for "watch a game" modes and for simming a
     /// full play-by-play with physical outcomes.
     /// </summary>
-    public sealed class PhysicalGameSim
+    public sealed partial class PhysicalGameSim
     {
         public readonly GameState State;
         public readonly RuleSet Rules;
@@ -44,6 +44,11 @@ namespace PixFootball.Sim
         public readonly LeagueTeam Home, Away;
         public readonly List<PlayRecord> Plays = new List<PlayRecord>();
         public bool KeepLogs = false;
+        /// <summary>Per-player fatigue carried from snap to snap (set to null for the old always-fresh behavior).</summary>
+        public FatigueTracker Fatigue = new FatigueTracker();
+        /// <summary>CPU coaches use their timeouts in the two-minute drill (set false for the old behavior).</summary>
+        public bool CpuTimeouts = true;
+        private int _lastQuarter;
 
         private readonly List<Play> _runs = new List<Play>(), _passes = new List<Play>(), _screens = new List<Play>(),
             _zoneDefs = new List<Play>(), _manDefs = new List<Play>(), _blitzDefs = new List<Play>(), _goalLineDefs = new List<Play>(),
@@ -56,6 +61,7 @@ namespace PixFootball.Sim
             Home = home; Away = away; Rules = rules ?? RuleSet.Pro(); Rng = rng;
             Book = book ?? DefaultPlaybooks.Create();
             State = new GameState(Rules, openingKicker);
+            State.OvertimeCoin = Rng.Fork();   // QA-479: the overtime coin toss
             Index();
         }
 
@@ -122,6 +128,11 @@ namespace PixFootball.Sim
         public PlayRecord PlayNext()
         {
             if (State.IsFinal) return null;
+            if (CpuTimeouts && State.Phase == GamePhase.Scrimmage)
+            {
+                foreach (CoreTeam tt in new[] { CoreTeam.Home, CoreTeam.Away })
+                    if (PlayCaller.WantsTimeout(State, tt, Rng)) { State.CallTimeout(tt); break; }
+            }
             if (State.Phase == GamePhase.Scrimmage && State.RunClockToSnap())
                 return new PlayRecord { Note = true, Quarter = State.Quarter, HomeScore = State.HomeScore, AwayScore = State.AwayScore };
             if (State.IsFinal) return null;
@@ -133,26 +144,41 @@ namespace PixFootball.Sim
             };
             Play off, def;
             ChoosePlays(out off, out def);
+            if (off == null || def == null) throw new InvalidOperationException("The playbook has no play for " + State.Phase + " (offense " + (off != null) + ", defense " + (def != null) + "): a trimmed custom playbook must keep at least one kickoff, return, punt, field goal, block and extra-point play.");
             Remember(State.Possession, off);
             rec.OffensePlayName = off.Name; rec.DefensePlayName = def.Name;
 
             CoreTeam offTeam = State.Possession;
             LeagueTeam offLeague = TeamOf(offTeam), defLeague = TeamOf(offTeam.Opponent());
             Formation of = Book.FindFormation(off.FormationName), df = Book.FindFormation(def.FormationName);
-            Player[] ro = SimRosters.ForFormation(offLeague, of);
-            Player[] rd = SimRosters.ForFormation(defLeague, df);
+            Player[] ro = SimRosters.ForFormation(offLeague, of, Fatigue);
+            Player[] rd = SimRosters.ForFormation(defLeague, df, Fatigue);
 
             var sim = new PlaySimulation();
-            sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), new PlaySimOptions { Playbook = Book });
+            // game conditions: the wind of this quarter in the offense's frame, and the fatigue the players carry into the snap
+            bool attacksPositiveZ = (State.Possession == CoreTeam.Home) == (State.Quarter % 2 == 1);
+            var simOptions = new PlaySimOptions { Playbook = Book, Fatigue = Fatigue };
+            if (State.Conditions != null) simOptions.SetWind(State.Conditions.ForQuarter(State.Quarter), attacksPositiveZ);
+            if (rec.Quarter != _lastQuarter) { if (_lastQuarter > 0 && Fatigue != null) Fatigue.Rest(_lastQuarter == 2 ? 600f : 90f); _lastQuarter = rec.Quarter; }
+            sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions);
             PlayResult result = sim.RunToCompletion();
             rec.Result = result;
             rec.SimSeconds = sim.Time;
+            if (Fatigue != null)
+            {
+                var onField = new HashSet<int>();
+                for (int i = 0; i < 22; i++) if (sim.Agents[i].Player != null) onField.Add(sim.Agents[i].Player.Id);
+                var sitting = new List<Player>();
+                foreach (Player p in offLeague.Roster) if (!onField.Contains(p.Id)) sitting.Add(p);
+                foreach (Player p in defLeague.Roster) if (!onField.Contains(p.Id)) sitting.Add(p);
+                Fatigue.AfterPlay(sim, 25f, sitting);
+            }
             if (result.Penalty != null)
             {
                 if (result.Type == PlayType.Penalty) rec.PenaltyAccepted = result.PenaltyDecision != PenaltyDecision.Decline;
                 else
                 {
-                    rec.PenaltyAccepted = PenaltyEnforcer.ShouldAccept(State, result);
+                    rec.PenaltyAccepted = result.OffsettingPenalty == null && PenaltyEnforcer.ShouldAccept(State, result);
                     result.PenaltyDecision = rec.PenaltyAccepted ? PenaltyDecision.Accept : PenaltyDecision.Decline;
                 }
             }
@@ -196,8 +222,8 @@ namespace PixFootball.Sim
                 case GamePhase.Kickoff:
                 {
                     // the kicking team (possession) trails when its diff is negative
-                    bool trailing = State.PossessionScoreDiff < 0 && State.PossessionScoreDiff >= -8;
-                    bool onside = State.Quarter == 4 && State.ClockSeconds < 200f && trailing && Rng.Chance(0.75f);
+                    bool trailing = State.PossessionScoreDiff < 0 && State.PossessionScoreDiff >= -16;   // down two scores still onsides
+                    bool onside = State.Quarter == 4 && State.ClockSeconds < 210f && trailing && Rng.Chance(0.75f);
                     off = onside ? Pick(_onsides) : PickKickoff();
                     def = Pick(_kickReturns);
                     return;
@@ -220,9 +246,10 @@ namespace PixFootball.Sim
             CoachProfile oc = ProfileOf(team), dc = ProfileOf(team.Opponent());
             if (PlayCaller.ShouldKneel(State) && _kneel != null) { off = _kneel; def = DefenseResponseTo(off); return; }
             if (_spike != null && PlayCaller.ShouldSpike(State)) { off = _spike; def = DefenseResponseTo(off); return; }
+            if (PlayCaller.ShouldHailMary(State)) { Play hm = null; foreach (Play hp in Book.AllPlays) if (hp.Name == "Hail Mary" && hp.Side == PlaySide.Offense) { hm = hp; break; } if (hm != null) { off = hm; def = DefenseResponseTo(off); return; } }
             if (State.Down == 4)
             {
-                switch (Caller.FourthDown(State, oc))
+                switch (Caller.FourthDown(State, oc, KickerRange(team)))
                 {
                     case PlayCaller.FourthCall.FieldGoal: off = _fieldGoal; def = Pick(_fgBlocks); return;
                     case PlayCaller.FourthCall.Punt: off = _punt; def = Pick(_puntReturns); return;
@@ -257,16 +284,39 @@ namespace PixFootball.Sim
             c.Aggression = hc != null ? hc.Aggression : 50;
             if (dcoord != null) c.Aggression = (c.Aggression + dcoord.Aggression) / 2 + (dcoord.DefScheme == DefenseScheme.Aggressive ? 12 : 0);
             c.Aggression = Math.Max(0, Math.Min(100, c.Aggression));
-            c.Style = oc != null ? (PlayStyle)(int)oc.OffScheme : PlayStyle.Balanced;
+            c.Style = oc != null ? StyleOf(oc.OffScheme) : PlayStyle.Balanced;
+            if (dcoord != null)
+            {
+                // QA-621: the coordinator's scheme steers the base front and the nickel share
+                c.FrontBias = dcoord.DefScheme == DefenseScheme.Base34 ? 1f : (dcoord.DefScheme == DefenseScheme.Base43 ? -1f : 0f);
+                c.NickelBias = dcoord.DefScheme == DefenseScheme.Nickel ? 1f : 0f;
+            }
             return c;
         }
 
         public CoachProfile ProfileOf(CoreTeam t) { return ProfileOf(TeamOf(t)); }
+
+        /// <summary>QA-622: explicit scheme mapping (an enum cast silently changed every coach if either enum was reordered).</summary>
+        public static PlayStyle StyleOf(OffenseScheme s)
+        {
+            switch (s)
+            {
+                case OffenseScheme.AirRaid: return PlayStyle.AirRaid;
+                case OffenseScheme.WestCoast: return PlayStyle.WestCoast;
+                case OffenseScheme.PowerRun: return PlayStyle.PowerRun;
+                case OffenseScheme.SpreadOption: return PlayStyle.SpreadOption;
+                default: return PlayStyle.Balanced;
+            }
+        }
         private bool WantsTwoPoint()
         {
             int diff = State.ScoreOf(State.Possession) - State.ScoreOf(State.Possession.Opponent());
             // after the touchdown the score already counts; go for two when it ties/ends a deficit
             if (State.Quarter >= 4 && (diff == -2 || diff == -5 || diff == -1 && State.ClockSeconds < 300f)) return Rng.Chance(0.6f);
+            // the standard late-game chart also goes for two when leading by 5 or 12 after the touchdown (to make it a two-score margin)
+            if (State.Quarter == 4 && State.ClockSeconds < 420f && (diff == 5 || diff == 12 || diff == -8 && State.ClockSeconds < 240f)) return Rng.Chance(0.5f);
+            // QA-627: the rest of the chart (the conversion changes which scores the trailing team needs): trailing by 10, 13 or 14 after the touchdown
+            if (State.Quarter == 4 && State.ClockSeconds < 480f && (diff == -10 || diff == -13 || diff == -14)) return Rng.Chance(0.5f);
             return Rng.Chance(0.02f);
         }
 
@@ -285,3 +335,19 @@ namespace PixFootball.Sim
     }
 }
 
+namespace PixFootball.Sim
+{
+    public sealed partial class PhysicalGameSim
+    {
+        /// <summary>Longest field goal (yards, counting the snap) the coach trusts his kicker with: about 46 for a poor leg, 54 for an average one, 62 for an elite one.</summary>
+        public int KickerRange(CoreTeam t)
+        {
+            LeagueTeam team = TeamOf(t);
+            Player best = null; int bo = -1;
+            if (team != null)
+                for (int i = 0; i < team.Roster.Count; i++) { Player p = team.Roster[i]; if (p.Position == Position.K && p.IsAvailable && p.Overall > bo) { bo = p.Overall; best = p; } }
+            if (best == null) return 0;
+            return (int)Math.Round(30f + 0.22f * best.Ratings.KickPower + 0.10f * best.Ratings.KickAccuracy);
+        }
+    }
+}

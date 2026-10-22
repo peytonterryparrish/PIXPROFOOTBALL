@@ -57,7 +57,7 @@ Legend - HDRP-ready: **yes** = renders correctly in HDRP 17.6 as imported / afte
 | In-game UI (scorebug, scoring labels, player markers, highlights, QB highlight) | `UI/InGame/` | 52 PNG -> Sprites (`ui_<name>_<folder>`) | from `UI - NEW/IN-GAME`; contains the **DFB LOGO**. |
 | Atlases | `UI/Atlases/` (accomplishment badges, college logos 1-3, divisions, elo ranks, flag animation, in-game elements, mvp badges, player rings/glow, scoreboard) | 16 PNG up to 4k | atlas sprite sheets are single textures (`atlas_*` keys), not sliced. `cardatlas.psd` skipped. |
 | Rank badges | `UI/RankBadges/` | | Sprites `badge_*`. |
-| Team logos | `UI/Logos/Pro` 23 PNG, `UI/Logos/College` 143 PNG | Sprites `logo_pro_*`, `logo_college_*` | Parody names (see section 9). |
+| Team logos | `UI/Logos/Pro` 23 PNG, `UI/Logos/College` 143 PNG | Sprites `logo_pro_*`, `logo_college_*` | Parody names (see section 9). Legacy: the game uses the `ProV6` and `CollegeV2` logo sets; these Draft Fever Bowl sets are still registered in the library (about 166 sprites) and are scheduled for removal once the V6 logos are final (QA-1003). |
 | Fonts | `Fonts/` | 26 TTF (Barlow Semi Condensed, Saira Condensed, cosmetics: Alfa Slab One, Bebas Neue, Oswald, Rubik, Ubuntu, ...) + Material Symbols Sharp | Google-fonts (OFL/Apache); `CollegeRegular.ttf` licence unknown. |
 | Not imported | `UI/MotionGraphics` (renders, AE files), `UI/PSDs` (1.1 GB), `Pixel Art`, `Assets/Storefront Photoshoot` | | videos/PSD/AE out of scope. |
 
@@ -76,7 +76,8 @@ Rig facts: every BoNES / Motus file is Humanoid. Two skeleton families:
 | BoNES QB (2026-04-22 clean/name-fix) | `Animations/BoNES_QB/` | 86 | 86 | QB drops/throws/scrambles/sacks/celebrations/hail-mary/dive/kneel/slide/spike/toss/shotgun catches. Re-baked. |
 | BoNES studio day 1 (root motion after retarget) | `Animations/BoNES_Studio/pack1`,`pack2` | 43 + 78 | 121 | 2/3/4-point stance->sprint/shuffle/backpedal (all angles), shuffle->sprint, slow shuffle loops, standing idle loop, catch-run, fair catch, QB under-centre/shotgun/pass variety. Re-baked. `root_motion_ret_cut_ranges_*` (cut duplicates, 2 GB) and days 2/3 (A/AB/B paired raw takes, 23 GB, e.g. `BC_StripTackle`) skipped. |
 | BoNES blend packs (OLine, DLine, QB sneak, player interaction, paired OT vs LB) | `Animations/BoNES_Extra/` | ~65 | ~65 | Exported from `.blend` (OLine01-027 run-block footwork, D-Line bull rush/swim/reach-shed A+B, QB sneak, 2-man interaction 2.4 min takes). QB packs 09/10/08 duplicated studio pack2 and were dropped. |
-| Not imported | `studio BoNES.rar` raw/`QB new recordings` (superseded by 2026-04-22 pack), `DFBQuinoAnims*`/`QuinosAnimations.fbx` (2024-25 old), `OLD BACKUP/*.zip`, `Yan Files` (7z + blends), `Remap Test*.blend` (tests), `Remap Test Edits 29_09/01_10` (tests) | | | |
+| BoNES "Yan" re-bakes (BGS takes: CB / DB / kicker / QB / return, MOB1, RAW, trucks) | `Animations/BoNES_Yan/` | 296 | see `Docs/ArtLibraryReport.md` | Exported from the `Yan Files` archives and re-baked onto the clean rig (`Tools/Blender/retarget_actions.py`); claimed by `NewClipRules` in `ArtLibraryBuilder` (kick, return, CB / DB takes); the checked-in `Docs/ArtLibraryReport.md` may predate the library rebuild that registers them (it still lists `kick_off` as missing). Mocap cleanup output: `Animations/Clean/*.anim` (`ClipCleaner` / `CleanBatch`, 1412 cleaned clips) and `PIX_Authored` (1 FBX, keyframed locomotion). The `Yan Files` 7z archives and blends themselves are still not imported. |
+| Not imported | `studio BoNES.rar` raw/`QB new recordings` (superseded by 2026-04-22 pack), `DFBQuinoAnims*`/`QuinosAnimations.fbx` (2024-25 old), `OLD BACKUP/*.zip`, `Remap Test*.blend` (tests), `Remap Test Edits 29_09/01_10` (tests) | | | |
 
 Importer settings (all FBX): Humanoid + avatar from the file, cameras/lights/blend shapes/materials off, keyframe reduction. Per clip (second pass): **lock root rotation (bake into pose)**, **lock root height Y (bake into pose)**, root XZ kept as root motion except in-place names (idle, stance, cadence, neutral, lookaround, cheer, celebration, freestyle), original orientation/Y kept, loopTime + loopPose for names containing idle/walk/jog/run/sprint/backpedal/strafe/shuffle/loop/cycle/stance/cadence. See `ArtLibraryReport.md` for the semantic keys.
 
@@ -105,7 +106,7 @@ Importer settings (all FBX): Humanoid + avatar from the file, cameras/lights/ble
 | Animations | Motus authored in cm (importer scale 0.01 applied), BoNES clean files in metres. Root motion: see section 5. |
 | Referee | exported at global scale 0.01 (source authored in cm). |
 
-## 9. Rename before Steam (real people, real schools, old branding)
+## 9. Rename before any public release (real people, real schools, old branding)
 
 **Real people**
 
@@ -127,7 +128,7 @@ Use generated original names in `PIX.League` content; keep these PNGs only as in
 
 ## 10. Known issues / not done
 
-* No player walk cycle, no kicking/punting/long-snap mocap, no left-juke (mirror at runtime) in the source set. (Referee signals and referee walk/jog/shuffle loops DO exist: see section 13.)
+* Walk, kicking / punting / long-snap and left-juke animations were found or made in the v0.8 animation pass (section 14: mocap found in the Yan / BoNES folders, authored walk cycles, derived kick / catch / snap variants). Referee signals and referee walk/jog/shuffle loops: section 13.
 * Strand-hair and the original crowd shader graph need packages/files that were not shipped.
 * HDRP skin needs the SSS diffusion profiles registered in HDRP Global Settings (done by `PlayerPrefabBuilder.RegisterDiffusionProfiles`; the Volume diffusion list is also set in the screenshot studio).
 * Jersey colour variation uses the shader-graph material properties; per-team runtime materials must clone `Mid_Size_Player_Uniform_MAT`.
@@ -139,8 +140,8 @@ Skipped: `OLD BACKUP/*.zip` (older mocap exports), `Yan Files/*.7z`, `Hair2.0001
 
 ## 12. Final numbers
 
-* 1009 animation FBX = 1208 Humanoid clips (all avatars valid); 698 clips are registered in `ArtLibrary` under 131 of 149 semantic keys (`Docs/ArtLibraryReport.md`).
-* ArtLibrary: 138 prefabs, 67 materials, 234 sprites, 246 audio clips, 16 atlas textures, 26 fonts. Asset: `Assets/_Licensed/ArtLibrary.asset` (+ copy in `Assets/_Licensed/Resources/`).
+* 1306 animation FBX on disk under `Animations/` (Motus 710, BoNES_Yan 296, Studio 121, QB 86, Extra 65, Retargets 26, Authored 1, 1 loose Motus file; counted 2026-10-21; the per-FBX clip total was not re-measured) plus 1412 cleaned `.anim` clips in `Animations/Clean`; 947 clips are registered in `ArtLibrary` under 155 of 163 semantic keys (`Docs/ArtLibraryReport.md`, generated by `PIX Football/Assets/Build ArtLibrary`).
+* ArtLibrary: 142 prefabs, 109 materials, 234 sprites, 246 audio clips, 16 atlas textures, 26 fonts (same report). Asset: `Assets/_Licensed/ArtLibrary.asset` (+ copy in `Assets/_Licensed/Resources/`).
 * Many BoNES clips are long raw mocap takes (e.g. `BONES_QB_touch_pass_001` 54 s, shotgun snap 70 s, studio idle loop 217 MB): they contain several repetitions/lead-in. Cut sub-ranges in the gameplay animator (clip start/end) rather than playing whole clips.
 * Screens: `Docs/Screens/*.png`.
 
@@ -156,3 +157,30 @@ Scripts: `Tools/Blender/*` (Blender 5.2, `build_all.ps1` rebuilds everything), `
 | `PIX_Coach_A/B/C` (keys `coach_a/b/c`) | Assembled from the modular kit `Coach_Final.blend` by `build_coach.py` (baked modifiers/shape keys, metre space, clean player deform rig with hips 0.907 m): **A** polo + cap + headset + clipboard (head 01), **B** bomber jacket + visor/hair + headset + goatee + tablet (head 03, lighter skin), **C** puffer + cap + headset + beard + glasses (head 05, darker skin). Weights: nearest-surface transfer from the player body (smoothed, 4 influences) for clothes/shoes/watch/head, rigid on `head.x` for headgear/hair/eyes. Long-sleeve jackets: arm skin under the sleeve is trimmed (it poked through the cloth). **The kit ships no clothing/head textures** (the .blend references the vendor machine): tops/pants/shoes/caps are flat HDRP/Lit colours, heads use the player head atlas (+ a lightened copy, `make_coach_textures.py`), arms the `T_Arms_Skin_*` set, hair the `T_HairCards` atlas (alpha cut-out). `PixFootball.Art.TeamTint` (component on each prefab) tints top (primary) and cap/visor (secondary) at runtime through a MaterialPropertyBlock: `SetTeamColors(primary, secondary)`; until called the authored colours stay. Real/DF branding: none present in the kit pieces used. Clipboard (A) / tablet (B) are simple props authored here (`build_props.py`), parented to `hand.l`, calibrated on the fitted `coach_clipboard_idle` pose. |
 | Keyframed clips | `ref_idle` (hands on hips), `ref_spot_ball` (crouch + hand to ball spot), `ref_penalty_flag` (flag throw), `coach_headset_idle`, `coach_clipboard_idle`, `coach_clap`: authored with 2-bone IK on the rig (`build_anims.py`, `pix_poses.py`). A Humanoid forearm only has stretch/twist DoFs with its own axis conventions (and Unity clamps elbow flexion at about 80 deg), so the arm part is re-fitted **inside Unity** (`ArmFit.cs`, HumanPoseHandler on the real avatar) and stored as `Characters/Coaches/Rigged/Clips/*.anim`; elbow limits are widened to 150 deg on all referee/coach avatars (`RefCoachBuilder.WidenElbowLimits`). All clips are Humanoid, so every library clip (`idle`, `cheer`, `qb_look_around`, `idle_conversation`, `celebrate_td`...) also plays on referee and coaches. |
 | Not done | No referee flag / whistle prop meshes (the whistle on the lanyard is part of the uniform mesh); coach hair covers only the cap-less variants partly; Blender-authored clips fit arm targets within a few cm (see fit costs in the Unity log). |
+
+## 14. v0.8 animation pass (cleanup, new mocap, authored and derived clips)
+
+Track log: `Docs/QA/animation.md` (rows `ANI-###`), coverage matrix: `Docs/AnimationCoverage.md`, in-game sequence check: `Docs/QA/anim_sequence.md`, contact sheets: `D:/PIXFootball/Renders/animation/`.
+
+**More mocap was found than the first import knew about** (`_AssetSource/.../Players/Animations Files/`):
+
+| Source | What | Used as |
+|---|---|---|
+| `Yan Files/FBXs backup/QB-Kickers-Rework Non Mocap/` (`K_kickoff_kick_00_Rework`, `K_fieldgoal_00_remap`, `H_fieldgoal_00_remap`, `P_punt_00_remap`, `P_punt_00_faster_remap`) + `Kickoff_catch_00_FIX.fbx` | the kicking set (the earlier inventory said there was none) | `kick_off`, `kick_field_goal`, `kick_holder`, `punt`, `punt_fast`, `kick_return_catch` |
+| `Yan Files/FBXs backup/` MOB1 / BGS ball-carrier files (`MOB1BallCarrierJogAndRun`, `Ball Carrier Sprint/JOG/RUN To Stand Transitions`, `MotionStepSpeeds*`, `SprintAnimations*`, `BGS_Running_Alternative`, ...) | 8-direction jog / run / sprint loops, circle runs, 90 / 180 plant-and-cut turns, stops with the left / right foot planted (ball carrier and not) | `bc_*`, `sprint_alt`, `sprint_turn`, `stop_sprint` |
+| `Cornerback Behavior 1..4`, `Linemen Pocket Movement`, `Pocket Diagonal Movement` | corner stance / shuffles / breaks / stance rotations, pass-protection footwork in left / right / centre stances | `cb_*`, `stance_cb_*`, `ol_pocket_*` |
+| `BGSDodge`, `JukesAnimations`, `StiffarmNew`, `TruckAnimations`, `BGS_Front_Dive`, `BGS_Front_Fumble_Recovery_Dive`, `BGS_HandoffIShotgunSpeedOption`, `Double Team Solutions`, `QB cadences`, `Spawn / Subtle / Lively Animations Fix` | left + right jukes (both actors), stiff-arms, trucks, dives, fumble dive, handoff, cadences (stomp / clap / raise), idle variants | `juke_left/right`, `stiff_arm_*`, `truck`, `dive_forward`, `fumble_dive`, `handoff`, `qb_cadence_*`, `idle_lively`, `idle_look` |
+| `ALL Howards and BoNES Raw Mocap Footage/studio BoNES__x/studio BoNES/day 2` + `day 3` (raw 480-bone ARP takes) | `BC_StripTackle_*` (A + B), `Ambient_bench`, `Ambient_coach`, `Leader_idle_animations` (huddle leader), `Helmet_interactions`, `Loosing_frustration`, `Player_turns` | `tackle_strip`, `bench_sit`, `coach_ambient`, `huddle_leader`, `idle_helmet`, `frustration` |
+
+Not usable: `Howards PLACEHOLDER snap hike settle.fbx` (31-bone placeholder skeleton without neck / head: no valid Humanoid), the Studio33 / soccer rigs (`BGS_Studio33_*`, `FieldPlayer`, `Goalkeeper`), the Cascadeur jukes (tests) and the 2.4 GB `Unity Animator Correction*.blend` backups. Day-2/3 paired takes other than the strip tackles (`BigHit`, `Juke*`, `LB_ContestedCatch*`, `DLINE_*`) duplicate what the retarget packs already hold.
+
+**Pipeline** (all scripted, nothing was done by hand):
+
+1. `Tools/Blender/retarget_actions.py` re-bakes every action of any Auto-Rig-Pro FBX onto the clean 95-bone deform skeleton (hips 0.907 m, 60 / 30 / 24 fps kept, Maya `1:` bone prefixes handled, `--force`, `--only`, `--skip`). Outputs: `_AssetSource/DraftFever/_clean_retarget__x/{Yan,Raw}` -> `Animations/BoNES_Yan/` (BGS__ / YAN__ / RAW__ prefixes).
+2. `Tools/Blender/build_locomotion.py` authors `PIX_Walk_Cycle`, `PIX_Stroll_Cycle` (foot-path walks: the planted foot is stationary in the world, pelvis bob and sway, counter-rotating shoulders, arm swing) and `PIX_Huddle_Knees` / `PIX_Huddle_Hips` with 2-bone IK on the clean rig -> `Animations/PIX_Authored/`.
+3. `ClipCleaner` / `CleanBatch` (Unity editor, muscle space, `PoseSeq`): despike, Gaussian filter (0.03 s body / 0.09 s hands), human-limit handling (knee / elbow hyperextension), trim of dead time and T-pose calibration frames, best-cycle cut (pose + velocity match) and seam closing for loops, ground fix (the planted foot of upright takes sits on the turf, measured on the part of the take that is kept), heading measured on the real skeleton and the take turned to +Z, mirrored copies (`_M`) of hand-handed clips, long raw takes cut into `_sNN` segments (<= 10 s). Output: `Animations/Clean/*.anim` (originals are kept untouched); `ArtLibraryBuilder` and `FindClipByName` prefer them. Paired two-actor takes keep their authored shared frame (no trim, no rotation).
+4. `DerivedClips`: onside / squib kicks, one-hand and toe-tap catches, walk start / stop, long snap, get-ups cut from the contact-table windows.
+5. `AnimRebuild.Stage1/Stage2` (or `AnimRebuildAll.Run`): import settings -> clean -> derive -> ArtLibrary -> clip timing (throws, catches, KICKS) -> move takes -> player controller (two data-driven locomotion trees, stride speeds measured on the rig) -> clip facing table -> cycle speeds -> audit.
+6. Measurement tools: `AnimAudit` (35 metrics per clip: foot sliding, penetration, jitter, pops, T-pose, hyperextension, loop seams, dead time, facing, stride speed -> `Logs/anim_audit/audit*.csv`), `StickSheet` (CPU filmstrip sheets), `AnimSequenceCheck` (real match views through scripted sequences, per-frame pop detector).
+
+**Numbers** (library as built by `AnimRebuild`): 2150 clips in `Animations/Clean` (cleaned + mirrored + segments + derived), 228 animation keys found (`Docs/ArtLibraryReport.md`), 65 new `ArtKeys`. The Clean folder is ~1.7 GB of text-serialised curves (git-ignored like the rest of `_Licensed`); the player build only ships the short clips of the whitelisted keys.

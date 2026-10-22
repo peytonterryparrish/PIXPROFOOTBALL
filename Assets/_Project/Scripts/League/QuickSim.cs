@@ -32,17 +32,17 @@ namespace PixFootball.League
         public static float PressureBase = 0.26f;
         public static float PressureK = 0.034f;
 
-        public static float RunMeanBase = 4.9f;
+        public static float RunMeanBase = 4.7f;   // QA-593: re-centred (4.9 / 0.81 / 0.73 / 0.575 / 0.34) after punts stopped travelling 11 yards too far, which had been hiding a ~2 point scoring surplus
         public static float RunBlockK = 0.060f;
         public static float RunSkillK = 0.040f;
         public static float StuffBase = 0.14f;
         public static float StuffK = 0.0045f;
         public static float BigRunBase = 0.043f;
 
-        public static float CompBaseCheck = 0.81f;
-        public static float CompBaseShort = 0.73f;
-        public static float CompBaseMed = 0.575f;
-        public static float CompBaseDeep = 0.34f;
+        public static float CompBaseCheck = 0.79f;
+        public static float CompBaseShort = 0.71f;
+        public static float CompBaseMed = 0.555f;
+        public static float CompBaseDeep = 0.33f;
         public static float AccK = 0.0042f;
         public static float MatchK = 0.0058f;
         public static float CatchK = 0.0032f;
@@ -128,8 +128,8 @@ namespace PixFootball.League
         public float RecvTotalW;
         public float[] TargetW = new float[9];
         public SimPlayer[] Targets = new SimPlayer[9];
-        public float[] TackleW = new float[9];
-        public SimPlayer[] Tacklers = new SimPlayer[9];
+        public float[] TackleW = new float[12];
+        public SimPlayer[] Tacklers = new SimPlayer[12];
         public float[] RushW = new float[7];
         public SimPlayer[] Rushers = new SimPlayer[7];
         public int Timeouts;
@@ -143,8 +143,12 @@ namespace PixFootball.League
         public PlayResult R;
         public SimPlayer Passer, Target, Rusher, Tackler, Defender, Sacker, Forcer, Returner, Kicker;
         public int Yards, Air, RetYards, Dist;
+        /// <summary>Spot (0-100) where a punt came down, before any return (QA-593: Dist is the gross kick from the punter, not the distance from the line of scrimmage).</summary>
+        public int Land;
         public bool Fumble, FumbleLost, Td, Pressure, Good, Oob;
         public bool TwoPoint;
+        /// <summary>The kickoff was an onside attempt (the log must not call it a touchback).</summary>
+        public bool Onside;
     }
 
     public static class QuickSim
@@ -286,7 +290,8 @@ namespace PixFootball.League
             u.P = Take(t, Position.P, used, u);
             // the second back/slot receiver are not "starters" in the box score sense, but they play
             u.RB2.Started = false; u.FB.Started = false; u.WR[3].Started = false; u.TE[1].Started = false;
-            u.KR = u.WR[3];
+            // QA-604: the returner is whoever of the fourth receiver and the backup back has the better open-field skill, not always WR4
+            u.KR = u.RB2.Yac > u.WR[3].Yac ? u.RB2 : u.WR[3];
 
             float olp = 0, olr = 0;
             for (int i = 0; i < 5; i++) { olp += u.OL[i].OlPass; olr += u.OL[i].OlRun; }
@@ -326,10 +331,11 @@ namespace PixFootball.League
             int ti = 0;
             for (int i = 0; i < 4; i++) { u.Tacklers[ti] = u.DL[i]; u.TackleW[ti] = 0.07f * (0.6f + u.DL[i].R.Tackling / 100f); ti++; }
             u.Tacklers[ti] = u.LB[0]; u.TackleW[ti++] = 0.17f * (0.6f + u.LB[0].R.Tackling / 100f);
-            u.Tacklers[ti] = u.LB[1]; u.TackleW[ti++] = 0.24f * (0.6f + u.LB[1].R.Tackling / 100f);
+            u.Tacklers[ti] = u.LB[1]; u.TackleW[ti++] = 0.21f * (0.6f + u.LB[1].R.Tackling / 100f);
             u.Tacklers[ti] = u.LB[2]; u.TackleW[ti++] = 0.17f * (0.6f + u.LB[2].R.Tackling / 100f);
             u.Tacklers[ti] = u.S[0]; u.TackleW[ti++] = 0.09f * (0.6f + u.S[0].R.Tackling / 100f);
             u.Tacklers[ti] = u.S[1]; u.TackleW[ti++] = 0.12f * (0.6f + u.S[1].R.Tackling / 100f);
+            for (int i = 0; i < 3; i++) { u.Tacklers[ti] = u.CB[i]; u.TackleW[ti++] = 0.045f * (0.6f + u.CB[i].R.Tackling / 100f); }   // QA-601: corners tackle too
 
             // pass rushers: 4 DL (weighted by rush) + LB blitz
             for (int i = 0; i < 4; i++) { u.Rushers[i] = u.DL[i]; u.RushW[i] = 0.2f * (0.5f + u.DL[i].DlRush / 100f); }
@@ -390,7 +396,7 @@ namespace PixFootball.League
 
         private void Finish()
         {
-            if (_drive != null) CloseDrive(_gs.IsFinal ? "End of Game" : "End of Game");
+            if (_drive != null) CloseDrive("End of Game");
             _res.HomeScore = _gs.HomeScore; _res.AwayScore = _gs.AwayScore;
             _res.Home.Score = _gs.HomeScore; _res.Away.Score = _gs.AwayScore;
             _res.Overtime = _gs.Quarter > 4;

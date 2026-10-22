@@ -18,8 +18,8 @@ namespace PixFootball.Gameplay
         readonly List<Renderer> _farHidden = new List<Renderer>();
         int _level = -1;
         public static Camera ViewCamera;
-        /// <summary>Distances (metres) at which the level steps down: below [0] full detail, below [1] LOD1, beyond LOD2.</summary>
-        public static float Near = 9f, Mid = 24f;
+        /// <summary>Distances (metres) at which the level steps down: below [0] full detail (LOD0), below [1] LOD1, below [2] LOD2, beyond LOD3 (v0.5.x: four Blender-decimated body levels, silhouette preserved).</summary>
+        public static float Near = 11f, Mid = 26f, Far = 60f;
         /// <summary>1 = default; the quality tiers push the thresholds closer (0.5) or further (2).</summary>
         public static float Bias = 1f;
 
@@ -37,7 +37,12 @@ namespace PixFootball.Gameplay
             }
         }
 
-        public bool HasLods { get { if (_bodies.Count > 0) return true; foreach (var g in _groups) if (g.Length > 1) return true; return false; } }
+        public bool HasLods { get { if (_photo != null || _bodies.Count > 0) return true; foreach (var g in _groups) if (g.Length > 1) return true; return false; } }
+
+        PixFootball.Art.PhotoPlayer _photo;
+
+        /// <summary>v0.6: the photoreal body switches all its parts (body, head, hair, helmet gear) itself; this level of detail only decides the level and applies it with hysteresis.</summary>
+        public void AttachPhoto(PixFootball.Art.PhotoPlayer photo) { _photo = photo; }
 
         /// <summary>A renderer that is not visible from far away at all (the eyes behind the face mask): switched off at the lowest level.</summary>
         public void AddFarHidden(Renderer r) { if (r != null) _farHidden.Add(r); }
@@ -48,7 +53,21 @@ namespace PixFootball.Gameplay
             var t = PixFootball.Art.PlayerMeshLodTable.Load();
             var e = t != null && smr != null ? t.Find(smr.sharedMesh) : null;
             if (e == null || e.lod1 == null || e.lod2 == null) return;
-            _bodies.Add(smr); _bodyMeshes.Add(new[] { smr.sharedMesh, e.lod1, e.lod2 });
+            _bodies.Add(smr); _bodyMeshes.Add(new[] { smr.sharedMesh, e.lod1, e.lod2, e.lod3 != null ? e.lod3 : e.lod2 });
+        }
+
+        /// <summary>Level for a distance with ±10 percent hysteresis around the thresholds relative to the level in use (no popping while a player stands on a threshold).</summary>
+        public static int LevelFor(float distance, int current)
+        {
+            int lv = LevelFor(distance);
+            if (current < 0 || lv == current) return lv;
+            float b = Mathf.Max(0.1f, Bias);
+            float[] edge = { Near * b, Mid * b, Far * b };       // edge[i] separates level i from i+1
+            if (lv > current)       // moving away: stay at the finer level until 10 percent past the edge
+            { for (int i = current; i < lv; i++) if (distance < edge[i] * 1.10f) return i; }
+            else                    // moving closer: stay at the coarser level until 10 percent inside the edge
+            { for (int i = current - 1; i >= lv; i--) if (distance > edge[i] * 0.90f) return i + 1; }
+            return lv;
         }
 
         public static int LevelFor(float distance)
@@ -56,14 +75,16 @@ namespace PixFootball.Gameplay
             float b = Mathf.Max(0.1f, Bias);
             if (distance < Near * b) return 0;
             if (distance < Mid * b) return 1;
-            return 2;
+            if (distance < Far * b) return 2;
+            return 3;
         }
 
         public void Apply(int level)
         {
             if (level == _level) return;
             _level = level;
-            for (int i = 0; i < _bodies.Count; i++) { if (_bodies[i] != null) _bodies[i].sharedMesh = _bodyMeshes[i][Mathf.Min(level, 2)]; }
+            if (_photo != null) { _photo.SetLevel(level); return; }
+            for (int i = 0; i < _bodies.Count; i++) { if (_bodies[i] != null) _bodies[i].sharedMesh = _bodyMeshes[i][Mathf.Clamp(level, 0, 3)]; }
             foreach (var r in _farHidden) if (r != null) r.enabled = level < 2;
             for (int gi = 0; gi < _groups.Count; gi++)
             {
@@ -77,8 +98,9 @@ namespace PixFootball.Gameplay
         public void Update(Vector3 position)
         {
             var cam = ViewCamera;
-            if (cam == null || (_groups.Count == 0 && _bodies.Count == 0)) return;
-            Apply(LevelFor(Vector3.Distance(cam.transform.position, position)));
+            if (_photo == null && _groups.Count == 0 && _bodies.Count == 0) return;
+            if (cam == null) { if (_level < 0) Apply(0); return; }   // free roam / before the director set the camera: never leave every helmet LOD active at once
+            Apply(LevelFor(Vector3.Distance(cam.transform.position, position), _level));
         }
     }
 }

@@ -409,7 +409,7 @@ namespace PixFootball.Tests
             Assert.IsTrue(s.ChampionTeamId >= 0);
             Assert.AreNotEqual(s.ChampionTeamId, s.RunnerUpTeamId);
             // the six playoff-tier bowls host the quarterfinals and semifinals; the other 35 host regular bowl games
-            var cfpNames = new[] { "Citrus Comet Bowl", "Cottoncrest Classic", "Crystal Cane Bowl", "Festival Flame Bowl", "Orchard Gold Bowl", "Thorncrest Bowl" };
+            var cfpNames = new[] { "Briarfield Bowl", "Emberfair Bowl", "Frostcane Bowl", "Linenfield Classic", "Ridgegold Bowl", "Tangelo Comet Bowl" };
             foreach (string n in cfpNames) Assert.AreEqual(1, po.Count(g => g.Round >= 2 && g.Label.EndsWith(n)), n);
             var bowls = s.Games.Where(g => g.Kind == GameKind.Bowl).ToList();
             Assert.AreEqual(35, bowls.Count);

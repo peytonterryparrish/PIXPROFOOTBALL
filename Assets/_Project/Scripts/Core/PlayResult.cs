@@ -37,6 +37,8 @@ namespace PixFootball.Core
         public int ReturnYards;
 
         public PenaltyCall Penalty;
+        /// <summary>QA-489: a second foul by the OTHER team on the same play. With both calls present the fouls offset: no yardage, the down is replayed.</summary>
+        public PenaltyCall OffsettingPenalty;
         public PenaltyDecision PenaltyDecision = PenaltyDecision.Auto;
 
         // Player ids (for stats)

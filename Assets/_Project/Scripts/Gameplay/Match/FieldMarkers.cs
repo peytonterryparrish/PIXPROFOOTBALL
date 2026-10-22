@@ -26,6 +26,7 @@ namespace PixFootball.Gameplay
             m._fd = Strip(go.transform, "FirstDownLine", rt != null ? rt.lineFirstDown : null, WidthM, 0.30f, out m._fdR);
             m._ring = Strip(go.transform, "UserRing", rt != null ? rt.ringMarker : null, 1.9f, 1.9f, out m._ringR);
             m._ring.localPosition = new Vector3(0f, LineY + 0.01f, 0f);
+            m.BuildMarkerLook(rt != null ? rt.ringMarker : null);
             m.HideAll();
             return m;
         }
@@ -76,7 +77,92 @@ namespace PixFootball.Gameplay
             _collegeHashes.SetActive(true);
         }
 
-        public void HideAll() { _los.gameObject.SetActive(false); _fd.gameObject.SetActive(false); _ring.gameObject.SetActive(false); }
+        // ------------------------------------------------------------------------------------------ v0.6 markers: teal ring under the user, gold stars under the eligible receivers (All-Pro 2K8 style)
+        readonly System.Collections.Generic.List<Transform> _starQuads = new System.Collections.Generic.List<Transform>();
+        readonly System.Collections.Generic.List<Transform> _starFollow = new System.Collections.Generic.List<Transform>();
+        Material _starMat, _ringMat;
+
+        /// <summary>Procedural marker texture: a bright ring (teal, for the user) or a five-point star (gold with a white rim, for receivers).</summary>
+        static Texture2D MakeMarkerTexture(bool star, Color fill, Color rim)
+        {
+            const int N = 192;
+            var t = new Texture2D(N, N, TextureFormat.RGBA32, true, false) { name = star ? "PIX_StarMarker" : "PIX_RingMarker", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            var px = new Color32[N * N];
+            for (int y = 0; y < N; y++)
+                for (int x = 0; x < N; x++)
+                {
+                    float u = (x + 0.5f) / N * 2f - 1f, v = (y + 0.5f) / N * 2f - 1f;
+                    float r = Mathf.Sqrt(u * u + v * v);
+                    Color c = Color.clear; float a = 0f;
+                    if (!star)
+                    {
+                        // thick bright band with a thin white inner line and a soft outer edge
+                        float band = Mathf.SmoothStep(0.80f, 0.85f, r) * (1f - Mathf.SmoothStep(0.95f, 0.99f, r));
+                        float line = Mathf.SmoothStep(0.64f, 0.66f, r) * (1f - Mathf.SmoothStep(0.69f, 0.71f, r));
+                        a = Mathf.Max(band, line * 0.9f);
+                        c = Color.Lerp(fill, rim, line > band ? 1f : 0f);
+                    }
+                    else
+                    {
+                        // five-point star: radius as a function of angle between an inner and an outer radius
+                        float ang = Mathf.Atan2(v, u) - Mathf.PI * 0.5f;
+                        float k = Mathf.Abs(Mathf.Repeat(ang, Mathf.PI * 2f / 5f) / (Mathf.PI * 2f / 5f) - 0.5f) * 2f;   // 1 at the inner notch, 0 at the tip
+                        float edge = Mathf.Lerp(0.98f, 0.42f, Mathf.SmoothStep(0f, 1f, k));
+                        float inside = 1f - Mathf.SmoothStep(edge - 0.02f, edge, r);
+                        float core = 1f - Mathf.SmoothStep(edge - 0.16f, edge - 0.13f, r);
+                        a = inside;
+                        c = Color.Lerp(rim, fill, core);
+                    }
+                    px[y * N + x] = new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), (byte)(Mathf.Clamp01(a) * 255f));
+                }
+            t.SetPixels32(px); t.Apply(true, false);
+            return t;
+        }
+
+        Material MarkerMaterial(Material template, Texture2D tex)
+        {
+            if (template == null) return null;
+            var m = new Material(template);
+            m.SetTexture("_UnlitColorMap", tex); m.SetColor("_UnlitColor", Color.white);
+            m.SetFloat("_AlphaCutoffEnable", 1f); m.SetFloat("_AlphaCutoff", 0.3f);
+            return m;
+        }
+
+        void BuildMarkerLook(Material template)
+        {
+            if (template == null) return;
+            _ringMat = MarkerMaterial(template, MakeMarkerTexture(false, new Color(0.10f, 1f, 0.88f), Color.white));
+            _starMat = MarkerMaterial(template, MakeMarkerTexture(true, new Color(1f, 0.80f, 0.12f), Color.white));
+            if (_ringMat != null && _ringR != null) _ringR.sharedMaterial = _ringMat;
+        }
+
+        /// <summary>Gold stars under the given players (the eligible receivers before the snap); null / empty hides them. Stars follow their player.</summary>
+        public void SetStars(System.Collections.Generic.IList<Transform> players)
+        {
+            _starFollow.Clear();
+            if (players != null && PixSettings.PreSnapStars) foreach (var p in players) if (p != null) _starFollow.Add(p);
+            while (_starQuads.Count < _starFollow.Count)
+            {
+                var q = Strip(transform, "ReceiverStar", _starMat, 1.15f, 1.15f, out Renderer r);
+                _starQuads.Add(q);
+            }
+            for (int i = 0; i < _starQuads.Count; i++) _starQuads[i].gameObject.SetActive(i < _starFollow.Count);
+        }
+
+        void UpdateStars()
+        {
+            for (int i = 0; i < _starFollow.Count && i < _starQuads.Count; i++)
+            {
+                if (_starFollow[i] == null) { _starQuads[i].gameObject.SetActive(false); continue; }
+                Vector3 p = _starFollow[i].position; p.y = LineY + 0.011f;
+                _starQuads[i].position = p;
+                _starQuads[i].rotation = Quaternion.Euler(90f, 0f, 0f);
+                float s = 1.15f + 0.05f * Mathf.Sin(Time.time * 3f + i);
+                _starQuads[i].localScale = new Vector3(s, s, 1f);
+            }
+        }
+
+        public void HideAll() { _los.gameObject.SetActive(false); _fd.gameObject.SetActive(false); _ring.gameObject.SetActive(false); SetStars(null); }
 
         /// <summary>Spots are 0..100 from the offense's own goal line.</summary>
         public void SetLines(PlayFrame frame, float losSpot, float lineToGainSpot, bool showLos, bool showFirstDown)
@@ -96,6 +182,7 @@ namespace PixFootball.Gameplay
 
         void LateUpdate()
         {
+            UpdateStars();
             if (_follow == null || !_ring.gameObject.activeSelf) return;
             _pulse += Time.deltaTime;
             Vector3 p = _follow.position; p.y = LineY + 0.012f;

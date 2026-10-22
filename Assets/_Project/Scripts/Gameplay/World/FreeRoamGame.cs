@@ -1,5 +1,6 @@
 using System;
 using PixFootball.Art;
+using PixFootball.Core;
 using UnityEngine;
 
 namespace PixFootball.Gameplay
@@ -38,13 +39,13 @@ namespace PixFootball.Gameplay
         void Awake()
         {
             Instance = this;
-            GameSession.SetPaused(false);
+            GameSession.ResetTime();
         }
 
         void Start()
         {
             if (MainCamera == null) MainCamera = Camera.main;
-            if (Lighting != null) Lighting.Apply(PixSettings.Lighting);
+            if (Lighting != null) { var ws = WeatherSystem.Ensure(Lighting); ws.Apply(WeatherKind.Clear, PixSettings.Lighting == LightingPreset.Night ? TimeOfDay.Night : TimeOfDay.Day); }   // QA-014: free roam gets the same floodlight / grade rig as the match
             Team = TeamCatalog.ById(TeamCatalog.SavedTeamId);
             Player = PlayerController.Spawn(transform, SpawnPosition, SpawnYaw, Team != null ? Team.Colors : TeamColors.Home);
             Cameras = CameraRig.Create(transform, MainCamera, Player);
@@ -52,7 +53,7 @@ namespace PixFootball.Gameplay
             Audio.Init(Player);
         }
 
-        void OnDestroy() { if (Instance == this) Instance = null; GameSession.SetPaused(false); }
+        void OnDestroy() { if (Instance == this) Instance = null; GameSession.ResetTime(); }
 
         public void SetPaused(bool p)
         {
@@ -67,7 +68,7 @@ namespace PixFootball.Gameplay
             bool fp = Cameras != null && Cameras.Mode == CameraMode.FirstPerson;
             InputFrame f = ScriptedInput.HasValue ? ScriptedInput.Value : PixInput.Instance.Poll(Time.unscaledDeltaTime, !fp);
 
-            if (f.Pause) SetPaused(!Paused);
+            if (f.Pause && GameSession.PauseConsumedFrame != Time.frameCount) SetPaused(!Paused);
             if (Paused) return;
 
             if (f.CycleCamera && Cameras != null) { Cameras.Cycle(); PixSettings.DefaultCamera = Cameras.Mode; }

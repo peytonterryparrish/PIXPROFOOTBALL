@@ -1,0 +1,73 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 29d4bfe338433f24c99a19b404f153e6, type: 3}
+  m_Name: GlassTheme
+  m_EditorClassIdentifier: PixFootball.UI::PixFootball.UI.Glass.GlassTheme
+  tokens:
+    surfaceTop: {r: 0.4, g: 0.4, b: 0.41568628, a: 1}
+    surfaceMid: {r: 0.14117648, g: 0.14117648, b: 0.14901961, a: 1}
+    surfaceBottom: {r: 0.33333334, g: 0.33333334, b: 0.34509805, a: 1}
+    opacityTop: 0.48
+    opacityMid: 0.4
+    opacityBottom: 0.38
+    edgeA: {r: 0.85882354, g: 0.85882354, b: 0.87058824, a: 1}
+    edgeB: {r: 0.46666667, g: 0.46666667, b: 0.48235294, a: 1}
+    edgeC: {r: 0.8784314, g: 0.8784314, b: 0.8901961, a: 1}
+    edgeWidth: 1.4
+    edgeOpacity: 0.9
+    actionLeft: {r: 0.9529412, g: 0.9529412, b: 0.9529412, a: 1}
+    actionRight: {r: 0.78039217, g: 0.7882353, b: 0.8, a: 1}
+    sheen: 1
+    noise: 0.012
+    blurRadius: 16
+    blurPasses: 2
+    backdropDim: 0.5
+    backdropDesaturate: 0.35
+    refraction: 0.012
+    frostDark: {r: 0.08627451, g: 0.09019608, b: 0.09803922, a: 1}
+    frostLight: {r: 0.2, g: 0.20392157, b: 0.22352941, a: 1}
+    textPrimary: {r: 0.9607843, g: 0.9607843, b: 0.9607843, a: 1}
+    textSecondary: {r: 0.7490196, g: 0.75686276, b: 0.76862746, a: 1}
+    textMuted: {r: 0.5568628, g: 0.5647059, b: 0.5803922, a: 1}
+    textOnAction: {r: 0.105882354, g: 0.105882354, b: 0.11372549, a: 1}
+    accent: {r: 0.95686275, g: 0.6039216, b: 0.32156864, a: 1}
+    accentHot: {r: 1, g: 0.6901961, b: 0.4392157, a: 1}
+    accentDeep: {r: 0.7882353, g: 0.44705883, b: 0.18431373, a: 1}
+    lightGrey: {r: 0.88235295, g: 0.8862745, b: 0.89411765, a: 1}
+    midGrey: {r: 0.654902, g: 0.6666667, b: 0.6862745, a: 1}
+    danger: {r: 0.8862745, g: 0.40784314, b: 0.36078432, a: 1}
+    success: {r: 0.5254902, g: 0.7882353, b: 0.627451, a: 1}
+    warning: {r: 0.95686275, g: 0.75686276, b: 0.32156864, a: 1}
+    cornerRadius: 12
+    cornerRadiusSmall: 8
+    cornerRadiusLarge: 18
+    grid: 8
+    panelPadding: 28
+    gutter: 16
+    rowHeight: 64
+    safeMarginX: 96
+    safeMarginY: 54
+    motionFast: 0.12
+    motionBase: 0.16
+    motionSlow: 0.2
+    focusScale: 1.025
+    sizeCaption: 20
+    sizeLabel: 24
+    sizeBody: 28
+    sizeHeading: 36
+    sizeTitle: 56
+    sizeHero: 104
+    trackingCaps: 3
+    trackingTitle: 4
+  fontTitle: {fileID: 11400000, guid: 9236ed75eb7eb0c4690284030df178ad, type: 2}
+  fontBody: {fileID: 11400000, guid: 3a02524a9b2eaf946a9b255d03ec3397, type: 2}
+  material: {fileID: 2100000, guid: 289096a8119c7f7438464ee1de7def15, type: 2}

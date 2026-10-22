@@ -67,7 +67,9 @@ namespace PixFootball.Presentation
             if (_ballGo != null) return;
             var lib = ArtLibrary.Load();
             var prefab = lib != null ? lib.Prefab("prop_footballball") : null;
-            _ballGo = prefab != null ? Instantiate(prefab, transform) : new GameObject("ReplayBall");
+            if (prefab == null) Debug.LogWarning("[Replay] prop_footballball missing: the replay ball is a plain sphere");
+            _ballGo = prefab != null ? Instantiate(prefab, transform) : GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            if (prefab == null) { var col = _ballGo.GetComponent<Collider>(); if (col != null) Destroy(col); _ballGo.transform.localScale = new Vector3(0.17f, 0.17f, 0.28f); }
             _ballGo.name = "ReplayBall"; _ball = _ballGo.transform;
             foreach (var r in _ballGo.GetComponentsInChildren<Renderer>(true)) r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
             _ballGo.SetActive(false);
@@ -87,6 +89,9 @@ namespace PixFootball.Presentation
                 var kit = ag.Side == 0 ? clip.OffenseKit : clip.DefenseKit;
                 a.Avatar.SetColors(new TeamColors(kit[0], kit[1], kit[2]));
                 a.Avatar.SetHelmetColors(new TeamColors(kit[3], kit[4], kit[5]));
+                a.Avatar.ApplyLookMode();
+                { var uk = new UniformSet { Uniform = new TeamColors(kit[0], kit[1], kit[2]), Helmet = new TeamColors(kit[3], kit[4], kit[5]), Home = (ag.Side == 0) == clip.OffenseHome, Wordmark = ag.Side == 0 ? clip.OffenseWord : clip.DefenseWord, CrestKey = ag.Side == 0 ? clip.OffenseCrest : clip.DefenseCrest }; var jl = JerseyLook.For(ag.Number, uk, uk.Home, ag.Dirt); jl.Name = PixLook.Surname(ag.Name); a.Avatar.SetJersey(jl); }
+                if (ag.PlayerId != -1) { PixFootball.Core.Position rp; if (System.Enum.TryParse(ag.Position, out rp)) a.Avatar.SetAppearance(ag.PlayerId, RoleUtil.AppearanceRole(rp)); }
                 a.Go.name = "Replay_P" + i + "_" + ag.Position;
                 _active[i] = a;
             }
@@ -127,6 +132,8 @@ namespace PixFootball.Presentation
                 Vector3 pos = lerp ? Vector3.Lerp(f0.Pos[k], f1.Pos[k], a) : f0.Pos[k];
                 float yaw = lerp ? Mathf.LerpAngle(f0.Yaw[k], f1.Yaw[k], a) : f0.Yaw[k];
                 tr.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
+                // the facing correction of the live view (clip offset / hips loop) and the line stance setback live on the avatar root, not in the recorded bones
+                if (act.Avatar != null && act.Avatar.Root != null) { float by = lerp ? Mathf.LerpAngle(f0.BodyYaw[k], f1.BodyYaw[k], a) : f0.BodyYaw[k]; act.Avatar.Root.localRotation = Quaternion.Euler(0f, by, 0f); act.Avatar.transform.localPosition = new Vector3(0f, 0f, lerp ? Mathf.Lerp(f0.Setback[k], f1.Setback[k], a) : f0.Setback[k]); }
                 var bones = act.Set.Bones;
                 int ro = clip.RotOffset[k];
                 int n = Mathf.Min(bones.Length, clip.RotOffset[k + 1] - ro);

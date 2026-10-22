@@ -10,7 +10,7 @@ namespace PixFootball.EditorTools
     /// <summary>
     /// Builds the stadium crowd: seated fans are baked (CPU rasteriser) from the licensed crowd characters into a billboard atlas
     /// (3 body types x 8 clothing palettes x 2 poses) and placed on every seat anchor of the stadium as chunked billboard meshes
-    /// (about 25k seats, a handful of draw calls).
+    /// (about 25k seats in 18 m chunks: 228 draw chunks since v0.5, so the crowd can react in a wave).
     /// </summary>
     public static partial class CrowdBuilder
     {

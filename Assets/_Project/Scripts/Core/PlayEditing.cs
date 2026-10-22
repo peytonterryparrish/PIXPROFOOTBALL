@@ -223,7 +223,9 @@ namespace PixFootball.Core
             if (qb != null)
             {
                 qb.ReadProgression.Remove(slot);
-                if (hot != HotRoute.Block) qb.ReadProgression.Insert(0, slot);
+                // QA-538: on a called run the quarterback has no progression to put him into (the route is only a decoy / outlet)
+                bool runCall = qb.Action == QbAction.Handoff || qb.Action == QbAction.Toss || qb.Action == QbAction.Keep || qb.Action == QbAction.Sneak || qb.Action == QbAction.ReadOption;
+                if (hot != HotRoute.Block && !runCall) qb.ReadProgression.Insert(0, slot);
                 p.Assignments[0] = qb;
             }
             return p;

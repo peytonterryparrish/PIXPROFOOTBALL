@@ -25,6 +25,8 @@ namespace PixFootball.Gameplay
         public int ActiveSessions { get { return _sessions.Count; } }
         /// <summary>Raised when a big hit lands (carrier, tackler, impact 0..1): camera shake, rumble and hit sounds hook in here.</summary>
         public System.Action<ContactImpact> Impact;
+        /// <summary>A player was handed to the active ragdoll (agent, intensity): the look layer dirties his kit.</summary>
+        public System.Action<int, float> Knocked;
         void Fire(Vector3 pos, float k, bool big, int a, int b, bool sack = false) { if (Impact != null) Impact(new ContactImpact { Position = pos, Intensity = k, Big = big, AgentA = a, AgentB = b, Sack = sack }); }
         public static bool RagdollEnabled = true;
 
@@ -314,6 +316,7 @@ namespace PixFootball.Gameplay
             v.ContactDriven = true;
             v.Ragdoll.RecoverNeeded = faceUp => StartGetUp(agent, faceUp);
             if (!v.Ragdoll.Begin(vel, impulse, intensity)) { v.ContactDriven = false; return false; }
+            if (Knocked != null) Knocked(agent, intensity);
             return true;
         }
 

@@ -9,15 +9,15 @@ namespace PixFootball.EditorTools
 {
     /// <summary>Headless Windows build: Unity -batchmode -executeMethod PixFootball.EditorTools.BuildScript.BuildWindows -quit
     /// Optional arg: -pixVersion 0.2.0 (sets bundleVersion before building).
-    /// The full ArtLibrary (700 clips, 250 audio clips, ...) is swapped for a slim one in Resources for the duration of the build so the player only contains what v0.1 uses.</summary>
+    /// The full ArtLibrary (about 950 clips, about 250 audio clips, ... see Docs/ArtLibraryReport.md) is swapped for a slim one in Assets/_Licensed/Resources for the duration of the build so the player only contains the whitelist below (SlimPrefabs / SlimClipKeys); RestoreLibrary puts the full library back.</summary>
     public static class BuildScript
     {
         const string ResLib = "Assets/_Licensed/Resources/ArtLibrary.asset";
         static readonly string BackupDir = "Library/PIXBackup";
-        static readonly string[] SlimPrefabs = { "player_medium", "player_small", "player_large", "referee", "coach_a", "coach_b", "coach_c" };
+        static readonly string[] SlimPrefabs = { "player_medium", "player_small", "player_large", "photo_player_small", "photo_player_medium", "photo_player_large", "referee", "coach_a", "coach_b", "coach_c" };
 
         // clip keys used by AnimKit (see Docs/ARCHITECTURE.md v0.2 animation mapping); long BoNES takes are excluded by the length cap
-        const float SlimClipMaxSeconds = 12f; const int SlimClipVariants = 6;
+        const float SlimClipMaxSeconds = 30f; const int SlimClipVariants = 16;     // v0.8: cleaned clips are short (segments <= 10 s); every semantic key ships
         static readonly System.Collections.Generic.HashSet<string> SlimClipKeys = new System.Collections.Generic.HashSet<string>
         {
             "stance_3pt", "dl_stance", "idle_alt", "stance_safety", "stance_halfback", "stance_2pt", "qb_stance_shotgun", "qb_stance_under",
@@ -39,8 +39,15 @@ namespace PixFootball.EditorTools
             var full = AssetDatabase.LoadAssetAtPath<ArtLibrary>(ArtLibrary.EditorAssetPath);
             if (full == null || !File.Exists(ResLib)) return;
             Directory.CreateDirectory(BackupDir);
-            File.Copy(ResLib, BackupDir + "/ArtLibrary.asset", true);
-            File.Copy(ResLib + ".meta", BackupDir + "/ArtLibrary.asset.meta", true);
+            // QA-1033: an existing backup is the FULL library of a crashed earlier build - never overwrite it with the (already slim) Resources copy
+            if (!File.Exists(BackupDir + "/ArtLibrary.asset"))
+            {
+                File.Copy(ResLib, BackupDir + "/ArtLibrary.asset", true);
+                File.Copy(ResLib + ".meta", BackupDir + "/ArtLibrary.asset.meta", true);
+            }
+            else Debug.LogWarning("[PIX] a library backup from an earlier build exists: keeping it");
+            // QA-905: every semantic animation key (and its second-actor _b list) is whitelisted automatically, so new keys can never be missing from a build
+            foreach (var fi in typeof(ArtKeys).GetFields()) if (fi.IsLiteral && fi.FieldType == typeof(string)) { string k = (string)fi.GetRawConstantValue(); SlimClipKeys.Add(k); SlimClipKeys.Add(k + "_b"); }
             AssetDatabase.DeleteAsset(ResLib);
             var slim = ScriptableObject.CreateInstance<ArtLibrary>();
             slim.playerAvatar = full.playerAvatar;
@@ -67,6 +74,8 @@ namespace PixFootball.EditorTools
         static void RestoreLibrary()
         {
             if (!_swapped && !File.Exists(BackupDir + "/ArtLibrary.asset")) return;
+            // QA-905: every semantic animation key (and its second-actor _b list) is whitelisted automatically, so new keys can never be missing from a build
+            foreach (var fi in typeof(ArtKeys).GetFields()) if (fi.IsLiteral && fi.FieldType == typeof(string)) { string k = (string)fi.GetRawConstantValue(); SlimClipKeys.Add(k); SlimClipKeys.Add(k + "_b"); }
             AssetDatabase.DeleteAsset(ResLib);
             if (File.Exists(BackupDir + "/ArtLibrary.asset"))
             {
@@ -80,6 +89,15 @@ namespace PixFootball.EditorTools
             Debug.Log("[PIX] full ArtLibrary restored");
         }
 
+        /// <summary>Builds go to the big D: drive (D:\PIXFootball\Builds) when it exists; override with PIX_BUILD_DIR; fallback ./Builds.</summary>
+        public static string BuildRoot()
+        {
+            string env = System.Environment.GetEnvironmentVariable("PIX_BUILD_DIR");
+            if (!string.IsNullOrEmpty(env)) return Path.GetFullPath(env);
+            if (Directory.Exists(@"D:\")) return @"D:\PIXFootball\Builds";
+            return Path.GetFullPath("Builds");
+        }
+
         [MenuItem("PIX Football/Build/Windows")]
         public static void BuildWindows()
         {
@@ -88,7 +106,7 @@ namespace PixFootball.EditorTools
             if (vi >= 0 && vi + 1 < args.Length) PlayerSettings.bundleVersion = args[vi + 1];
 
             string version = PlayerSettings.bundleVersion;
-            string outDir = Path.GetFullPath($"Builds/PIXFootball_v{version}_Windows");
+            string outDir = Path.Combine(BuildRoot(), $"PIXFootball_v{version}_Windows");
             if (Directory.Exists(outDir)) Directory.Delete(outDir, true);
 
             var scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray();

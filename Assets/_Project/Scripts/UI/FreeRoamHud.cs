@@ -11,7 +11,8 @@ namespace PixFootball.UI
     {
         struct Row { public GameObject Glyph; public GameObject Key; }
         readonly List<Row> _rows = new List<Row>();
-        TextMeshProUGUI _speed, _cam, _team;
+        TextMeshProUGUI _speed, _cam, _team, _legendHint;
+        GameObject _legend; bool _legendOpen = true; float _legendAge; int _lastSpeedTenth = -1;
         Image _stamina, _crest, _staminaBack;
         string _scheme = "";
         FreeRoamGame _game;
@@ -30,6 +31,10 @@ namespace PixFootball.UI
             new[] { "glyph_lb", "Z", "STIFF-ARM LEFT" },
             new[] { "glyph_rb", "X", "STIFF-ARM RIGHT" },
             new[] { "glyph_view", "TAB", "CAMERA" },
+            new[] { "glyph_dpad_up", "G", "CELEBRATE" },
+            new[] { "glyph_dpad_down", "L", "DAY / NIGHT" },
+            new[] { "glyph_lt", "V", "PROTECT THE BALL" },
+            new[] { "glyph_analog_click", "BKSP", "RESET PLAYER" },
             new[] { "glyph_menu", "ESC", "PAUSE" },
         };
 
@@ -38,6 +43,7 @@ namespace PixFootball.UI
             _game = FreeRoamGame.Instance;
             _canvas = UiKit.CreateCanvas("HudCanvas", 5, transform);
             var root = (RectTransform)_canvas.transform;
+            PixFootball.UI.Glass.GlassSkinWatcher.Watch(root.gameObject);
 
             // ---- speed panel (top-left) ----
             var panel = UiKit.Panel(root, "SpeedPanel", new Color(0.06f, 0.07f, 0.1f, 0.78f));
@@ -56,11 +62,14 @@ namespace PixFootball.UI
             _stamina = UiKit.Panel(_staminaBack.rectTransform, "Stamina", UiColors.AccentBlueHot); _stamina.rectTransform.anchorMin = Vector2.zero; _stamina.rectTransform.anchorMax = new Vector2(1, 1); _stamina.rectTransform.offsetMin = _stamina.rectTransform.offsetMax = Vector2.zero;
 
             // ---- camera / lighting (top-right) ----
-            _cam = UiKit.Label(root, "", 28, UiColors.TextSecondary, true, TextAlignmentOptions.TopRight, "Cam");
-            UiKit.Anchor(_cam.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-60, -52), new Vector2(700, 80));
+            var camPlate = UiKit.Panel(root, "CamPlate", new Color(0.06f, 0.07f, 0.1f, 0.94f)); UiKit.Anchor(camPlate.rectTransform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(-60, 48), new Vector2(620, 54));
+            _cam = UiKit.Label(camPlate.rectTransform, "", 28, UiColors.TextSecondary, true, TextAlignmentOptions.Center, "Cam"); UiKit.Stretch(_cam.rectTransform, 12, 0, 12, 0);
+            // collapsed legend: one line that says how to open it
+            _legendHint = UiKit.Label(root, "CONTROLS  [H]", 24, UiColors.TextSecondary, true, TextAlignmentOptions.MidlineLeft, "LegendHint");
+            UiKit.Anchor(_legendHint.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(66, 48), new Vector2(300, 40)); _legendHint.gameObject.SetActive(false);
 
             // ---- controls legend (bottom-left) ----
-            var legend = UiKit.Panel(root, "Controls", new Color(0.06f, 0.07f, 0.1f, 0.62f));
+            var legend = UiKit.Panel(root, "Controls", new Color(0.06f, 0.07f, 0.1f, 0.94f)); _legend = legend.gameObject;
             float rowH = 44f;
             UiKit.Anchor(legend.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(60, 48), new Vector2(430, 36 + rowH * Controls.Length));
             var lay = UiKit.Rect(legend.rectTransform, "Rows"); UiKit.Stretch(lay, 18, 14, 14, 14);
@@ -82,6 +91,20 @@ namespace PixFootball.UI
         }
 
         void OnDestroy() { if (_game != null) _game.TeamChanged -= OnTeam; }
+
+        string _camText;
+        void SetCamText(string s) { if (s == _camText) return; _camText = s; _cam.text = s; }
+
+        /// <summary>The 15-row legend is a big plate: it opens on arrival, folds into a one-line hint after eight seconds and toggles with H / right-stick click.</summary>
+        void UpdateLegend()
+        {
+            _legendAge += Time.unscaledDeltaTime;
+            var kb = UnityEngine.InputSystem.Keyboard.current; var pad = UnityEngine.InputSystem.Gamepad.current;
+            if ((kb != null && kb.hKey.wasPressedThisFrame) || (pad != null && pad.rightStickButton.wasPressedThisFrame)) { _legendOpen = !_legendOpen; _legendAge = 0f; }
+            else if (_legendOpen && _legendAge > 8f) _legendOpen = false;
+            if (_legend != null && _legend.activeSelf != _legendOpen) _legend.SetActive(_legendOpen);
+            if (_legendHint != null && _legendHint.gameObject.activeSelf == _legendOpen) _legendHint.gameObject.SetActive(!_legendOpen);
+        }
 
         void OnTeam(TeamInfo t)
         {
@@ -106,10 +129,12 @@ namespace PixFootball.UI
             RefreshScheme(false);
             if (_team != null && string.IsNullOrEmpty(_team.text) && _game.Team != null) OnTeam(_game.Team);
             var p = _game.Player;
-            _speed.text = p.SpeedMph.ToString("0.0");
+            int tenth = Mathf.RoundToInt(p.SpeedMph * 10f);
+            if (tenth != _lastSpeedTenth) { _lastSpeedTenth = tenth; _speed.text = (tenth / 10f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture); }
+            UpdateLegend();
             _stamina.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(p.Energy01), 1f);
             if (_game.Cameras != null && _game.Lighting != null)
-                _cam.text = (_game.Cameras.Mode == CameraMode.Broadcast ? "BROADCAST CAM" : _game.Cameras.Mode == CameraMode.Behind ? "BEHIND PLAYER" : "FIRST PERSON") + "  /  " + (_game.Lighting.Current == LightingPreset.Night ? "NIGHT GAME" : "DAY GAME");
+                SetCamText((_game.Cameras.Mode == CameraMode.Broadcast ? "BROADCAST CAM" : _game.Cameras.Mode == CameraMode.Behind ? "BEHIND PLAYER" : "FIRST PERSON") + "  /  " + (_game.Lighting.Current == LightingPreset.Night ? "NIGHT GAME" : "DAY GAME"));
             _canvas.enabled = !_game.Paused;
         }
     }

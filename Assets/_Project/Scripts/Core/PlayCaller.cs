@@ -14,9 +14,15 @@ namespace PixFootball.Core
         /// <summary>0-100: blitz frequency, fourth-down boldness.</summary>
         public int Aggression;
         public PlayStyle Style;
+        /// <summary>QA-621: the defensive coordinator's base front. -1 = 4-3 team, 0 = no preference, +1 = 3-4 team (shifts the base-front choice by up to 0.35). Not used for the offensive staff.</summary>
+        public float FrontBias;
+        /// <summary>0 = no preference, 1 = a nickel-first coordinator (adds up to 0.4 to the chance of the nickel against two-back personnel).</summary>
+        public float NickelBias;
 
         public static CoachProfile Neutral { get { return new CoachProfile { PassTendency = 50, Aggression = 50, Style = PlayStyle.Balanced }; } }
-        public string Label { get { return PassTendency >= 58 ? "PASS HEAVY" : (PassTendency <= 43 ? "RUN HEAVY" : "BALANCED"); } }
+        /// <summary>Symmetric bands around the neutral 50 (QA-500): 57 and up reads PASS HEAVY, 43 and down reads RUN HEAVY.</summary>
+        public const int PassHeavyAt = 57, RunHeavyAt = 43;
+        public string Label { get { return PassTendency >= PassHeavyAt ? "PASS HEAVY" : (PassTendency <= RunHeavyAt ? "RUN HEAVY" : "BALANCED"); } }
     }
 
     public struct CoachPick
@@ -57,15 +63,15 @@ namespace PixFootball.Core
         public static bool IsHurryUp(GameState s)
         {
             if (!(s.Quarter == 2 || s.Quarter == 4)) return false;
-            if (s.Rules.CollegeStyle && s.IsOvertime) return false;
             int diff = s.PossessionScoreDiff;
-            if (s.Quarter == 4) return s.ClockSeconds <= 150f && diff < 0 || s.ClockSeconds <= 70f && diff <= 0;
-            return s.ClockSeconds <= 70f;
+            if (s.Quarter == 4) return s.ClockSeconds <= 240f && diff < 0 || s.ClockSeconds <= 100f && diff <= 0;   // QA-501: the same windows the QuickSim CPU uses (trailing from ~4:00, level from ~1:40)
+            return s.ClockSeconds <= 100f;
         }
 
         public static bool ShouldSpike(GameState s)
         {
             if (!IsHurryUp(s) || s.Phase != GamePhase.Scrimmage || s.Down >= 4) return false;
+            if (!s.ClockRunning || s.PendingRunoff <= 0f) return false;   // nothing to save when the clock is already stopped (incompletion, out of bounds, timeout)
             if (s.ClockSeconds > 40f) return false;
             int diff = s.PossessionScoreDiff;
             if (diff > 0 && s.Quarter == 4) return false;
@@ -74,8 +80,34 @@ namespace PixFootball.Core
 
         public static bool ShouldKneel(GameState s)
         {
-            return s.Quarter == 4 && s.PossessionScoreDiff > 0 && s.Phase == GamePhase.Scrimmage && s.Down <= 3
+            return s.Quarter == 4 && s.PossessionScoreDiff > 0 && s.Phase == GamePhase.Scrimmage && s.Down <= 3 && s.BallSpot >= 5   // never kneel the ball into your own end zone
                    && s.ClockSeconds < 130f && s.TimeoutsOf(s.Possession.Opponent()) == 0;
+        }
+
+        /// <summary>The last snap of a half or game for a team that must score from beyond field-goal range: throw the Hail Mary.</summary>
+        public static bool ShouldHailMary(GameState s)
+        {
+            if (s.Phase != GamePhase.Scrimmage || !(s.Quarter == 2 || s.Quarter == 4)) return false;
+            if (s.ClockSeconds > 9f || s.BallSpot < 40 || s.BallSpot > 62) return false;
+            if (s.Quarter == 4 && s.PossessionScoreDiff >= 0) return false;
+            if (s.Quarter == 4 && s.PossessionScoreDiff < -8) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// CPU timeout decision (the same rule the live match director follows): the team that needs the clock stops it in the last
+        /// two minutes of a half while the runoff is ticking; a team on offense waits until the clock is under 90 seconds.
+        /// </summary>
+        public static bool WantsTimeout(GameState s, Team t, Rng rng)
+        {
+            if (s.Phase != GamePhase.Scrimmage || !s.ClockRunning || s.PendingRunoff <= 0f) return false;
+            if (!(s.Quarter == 2 || s.Quarter == 4) || s.ClockSeconds > 130f) return false;
+            if (s.TimeoutsOf(t) <= 0) return false;
+            int diff = s.ScoreOf(t) - s.ScoreOf(t.Opponent());
+            bool wantsClock = diff < 0 || (s.Quarter == 2 && diff <= 0 && s.Possession == t);
+            if (!wantsClock) return false;
+            if (s.Possession == t && s.ClockSeconds > 90f) return false;
+            return rng == null || rng.Chance(0.5f);
         }
 
         static bool SidelineRoute(Play p)
@@ -117,10 +149,11 @@ namespace PixFootball.Core
         {
             float w = 1f;
             int toGoal = 100 - s.BallSpot;
-            string unit = Book.FindFormation(p.FormationName).Unit;
+            Formation form = Book.FindFormation(p.FormationName);
+            if (form == null) return 0f;   // QA-499: a custom play whose formation is missing from the book is never picked (it used to throw)
             // personnel / formation fit
             bool passing = wantPass;
-            string fam = Book.FindFormation(p.FormationName).Family;
+            string fam = form.Family;
             if (passing)
             {
                 if (fam == DefaultPlaybooks.ShotgunF || fam == DefaultPlaybooks.Trips || fam == DefaultPlaybooks.Empty) w *= 1.5f;
@@ -268,12 +301,12 @@ namespace PixFootball.Core
         public enum FourthCall { Go, Punt, FieldGoal }
 
         /// <summary>The coach's fourth-down decision (the same rules the CPU follows).</summary>
-        public FourthCall FourthDown(GameState s, CoachProfile c)
+        public FourthCall FourthDown(GameState s, CoachProfile c, int maxFgYards = 0)
         {
             int toGoal = 100 - s.BallSpot;
             int fgDist = toGoal + 17;
             bool college = s.Rules.CollegeStyle;
-            bool fgRange = fgDist <= (college ? 50 : 54);
+            bool fgRange = fgDist <= (maxFgYards > 0 ? maxFgYards : (college ? 50 : 54));   // the kicker's own range when the caller knows it
             int diff = s.PossessionScoreDiff;
             bool late = s.Quarter == 4 && s.ClockSeconds < 240f;
             bool desperate = late && diff < 0;
@@ -297,9 +330,9 @@ namespace PixFootball.Core
             {
                 case "01": return longYardage || _rng.Chance(0.45f) ? DefaultPlaybooks.Dime : DefaultPlaybooks.Nickel;
                 case "20": case "11": return longYardage && s.Distance >= 10 && _rng.Chance(0.4f) ? DefaultPlaybooks.Dime : DefaultPlaybooks.Nickel;
-                case "21": return _rng.Chance(0.35f) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;
-                case "12": return _rng.Chance(0.25f) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;
-                case "22": return _rng.Chance(0.4f) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;
+                case "21": if (c.NickelBias > 0f && _rng.Chance(0.4f * c.NickelBias)) return DefaultPlaybooks.Nickel; return _rng.Chance(Math.Max(0.02f, Math.Min(0.95f, 0.35f + 0.35f * c.FrontBias))) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;
+                case "12": if (c.NickelBias > 0f && _rng.Chance(0.3f * c.NickelBias)) return DefaultPlaybooks.Nickel; return _rng.Chance(Math.Max(0.02f, Math.Min(0.95f, 0.25f + 0.35f * c.FrontBias))) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;
+                case "22": return _rng.Chance(Math.Max(0.02f, Math.Min(0.95f, 0.4f + 0.35f * c.FrontBias))) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;
                 default: return DefaultPlaybooks.Base43;
             }
         }

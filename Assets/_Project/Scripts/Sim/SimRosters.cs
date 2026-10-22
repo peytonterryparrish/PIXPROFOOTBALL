@@ -9,33 +9,49 @@ namespace PixFootball.Sim
     /// <summary>Builds the 11-man rosters (one Player per formation slot) a play needs from a team's depth chart.</summary>
     public static class SimRosters
     {
+        /// <summary>Energy under which a rotating position (DL, RB, WR, TE, LB) gives way to a rested backup.</summary>
+        public const float RestBelow = 0.62f;
+        /// <summary>Largest overall-rating drop the coach accepts for a rest.</summary>
+        public const int MaxDrop = 14;
+
+        private static bool Rotates(Position pos)
+        {
+            return PositionGroup.IsDefensiveLine(pos) || PositionGroup.IsLinebacker(pos) || pos == Position.RB || pos == Position.WR || pos == Position.TE || pos == Position.FB;
+        }
+
         /// <summary>
         /// Chooses a starter for every slot of <paramref name="formation"/>: the best available depth-chart player at the slot's position,
         /// never using the same player twice. Falls back to the best-overall roster player at that position, then to similar positions.
         /// </summary>
-        public static Player[] ForFormation(LeagueTeam team, Formation formation)
+        public static Player[] ForFormation(LeagueTeam team, Formation formation, FatigueTracker fatigue = null)
         {
             var result = new Player[formation.Slots.Length];
             var used = new HashSet<int>();
             for (int i = 0; i < formation.Slots.Length; i++)
             {
                 Position pos = formation.Slots[i].Position;
-                result[i] = Pick(team, pos, used);
+                result[i] = Pick(team, pos, used, fatigue);
                 if (result[i] != null) used.Add(result[i].Id);
             }
             return result;
         }
 
-        private static Player Pick(LeagueTeam team, Position pos, HashSet<int> used)
+        private static Player Pick(LeagueTeam team, Position pos, HashSet<int> used, FatigueTracker fatigue)
         {
             List<int> ids;
             if (team.Depth != null && team.Depth.TryGet(pos, out ids))
             {
+                Player first = null;
                 for (int i = 0; i < ids.Count; i++)
                 {
                     Player p = team.GetPlayer(ids[i]);
-                    if (p != null && !used.Contains(p.Id) && p.IsAvailable) return p;
+                    if (p == null || used.Contains(p.Id) || !p.IsAvailable) continue;
+                    if (first == null) first = p;
+                    if (fatigue == null || !Rotates(pos)) return p;
+                    // QA-394: a tired starter sits for a rested backup who is not much worse (line, backs and receivers rotate; quarterbacks, kickers and the secondary do not)
+                    if (fatigue.EnergyOf(p.Id) >= RestBelow && (first == p || p.Overall >= first.Overall - MaxDrop)) return p;
                 }
+                if (first != null) return first;
             }
             Player best = null; int bo = -1;
             for (int i = 0; i < team.Roster.Count; i++)

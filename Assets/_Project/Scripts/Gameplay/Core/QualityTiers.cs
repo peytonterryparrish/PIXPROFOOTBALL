@@ -17,14 +17,24 @@ namespace PixFootball.Gameplay
         public static readonly string[] RenderScaleNames = { "100% (native)", "90%", "80%", "67% (performance)" };
 
         /// <summary>Per tier: player level of detail bias, volumetric fog, SSAO, SSR, contact shadows, motion blur, spot light shadows, soft shadows.</summary>
-        struct Tier { public float LodBias; public bool Fog, Ssao, Ssr, ContactShadows, MotionBlur, SpotShadows; public float ShadowDistance; }
+        struct Tier { public float LodBias; public bool Fog, Ssao, Ssr, ContactShadows, MotionBlur, SpotShadows; public float ShadowDistance; public float FxScale; public bool Splashes, Breath, GrassBlades, Ssgi; }
         static readonly Tier[] Tiers =
         {
-            new Tier { LodBias = 0.45f, Fog = false, Ssao = false, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 60f },
-            new Tier { LodBias = 0.7f, Fog = true, Ssao = true, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 90f },
-            new Tier { LodBias = 1f, Fog = true, Ssao = true, Ssr = true, ContactShadows = true, MotionBlur = true, SpotShadows = true, ShadowDistance = 120f },
-            new Tier { LodBias = 1.4f, Fog = true, Ssao = true, Ssr = true, ContactShadows = true, MotionBlur = true, SpotShadows = true, ShadowDistance = 150f },
+            new Tier { LodBias = 0.45f, Fog = false, Ssao = false, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 60f, FxScale = 0.4f, Splashes = false, Breath = false, GrassBlades = false, Ssgi = false },
+            new Tier { LodBias = 0.7f, Fog = true, Ssao = true, Ssr = false, ContactShadows = false, MotionBlur = false, SpotShadows = false, ShadowDistance = 90f, FxScale = 0.7f, Splashes = false, Breath = true, GrassBlades = false, Ssgi = false },
+            new Tier { LodBias = 1f, Fog = true, Ssao = true, Ssr = true, ContactShadows = true, MotionBlur = true, SpotShadows = false, ShadowDistance = 120f, FxScale = 1f, Splashes = true, Breath = true, GrassBlades = true, Ssgi = false },
+            new Tier { LodBias = 1.4f, Fog = true, Ssao = true, Ssr = true, ContactShadows = true, MotionBlur = true, SpotShadows = true, ShadowDistance = 150f, FxScale = 1.25f, Splashes = true, Breath = true, GrassBlades = true, Ssgi = true },
         };
+
+        // ---- v0.6 look features by tier
+        static Tier Cur { get { return Tiers[Mathf.Clamp(Current, 0, Tiers.Length - 1)]; } }
+        /// <summary>Amount of weather particles (rain / snow) relative to High.</summary>
+        public static float FxScale { get { return Cur.FxScale; } }
+        public static bool WeatherSplashes { get { return Cur.Splashes; } }
+        public static bool BreathVapor { get { return Cur.Breath; } }
+        /// <summary>Short grass blades near the camera (High and Ultra).</summary>
+        public static bool GrassBlades { get { return Cur.GrassBlades; } }
+        public static bool Ssgi { get { return Cur.Ssgi; } }
 
         public static int TierOfQualityLevel(int level)
         {
@@ -46,6 +56,9 @@ namespace PixFootball.Gameplay
             ApplyScene();
         }
 
+        /// <summary>Drops the command line / test override so the stored tier applies again.</summary>
+        public static void ClearOverride() { _tierOverride = -1; _scaleOverride = -1f; }
+
         /// <summary>Stores the tier, switches the Unity quality level and applies the runtime settings to the loaded scene.</summary>
         public static void Select(int tier)
         {
@@ -53,15 +66,21 @@ namespace PixFootball.Gameplay
             PixSettings.Quality = QualityLevels[tier];
             PixSettings.Save();
             QualitySettings.SetQualityLevel(QualityLevels[tier], true);
+            PixSettings.ApplyFrameSettings();
             ApplyScene();
         }
 
-        static bool _scalerHooked;
+        static bool _scalerHooked, _sceneHooked;
+
+        // what the tier switched off, so a higher tier can switch it back on (QA-812: a tier change used to be one-way)
+        static readonly System.Collections.Generic.HashSet<VolumeComponent> _offByTier = new System.Collections.Generic.HashSet<VolumeComponent>();
+        static readonly System.Collections.Generic.HashSet<Fog> _fogOffByTier = new System.Collections.Generic.HashSet<Fog>();
+        static readonly System.Collections.Generic.Dictionary<Light, LightShadows> _lightShadowsBefore = new System.Collections.Generic.Dictionary<Light, LightShadows>();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
         {
-            UnityEngine.SceneManagement.SceneManager.sceneLoaded += (s, m) => ApplyScene();
+            if (!_sceneHooked) { _sceneHooked = true; UnityEngine.SceneManagement.SceneManager.sceneLoaded += (s, m) => { _lightShadowsBefore.Clear(); ApplyScene(); }; }   // QA-740: subscribe once
             ApplyScene();
         }
 
@@ -75,17 +94,29 @@ namespace PixFootball.Gameplay
             foreach (var v in Object.FindObjectsByType<Volume>(FindObjectsSortMode.None))
             {
                 var p = v.profile; if (p == null) continue;
-                Fog fog; if (p.TryGet(out fog) && !tier.Fog) fog.enableVolumetricFog.value = false;
+                Fog fog;
+                if (p.TryGet(out fog))
+                {
+                    if (!tier.Fog) { if (fog.enableVolumetricFog.value) { fog.enableVolumetricFog.value = false; _fogOffByTier.Add(fog); } }
+                    else if (_fogOffByTier.Remove(fog)) fog.enableVolumetricFog.value = true;
+                }
                 Set<ScreenSpaceAmbientOcclusion>(p, tier.Ssao); Set<ScreenSpaceReflection>(p, tier.Ssr); Set<ContactShadows>(p, tier.ContactShadows); Set<MotionBlur>(p, tier.MotionBlur);
+                Set<GlobalIllumination>(p, tier.Ssgi);
             }
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
-                if (l.type == LightType.Spot && l.shadows != LightShadows.None && !tier.SpotShadows) l.shadows = LightShadows.None;
+            {
+                if (l.type != LightType.Spot) continue;
+                if (!tier.SpotShadows) { if (l.shadows != LightShadows.None) { _lightShadowsBefore[l] = l.shadows; l.shadows = LightShadows.None; } }
+                else { LightShadows was; if (_lightShadowsBefore.TryGetValue(l, out was)) { l.shadows = was; _lightShadowsBefore.Remove(l); } }
+            }
             ApplyRenderScale();
         }
 
         static void Set<T>(VolumeProfile p, bool on) where T : VolumeComponent
         {
-            T c; if (p.TryGet(out c) && !on) c.active = false;
+            T c; if (!p.TryGet(out c)) return;
+            if (!on) { if (c.active) { c.active = false; _offByTier.Add(c); } }
+            else if (_offByTier.Remove(c)) c.active = true;
         }
 
         /// <summary>Render scale through HDRP dynamic resolution (hardware): 100% leaves dynamic resolution off.</summary>

@@ -124,7 +124,7 @@ namespace PixFootball.Presentation
             else room = userOff ? playClock : 3.1f;
             var ctx = new DirectorContext
             {
-                Cinematics = PixSettings.Cinematics, GameStart = _firstPlay, FirstPlayOfDrive = _firstPlayOfDrive, AfterScore = _lastWasScore,
+                Cinematics = PixSettings.Cinematics, UserPlaying = !_dir.Config.CpuVsCpu && !_dir.Autopilot, GameStart = _firstPlay, FirstPlayOfDrive = _firstPlayOfDrive, AfterScore = _lastWasScore,
                 FirstPlayOfHalf = _firstPlayOfHalf, Kickoff = _sim.Kind == PlayKind.Kickoff, DriveIndex = _driveIndex, PreSnapSeconds = room
             };
             var plan = ShotRules.PreSnap(ctx);
@@ -184,7 +184,7 @@ namespace PixFootball.Presentation
             else if (turnover || o.Headline == Headline.Sack) benefit = o.Offense.Opponent();
             var ctx = new DirectorContext
             {
-                Cinematics = PixSettings.Cinematics, Headline = o.Headline, Touchdown = o.Headline == Headline.Touchdown, Turnover = turnover,
+                Cinematics = PixSettings.Cinematics, UserPlaying = !_dir.Config.CpuVsCpu && !_dir.Autopilot, Headline = o.Headline, Touchdown = o.Headline == Headline.Touchdown, Turnover = turnover,
                 Score = o.ScoringTeam.HasValue, BigPlay = score >= HighlightScorer.FullThreshold, HomeBenefits = benefit == CoreTeam.Home,
                 CarrierKnown = o.Headline != Headline.Incomplete && o.Headline != Headline.Kickoff && o.Headline != Headline.Punt && o.Headline != Headline.Penalty && o.Headline != Headline.Kneel && o.Headline != Headline.Spike && sim.Kind == PlayKind.Scrimmage,
                 PlaysSinceCrowd = _playsSinceCrowd

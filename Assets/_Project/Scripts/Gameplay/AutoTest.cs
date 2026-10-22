@@ -25,6 +25,7 @@ namespace PixFootball.Gameplay
             get { foreach (string a in Environment.GetCommandLineArgs()) if (a == "-pixAutotest") return true; return false; }
         }
         static bool Flag(string name) { foreach (string a in Environment.GetCommandLineArgs()) if (a == name) return true; return false; }
+        static string ArgValueOf(string name) { var a = Environment.GetCommandLineArgs(); for (int i = 0; i < a.Length - 1; i++) if (a[i] == name) return a[i + 1]; return null; }
 
         string _out;
         readonly StringBuilder _log = new StringBuilder();
@@ -94,6 +95,14 @@ namespace PixFootball.Gameplay
         {
             Log("PIX autotest starting. " + Screen.width + "x" + Screen.height + " fullscreen=" + Screen.fullScreen + " gpu=" + SystemInfo.graphicsDeviceName + " api=" + SystemInfo.graphicsDeviceType + " quality=" + QualitySettings.names[QualitySettings.GetQualityLevel()]);
             Log("scene: " + SceneManager.GetActiveScene().name);
+            if (Flag("-pixAutotestLookOnly"))
+            {
+                yield return new WaitForSeconds(1.0f);
+                yield return LookPart();
+                Log("errors/exceptions logged: " + _errors);
+                Finish(_errors > 0 ? 3 : 0);
+                yield break;
+            }
             if (Flag("-pixAutotestContactOnly"))
             {
                 yield return ContactPart();
@@ -139,8 +148,7 @@ namespace PixFootball.Gameplay
             var game = FreeRoamGame.Instance;
             if (game == null) { Log("FAIL: free roam stadium did not load"); yield break; }
             Log("scene: " + SceneManager.GetActiveScene().name + " player spawned in " + wait.ToString("0.0") + "s");
-            PixSettings.Lighting = LightingPreset.Night;
-            game.Lighting.Apply(LightingPreset.Night);
+            game.Lighting.Apply(LightingPreset.Night, false);   // not remembered: a test run must not rewrite the developer's Settings (QA-894)
             game.Cameras.SetMode(CameraMode.Broadcast, true);
             yield return new WaitForSeconds(1.5f);
             yield return Shot("night_broadcast_idle");
@@ -189,6 +197,14 @@ namespace PixFootball.Gameplay
             {
                 HomeId = "buffalo_ironhorns", AwayId = "miami_reefrunners", QuarterMinutes = 2, UserTeam = Team.Home, Seed = 20261021, CpuVsCpu = false, Difficulty = Difficulty.Pro
             };
+            // team, rules, difficulty and seed can be chosen from the command line (QA-303): -pixAutotestHome <id> -pixAutotestAway <id> -pixAutotestRules pro|college -pixAutotestSeed <n> -pixAutotestQuarter <min>
+            string v;
+            if ((v = ArgValueOf("-pixAutotestHome")) != null) cfg.HomeId = v;
+            if ((v = ArgValueOf("-pixAutotestAway")) != null) cfg.AwayId = v;
+            if ((v = ArgValueOf("-pixAutotestRules")) != null) cfg.CollegeRules = v.ToLowerInvariant() == "college";
+            int iv;
+            if ((v = ArgValueOf("-pixAutotestSeed")) != null && int.TryParse(v, out iv)) cfg.Seed = iv;
+            if ((v = ArgValueOf("-pixAutotestQuarter")) != null && int.TryParse(v, out iv) && iv > 0) cfg.QuarterMinutes = iv;
             MatchDirector.ForceAutopilot = true;
             float speed = 2f;
             string[] args = Environment.GetCommandLineArgs();
@@ -355,7 +371,8 @@ namespace PixFootball.Gameplay
             var allLights = new List<Light>(FindObjectsByType<Light>(FindObjectsSortMode.None));
             add("only moon light", () => { foreach (var l in allLights) if (l.type == LightType.Spot) l.enabled = false; }, () => { foreach (var l in allLights) l.enabled = true; });
             var prs = new List<Renderer>(dir.Stage.GetComponentsInChildren<Renderer>(true));
-            add("players cast no shadows", () => { foreach (var r in prs) r.shadowCastingMode = ShadowCastingMode.Off; }, () => { foreach (var r in prs) r.shadowCastingMode = ShadowCastingMode.On; });
+            var shadowBefore = new System.Collections.Generic.Dictionary<Renderer, ShadowCastingMode>();   // restore each renderer's own mode (eyes, hands and visors are Off on purpose) (QA-743)
+            add("players cast no shadows", () => { foreach (var r in prs) { shadowBefore[r] = r.shadowCastingMode; r.shadowCastingMode = ShadowCastingMode.Off; } }, () => { foreach (var r in prs) { ShadowCastingMode m; r.shadowCastingMode = shadowBefore.TryGetValue(r, out m) ? m : ShadowCastingMode.On; } });
             add("players no motion vectors", () => { foreach (var r in prs) r.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion; }, () => { foreach (var r in prs) r.motionVectorGenerationMode = MotionVectorGenerationMode.Object; });
             var spotShadow = new List<Light>(); foreach (var l in shadowLights) if (l.type == LightType.Spot) spotShadow.Add(l);
             add("spot shadows off (moon stays)", () => { foreach (var l in spotShadow) l.shadows = LightShadows.None; }, () => { foreach (var l in spotShadow) l.shadows = LightShadows.Soft; });

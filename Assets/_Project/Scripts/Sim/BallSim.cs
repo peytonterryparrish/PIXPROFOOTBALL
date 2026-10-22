@@ -12,10 +12,38 @@ namespace PixFootball.Sim
         public const float BallRadius = 0.13f;
         public const float Dt = 1f / 60f;
 
+        [ThreadStatic] private static float _windX, _windY, _windScaleDelta;
+        /// <summary>Gameplay gain on the wind (real air is gentler than a football flight needs to look: 10 mph moves a punt a few yards).</summary>
+        public const float WindGain = 0.95f;
+
+        /// <summary>Wind velocity (X lateral, Y downfield, yards per second) acting on the ball in flight; (0,0) = still air. Set by the play simulation for the length of every step.</summary>
+        public static Vec2 Wind
+        {
+            get { return new Vec2(_windX, _windY); }
+            set { _windX = value.X; _windY = value.Y; }
+        }
+
+        /// <summary>Fraction of the wind a planner (quarterback, kicker) allows for when aiming (1 = perfect compensation, 0 = none).</summary>
+        public static float WindScale
+        {
+            get { return 1f + _windScaleDelta; }
+            set { _windScaleDelta = value - 1f; }
+        }
+
         public static void Advance(ref Vec3 pos, ref Vec3 vel, float dt)
         {
-            float sp = vel.Length;
-            Vec3 acc = new Vec3(-DragCoeff * sp * vel.X, -DragCoeff * sp * vel.Y, -SimMath.Gravity - DragCoeff * sp * vel.Z);
+            if (_windX == 0f && _windY == 0f)
+            {
+                float sp0 = vel.Length;
+                Vec3 acc0 = new Vec3(-DragCoeff * sp0 * vel.X, -DragCoeff * sp0 * vel.Y, -SimMath.Gravity - DragCoeff * sp0 * vel.Z);
+                vel = vel + acc0 * dt;
+                pos = pos + vel * dt;
+                return;
+            }
+            float wg = WindGain * (1f + _windScaleDelta);
+            float rx = vel.X - _windX * wg, ry = vel.Y - _windY * wg;
+            float sp = (float)Math.Sqrt(rx * rx + ry * ry + vel.Z * vel.Z);
+            Vec3 acc = new Vec3(-DragCoeff * sp * rx, -DragCoeff * sp * ry, -SimMath.Gravity - DragCoeff * sp * vel.Z);
             vel = vel + acc * dt;
             pos = pos + vel * dt;
         }

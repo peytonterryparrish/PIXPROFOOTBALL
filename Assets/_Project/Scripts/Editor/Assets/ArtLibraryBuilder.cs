@@ -22,7 +22,7 @@ namespace PixFootball.EditorTools
 
         class Rule
         {
-            public string key; public Regex inc; public Regex exc; public int max;
+            public string key; public Regex inc; public Regex exc; public int max; public bool Raw;
             public Rule(string k, string inc, string exc = null, int max = 6)
             { key = k; this.inc = new Regex(inc, RegexOptions.IgnoreCase); this.exc = exc == null ? null : new Regex(exc, RegexOptions.IgnoreCase); this.max = max; }
         }
@@ -30,6 +30,86 @@ namespace PixFootball.EditorTools
         // Matched against the normalised clip name (lowercase, "root|" and "<pack>__" prefixes stripped, "import_" stripped).
         // Order inside the table matters: the first rule that claims a clip wins for single-claim rules; paired (_a/_b) clips register
         // the _A actor under <key> and the _B actor under <key>_b.
+        // v0.8: the BGS / Yan mocap (BoNES_Yan folder) and the cleaned / derived clips. Processed BEFORE ClipRules (the first rule that claims a clip wins).
+        static readonly Rule[] NewClipRules =
+        {
+            // kicking (Yan "QB-Kickers-Rework")
+            new Rule(ArtKeys.KickReturnCatch, @"^kickoff_catch|^kr_touchback", null, 4),
+            new Rule(ArtKeys.KickOff, @"^k_kickoff_kick", null, 4),
+            new Rule(ArtKeys.KickFieldGoal, @"^k_fieldgoal", null, 4),
+            new Rule(ArtKeys.KickHolder, @"^h_fieldgoal", null, 4),
+            new Rule(ArtKeys.PuntFast, @"^p_punt_00_faster", null, 4),
+            new Rule(ArtKeys.Punt, @"^p_punt_0[01](_remap)?$", null, 6),
+            new Rule(ArtKeys.KickOnside, @"^onside_kick", null, 4),
+            new Rule(ArtKeys.KickSquib, @"^squib_kick", null, 4),
+            // derived get-ups (GetUpBuilder) and specials
+            new Rule(ArtKeys.GetUpFaceUp, @"^getup_face_up", null, 12),
+            new Rule(ArtKeys.GetUpFaceDown, @"^getup_face_down", null, 12),
+            new Rule(ArtKeys.GetUpSide, @"^getup_side", null, 12),
+            new Rule(ArtKeys.PressJam, @"^press_jam", null, 6),
+            new Rule(ArtKeys.CatchToeTap, @"^catch_toe_tap", null, 6),
+            new Rule(ArtKeys.CatchOneHand, @"^catch_one_hand", null, 6),
+            new Rule(ArtKeys.TackleStrip, @"^tackle_strip", null, 6),
+            new Rule(ArtKeys.PushOob, @"^push_oob", null, 6),
+            new Rule(ArtKeys.DlRushRip, @"^dl_rip", null, 6),
+            new Rule(ArtKeys.WrRelease, @"^wr_release|^receivertransitionreadyidlertomotion", null, 6),
+            // RAW day-2 / day-3 BoNES takes re-baked by retarget_actions.py (sideline, strips, helmet)
+            new Rule(ArtKeys.TackleStrip, @"^bc_striptackle_(critical)?success", null, 8),
+            new Rule(ArtKeys.BenchSit, @"^ambient_bench", null, 6),
+            new Rule(ArtKeys.CoachAmbient, @"^ambient_coach", null, 6),
+            new Rule(ArtKeys.HuddleLeader, @"^leader_idle", null, 6),
+            new Rule(ArtKeys.IdleHelmet, @"^helmet_interactions", null, 6),
+            new Rule(ArtKeys.Frustration, @"^loosing_frustration", null, 6),
+            new Rule(ArtKeys.Swat, @"^swatnormal|^swat_", null, 8),
+            new Rule(ArtKeys.HuddleIdle, @"^huddle_idle|^pix_huddle", null, 6),
+            new Rule(ArtKeys.HuddleBreak, @"^huddle_break", null, 6),
+            new Rule(ArtKeys.BenchSit, @"^bench_sit", null, 6),
+            new Rule(ArtKeys.Walk, @"^walk_cycle|^pix_walk|^pix_stroll", null, 6),
+            new Rule(ArtKeys.WalkStart, @"^walk_start", null, 6),
+            new Rule(ArtKeys.WalkStop, @"^walk_stop", null, 6),
+            // ball-carrier locomotion
+            new Rule(ArtKeys.BcBackpedal, @"^mob1_jog_(b|bl|br|l|r)_(bkpd_)?loop(_bc|_remap)", @"mob1_jog_(l|r)_loop_bc", 12),
+            new Rule(ArtKeys.BcCircle, @"cir_loop_bc$", null, 16),
+            new Rule(ArtKeys.BcStop, @"to_stand_relaxed(_lu|_ru)?(\.\d+)?_bc$|to_stand_relaxed_bc(\.\d+)?$", null, 40),
+            new Rule(ArtKeys.BcTurn90, @"^mob1_(jog|run)_(l|r)_90_bc|^bgs_sprint\d*_f_90_deg_turn_(left|right)_bc", null, 16),
+            new Rule(ArtKeys.BcTurn180, @"^mob1_(jog|run)_(l|r)_180_bc|^bgs_sprint\d*_f_180_deg_turn_(left|right)_bc", null, 16),
+            new Rule(ArtKeys.BcJog, @"^mob1_jog_(f|fl|fr|l|r)_loop_bc", null, 12),
+            new Rule(ArtKeys.BcRun, @"^mob1_run_(f|fl|fr|l|r)_loop_bc|^bgs_run\d*_(f|fl|fr)_loop_bc(_fix)?$", null, 16),
+            new Rule(ArtKeys.BcSprint, @"^bgs_sprint\d*_(f|fl|fr)_loop_bc", null, 16),
+            // non-carrier sprint set
+            new Rule(ArtKeys.SprintTurn, @"^bgs_sprint\d*_f_(90|180)_deg_turn_(left|right)(\.\d+)?$", null, 16),
+            new Rule(ArtKeys.StopSprint, @"^bgs_(sprint|run)\d*_f_to_stand_relaxed(_lu|_ru)?(\.\d+)?$", null, 24),
+            new Rule(ArtKeys.SprintAlt, @"^bgs_(sprint|run)\d*_(f|fl|fr|l_cir|r_cir)_loop$|^bgs_run\d*_f_loop$|^bgs_run_f_loop", null, 24),
+            // pass-pro footwork / cornerback behaviour
+            new Rule(ArtKeys.OlPocketStand, @"^bgs_olm_(shufflestand|stepstand)", null, 8),
+            new Rule(ArtKeys.OlPocketShuffle, @"^bgs_olm_shuffle_", null, 16),
+            new Rule(ArtKeys.OlPocketStep, @"^bgs_olm_step_", null, 16),
+            new Rule(ArtKeys.CbBreak, @"^bgs_cb_idletosprint", null, 12),
+            new Rule(ArtKeys.CbIdle, @"^bgs_cb_(idle|gettingintoidle)", null, 6),
+            new Rule(ArtKeys.CbShuffle, @"^bgs_cb_shuffle", null, 12),
+            new Rule(ArtKeys.CbSprint, @"^bgs_cb_sprint", null, 6),
+            new Rule(ArtKeys.CbRotate, @"^bgs_cb_stance_rotate", null, 6),
+            // idles
+            new Rule(ArtKeys.IdleLook, @"^bgs_fix_mcu_am_.*lookaround", null, 6),
+            new Rule(ArtKeys.IdleLively, @"^bgs_fix_", null, 16),
+            // carrier moves
+            new Rule(ArtKeys.JukeLeft, @"^bgs_(dodge|juke)_frontl_", null, 10),
+            new Rule(ArtKeys.JukeRight, @"^bgs_(dodge|juke)_frontr_", null, 10),
+            new Rule(ArtKeys.StiffArmLeft, @"^bgs_stiffarm_frontl", null, 8),
+            new Rule(ArtKeys.StiffArmRight, @"^bgs_stiffarm_frontr", null, 8),
+            new Rule(ArtKeys.Truck, @"^truck_front_|^truck_a_00", null, 8),
+            new Rule(ArtKeys.FumbleDive, @"^bgs_fumble_recovery_dive", null, 4),
+            new Rule(ArtKeys.DiveForward, @"^bgs_dive_ball", null, 4),
+            new Rule(ArtKeys.Handoff, @"^bgs_handoffishotgunspeedoption_", null, 6),
+            // QB
+            new Rule(ArtKeys.QbCadenceClap, @"^bgs_qb_cadence_03_clap$", null, 4),
+            new Rule(ArtKeys.QbCadenceRaise, @"^bgs_qb_cadence04_raise$", null, 4),
+            new Rule(ArtKeys.QbCadenceStomp, @"^bgs_qb_cadence_0[12]_[a-z]*stomp$", null, 4),
+            new Rule(ArtKeys.QbDrop3, @"^qb_3stepdropback", null, 4),
+            new Rule(ArtKeys.QbDrop5, @"^qb_5stepdropback", null, 4),
+            new Rule(ArtKeys.QbDrop7, @"^qb_7stepdropback", null, 4),
+        };
+
         static readonly Rule[] ClipRules =
         {
             // ---- locomotion (Motus cycles / BoNES studio)
@@ -46,7 +126,8 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.ShuffleRight, @"^(2point|3point|4point)_to_shuffle_090|^slow_shuffle_loop_045"),
             new Rule(ArtKeys.ShuffleSlow, @"^slow_shuffle_loop"),
             new Rule(ArtKeys.TurnRight, @"^trans(ition)?_stand_idle_to_stand_idle_\d+_deg_right|^transition_walk_to_walk|^transitionwalkidle"),
-            new Rule(ArtKeys.TurnLeft, @"^trans_jog_to_jog_180|^jog_to_jog_135"),
+            // QA-918: left turns exist only as mirrored right turns (see the "_m" block in BuildClips); the jog turns are man-turn-run material
+
             new Rule(ArtKeys.Slowdown, @"slowdown"),
             new Rule(ArtKeys.StanceToSprint, @"stance_to_sprint|^trans(ition)?_stand_idle_to_run"),
             new Rule(ArtKeys.BackpedalToSprint, @"stance_to_backpedal"),
@@ -128,7 +209,6 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.Interception, @"^intnormal"),
             new Rule(ArtKeys.ManCoverage, @"man_coverage|^cornerbackshuffle"),
             new Rule(ArtKeys.ManTurnRun, @"jog_to_jog"),
-            new Rule(ArtKeys.ZoneDrop, @"^linebackertransition|^linebackerpumpcrowd"),
             new Rule(ArtKeys.RouteCut, @"^receivertransition"),
             // ---- ball carrier
             new Rule(ArtKeys.JukeBox, @"boxstep"),
@@ -164,7 +244,7 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.Dance, @"breakdance|freestyle"),
             new Rule(ArtKeys.Salute, @"soldierboy"),
             // ---- kicking
-            new Rule(ArtKeys.Punt, @"^punt|downpunt"),
+            new Rule(ArtKeys.Punt, @"^punt"),     // QA-192: a celebration "downpunt" is not a punt
             new Rule(ArtKeys.KickOff, @"^kickoff"),
             new Rule(ArtKeys.KickFieldGoal, @"^fieldgoal|^kick_fg"),
             // ---- refs: real BGS referee gestures / locomotion (Characters/Referee/Rigged/Referee_Gestures.fbx) + keyframed ones (Coach_Anims.fbx)
@@ -214,12 +294,39 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.RouteCut, @"^receivertransition|^avoid(45|90)degr", null, 6),
             new Rule(ArtKeys.RouteBreak, @"^avoid(135|180)degr|^trans_jog_to_jog", null, 6),
             new Rule(ArtKeys.ManTurnRun, @"jog_to_jog|^transition_stand_idle_to_run", null, 6),
-            new Rule(ArtKeys.Fumble, @"fumblerecovery|^frustration.*(drop|fumble)", null, 3),
+            new Rule(ArtKeys.Fumble, @"^bgs_fumble_recovery_dive", null, 3),     // QA-194/916: fumble = the recovery dive (celebrations stay celebrations)
             new Rule(ArtKeys.ShuffleSlow, @"^slow_shuffle_loop", null, 4),
-            new Rule(ArtKeys.Snapper, @"shotgun_to_catch_center|^bones_qb_shotgun_snap", null, 4),
-            new Rule(ArtKeys.CatchDive, @"^catchnormal.*jump|^dive(short|stretch)withball", null, 4),
+            new Rule(ArtKeys.Snapper, @"^long_snap", null, 4),     // QA-190/917: the centre snap (derived), not a QB fake handoff
+            new Rule(ArtKeys.CatchDive, @"^bgs_dive_ball|^dive(short|stretch)withball|^avoid0degdive", null, 4),     // QA-915: a diving catch lays out, it is not a vertical jump
             new Rule(ArtKeys.InjuredIdle, @"ambient_injury_00[12]_a", null, 2),
-            new Rule(ArtKeys.GetUp, @"^slowdown_stop_002|ambient_injury_001_b", null, 2),
+            new Rule(ArtKeys.DlRushRip, @"^blockescape(c|r)(stale|fail)_a$", null, 6),     // rip = the escape moves
+            new Rule(ArtKeys.PressJam, @"^blockhit(c|r)stale_a$", null, 4),                  // press jam = the first punch of the hit-block take
+            new Rule(ArtKeys.PushOob, @"^blockshovec(stale|pass)_a$", null, 4),             // push out of bounds = the shove take
+            // v0.8 distinct per-position stances (QA-899..901). The mirrored copy ("_m") of a hand-down stance is the other-handed variant.
+            new Rule(ArtKeys.StanceOl3ptR, @"^3pstance_aggressive_00[12](_m)?$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceOl3ptL, @"^3pstance_aggressive_00[12]_m$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceCenter, @"^3pstance_aggressive_002(_m)?$", null, 2) { Raw = true },
+            new Rule(ArtKeys.StanceSnapper, @"^3pstance_aggressive_001(_m)?$", null, 2) { Raw = true },
+            new Rule(ArtKeys.StanceTe, @"^3pstance_halfback_001(_m)?$|^3pstance_aggressive_001(_m)?$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceDl3pt, @"^dlineidle3ptr(v2)?(_m)?$", null, 6) { Raw = true },
+            new Rule(ArtKeys.StanceDl4pt, @"^3pstance_wide_defence_001(_m)?$|^dlineidle3ptrv2(_m)?$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceWide9, @"^3pstance_wide_defence_001(_m)?$", null, 2) { Raw = true },
+            new Rule(ArtKeys.StanceLb, @"^linebackerblitzidleone$|^2pstance_safety_001(_m)?$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceCbPress, @"^bgs_cb_idle_m2m(_m)?$", null, 2) { Raw = true },
+            new Rule(ArtKeys.StanceCbOff, @"^bgs_cb_idle_m2m(_m)?$|^2pstance_safety_001(_m)?$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceS, @"^2pstance_safety_001(_m)?$", null, 2) { Raw = true },
+            new Rule(ArtKeys.StanceWr, @"^bgs_fix_mcu_am_ready_idle_01$|^bgs_fix_mcu_am_ready_idle_03_lookaround$|^2pstance_halfback_001(_m)?$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceRb, @"^2pstance_halfback_001(_m)?$|^3pstance_halfback_001(_m)?$", null, 4) { Raw = true },
+            new Rule(ArtKeys.StanceKicker, @"^player_standing_idle(_2)?$", null, 2) { Raw = true },
+            new Rule(ArtKeys.StanceHolder, @"^player_standing_idle(_2)?$", null, 2) { Raw = true },
+            new Rule(ArtKeys.ZoneDrop, @"^bgs_cb_shuffleback(left|right)?$|^quarterbackshufflebkwd", null, 6),     // QA-914: a zone drop is a backpedal / shuffle, not a crowd-pump gesture
+            new Rule(ArtKeys.Gang, @"^sackwrap(back|front|left|right)", null, 8),                                   // gang tackle = the wrap-up takes
+            new Rule(ArtKeys.LbReadStep, @"^bgs_cb_stance_rotate_front23", null, 2),
+            new Rule(ArtKeys.Backpedal45, @"^bgs_cb_shuffleback(left|right)$|^mob1_jog_b(l|r)_bkpd_loop", null, 8),
+            new Rule(ArtKeys.QbHandSignal, @"^bgs_fix_mcu_am_stand_idle_(11_point|09_fingerguns)", null, 4),
+            new Rule(ArtKeys.HuddleBreak, @"^bgs_qb_cadence_03_clap$", null, 2),
+            new Rule(ArtKeys.GetUp, @"^getup_(face_up|face_down|side)", null, 12),
+            // QA-191/916: no get_up registration from running stops / injuries; get-ups are played by ContactDirector from the pair takes (contact table windows)
         };
 
         static readonly string[] AllClipKeys = typeof(ArtKeys).GetFields().Where(f => f.IsLiteral).Select(f => (string)f.GetRawConstantValue()).ToArray();
@@ -246,6 +353,8 @@ namespace PixFootball.EditorTools
             if (path.Contains("/Animations/BoNES_QB")) return 1;
             if (path.Contains("/Animations/BoNES_Studio")) return 2;
             if (path.Contains("/Animations/BoNES_Retargets")) return 3;
+            if (path.Contains("/Animations/BoNES_Yan")) return 4;
+            if (path.Contains("/Animations/Clean/")) return 0;
             return 4;
         }
 
@@ -263,9 +372,13 @@ namespace PixFootball.EditorTools
             BuildSprites(lib);
             BuildAudio(lib);
             BuildFonts(lib);
+            PhotoPlayerBuilder.AddArtLibraryKeys(lib);   // photo_player_small / medium / large (Assets/_Licensed/PhotorealPlayer, additive only)
 
             // shared avatar + controller
+            // the shared avatar is the Medium one (kept for tools); every player prefab animates with the Animator avatar of its OWN body FBX (QA-952)
             var body = AssetDatabase.LoadAllAssetsAtPath(CharacterSetup.BodyPaths[1]).OfType<Avatar>().FirstOrDefault();
+            if (body == null) Debug.LogError("[ArtLibraryBuilder] Medium body avatar missing: lib.playerAvatar stays null");
+            foreach (string bp in CharacterSetup.BodyPaths) if (!HumanoidMapper.IsGoodAvatar(bp)) Debug.LogError("[ArtLibraryBuilder] body avatar invalid: " + bp);
             lib.playerAvatar = body;
             EditorUtility.SetDirty(lib);
             AssetDatabase.SaveAssets();
@@ -309,24 +422,68 @@ namespace PixFootball.EditorTools
                 candidates.RemoveAll(k => k.Key.Contains("/Coaches/Rigged/") && names.Contains(k.Value.name));
                 candidates.AddRange(fitted);
             }
+            // v0.8: cleaned clips (ClipCleaner / derived builders) replace the same-named originals; clips that only exist as .anim are added
+            string cleanDir = Root + "/Animations/Clean";
+            if (AssetDatabase.IsValidFolder(cleanDir))
+            {
+                var cleanMap = new Dictionary<string, KeyValuePair<string, AnimationClip>>();
+                foreach (string g in AssetDatabase.FindAssets("t:AnimationClip", new[] { cleanDir }))
+                {
+                    string p = AssetDatabase.GUIDToAssetPath(g);
+                    var c = AssetDatabase.LoadAssetAtPath<AnimationClip>(p);
+                    if (c != null) cleanMap[c.name] = new KeyValuePair<string, AnimationClip>(p, c);
+                }
+                var used = new HashSet<string>();
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    KeyValuePair<string, AnimationClip> cl;
+                    if (cleanMap.TryGetValue(candidates[i].Value.name, out cl)) { candidates[i] = cl; used.Add(cl.Value.name); }
+                }
+                // a long raw take that was cut into segments is replaced by them
+                candidates.RemoveAll(k => !k.Key.Contains("/Clean/") && cleanMap.ContainsKey(ClipCleaner.TaggedName(k.Value.name, "_s01")));
+                foreach (var kv in cleanMap) if (!used.Contains(kv.Key)) candidates.Add(kv.Value);
+            }
             // order: source priority, then name
             candidates = candidates.OrderBy(k => SourcePriority(k.Key)).ThenBy(k => NormalizeClip(k.Value.name), StringComparer.Ordinal).ToList();
             var count = new Dictionary<string, int>();
             var seenNames = new HashSet<string>();
             foreach (var kv in candidates)
             {
-                string n = NormalizeClip(kv.Value.name);
+                string n = NormalizeClip(kv.Value.name); string an = n;     // an keeps the mirrored "_m" tag for the stance alias rules
                 string pathLow = kv.Key;
                 // skip duplicate normalised names coming from several packs, and namespaced paired "_co" combined clips
                 string dedupe = n + "|" + (pathLow.Contains("/Motus/") ? "m" : "b");
                 if (!seenNames.Add(dedupe)) continue;
-                if (n.EndsWith("_co")) continue;
-                foreach (var r in ClipRules)
+                if (n.EndsWith("_co") || n.Contains("_dude") || n.StartsWith("mediumplayer_rig")) continue;
+                // mirrored copies (ClipCleaner "_M") register like their source clip; the left-hand cuts / jukes get their own keys
+                if (n.EndsWith("_m"))
+                {
+                    string mn = n.Substring(0, n.Length - 2);
+                    if (Regex.IsMatch(mn, @"^avoid(45|90)degr$"))
+                    {
+                        foreach (string mk in new[] { ArtKeys.CutLeft, ArtKeys.JukeLeft })
+                        {
+                            int mc; count.TryGetValue(mk, out mc);
+                            if (mc >= 6) continue;
+                            count[mk] = mc + 1;
+                            lib.clips.Add(new ArtLibrary.ClipEntry { key = mk, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping });
+                        }
+                        continue;
+                    }
+                    if (Regex.IsMatch(mn, @"^trans(ition)?_stand_idle_to_stand_idle_\d+_deg_right|^transition_walk_to_walk|^transitionwalkidle"))
+                    {
+                        int tc; count.TryGetValue(ArtKeys.TurnLeft, out tc);
+                        if (tc < 8) { count[ArtKeys.TurnLeft] = tc + 1; lib.clips.Add(new ArtLibrary.ClipEntry { key = ArtKeys.TurnLeft, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping }); }
+                        continue;
+                    }
+                    n = mn;
+                }
+                foreach (var r in NewClipRules.Concat(ClipRules))
                 {
                     if (!r.inc.IsMatch(n)) continue;
                     if (r.exc != null && r.exc.IsMatch(n)) continue;
                     string key = r.key;
-                    if (Regex.IsMatch(n, @"_b$") && !n.EndsWith("_ab")) key += "_b";
+                    if (Regex.IsMatch(n, @"(_b|_def)$") && !n.EndsWith("_ab")) key += "_b";
                     int c; count.TryGetValue(key, out c);
                     if (c >= r.max) { break; }
                     count[key] = c + 1;
@@ -335,9 +492,9 @@ namespace PixFootball.EditorTools
                 }
                 foreach (var ar in AliasRules)
                 {
-                    if (!ar.inc.IsMatch(n)) continue;
+                    if (!ar.inc.IsMatch(ar.Raw ? an : n)) continue;
                     string akey = ar.key;
-                    if (Regex.IsMatch(n, @"_b$") && !n.EndsWith("_ab")) akey += "_b";
+                    if (Regex.IsMatch(n, @"(_b|_def)$") && !n.EndsWith("_ab")) akey += "_b";
                     int ac; count.TryGetValue(akey, out ac);
                     if (ac >= ar.max) continue;
                     count[akey] = ac + 1;

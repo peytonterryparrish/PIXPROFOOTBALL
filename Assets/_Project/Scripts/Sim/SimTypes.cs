@@ -31,6 +31,30 @@ namespace PixFootball.Sim
         CarrierMove, BrokenTackle, Incomplete, Whistle, Scramble, Throwaway, Kneel, Spike, PlayEnd
     }
 
+    /// <summary>
+    /// Which pre-snap body position a player should hold (engine-side truth; <see cref="AgentAction.Stance"/> stays the single action while the ball is dead).
+    /// Derived from position, alignment and formation by <see cref="PreSnapStances"/> and kept current through shifts, motion and audibles.
+    /// </summary>
+    public enum PreSnapStance
+    {
+        None, ThreePoint, FourPoint, TwoPoint, Upright,
+        /// <summary>Center over the ball, hand on it.</summary>
+        Snapper,
+        QbUnderCenter, QbShotgun,
+        /// <summary>Back standing behind the line (hands on thighs).</summary>
+        BackSet,
+        /// <summary>Corner within a yard or two of the receiver, hands ready to jam.</summary>
+        PressCorner,
+        /// <summary>Defensive back off the ball, backpedal ready.</summary>
+        OffCoverage,
+        Linebacker, Safety,
+        /// <summary>Kicker or punter at the spot, kickoff coverage runner.</summary>
+        Kicker, KickoffRunner,
+        /// <summary>Holder kneeling to receive the snap.</summary>
+        HolderKneel,
+        Returner, Gunner
+    }
+
     public enum PlayPhase { PreSnap, Live, Dead }
 
     public enum EndReason
@@ -57,6 +81,14 @@ namespace PixFootball.Sim
         public ThrowStyle ThrowStyle;
         /// <summary>Lead nudge in yards (field frame) added to the computed catch point.</summary>
         public Vec2 LeadNudge;
+        /// <summary>Kick meter (user kickers): pulse when the kick is struck. The three readings below travel with the pulse.</summary>
+        public bool KickPress;
+        /// <summary>Power fill chosen by the player, 0..1 (1 = full leg).</summary>
+        public float KickPower;
+        /// <summary>Timing reading, 0..1 (1 = perfect; see <see cref="KickMeter"/>).</summary>
+        public float KickTiming;
+        /// <summary>Aim reading, -1 (left) .. +1 (right); 0 = centered.</summary>
+        public float KickAim;
 
         public static ControlInput None { get { return new ControlInput(); } }
     }

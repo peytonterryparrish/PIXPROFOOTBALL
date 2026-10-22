@@ -65,7 +65,7 @@ namespace PixFootball.Gameplay
                     {
                         if (ReceiverSlots(Sim.CanHotRoute).Count > 0) _ps = PsMode.HotPick; else PsToast("NO HOT ROUTES FROM THIS FORMATION");
                     }
-                    else if (inp.Down[(int)Btn.LB]) { if (Sim.FlipOffense()) { _offCall = Sim.OffPlay; Audio.Whistle(); PsToast("PLAY FLIPPED"); } }
+                    else if (inp.Down[(int)Btn.LB]) { if (Sim.FlipOffense()) { _offCall = Sim.OffPlay; Audio.Whistle(); PsToast("PLAY FLIPPED"); PlayRebuilt(); } }
                     else if (inp.Down[(int)Btn.RB]) { if (ReceiverSlots(Sim.CanMotion).Count > 0) { _ps = PsMode.Motion; _motionCursor = -1; } else PsToast("NO MOTION FROM THIS FORMATION"); }
                     else if (inp.DPadLeft) SlideProtect(-1);
                     else if (inp.DPadRight) SlideProtect(1);
@@ -79,7 +79,7 @@ namespace PixFootball.Gameplay
                         Btn b = AudibleButtons[k];
                         if (!inp.Down[(int)b]) continue;
                         Play p = Flow.Audibles.Get(Sim.OffPlay, k);
-                        if (p != null && Sim.ChangeOffensePlay(p)) { _offCall = Sim.OffPlay; PsToast("AUDIBLE: " + p.Name.ToUpperInvariant()); Audio.Whistle(); _ps = PsMode.None; }
+                        if (p != null && Sim.ChangeOffensePlay(p)) { _offCall = Sim.OffPlay; PsToast("AUDIBLE: " + p.Name.ToUpperInvariant()); Audio.Whistle(); _ps = PsMode.None; PlayRebuilt(); }
                     }
                     break;
                 case PsMode.HotPick:
@@ -117,7 +117,7 @@ namespace PixFootball.Gameplay
                             if (inp.Move.magnitude > 0.7f && Mathf.Abs(inp.Move.x) > Mathf.Abs(inp.Move.y))
                             {
                                 Vec2 d = StickToSim(new Vector2(Mathf.Sign(inp.Move.x), 0f));
-                                if (Sim.SetMotion(slot, d.X >= 0f ? 1 : -1)) PsToast("MOTION: " + Sim.Agents[slot].Label);
+                                if (Sim.SetMotion(slot, d.X >= 0f ? 1 : -1)) { PsToast("MOTION: " + Sim.Agents[slot].Label); PlayRebuilt(); }
                             }
                         }
                     }
@@ -152,7 +152,7 @@ namespace PixFootball.Gameplay
             if (a < 22.5f) return HotRoute.Streak;
             if (a < 67.5f) return ang > 0f ? HotRoute.Fade : HotRoute.Slant;
             if (a < 112.5f) return ang > 0f ? HotRoute.Out : HotRoute.In;
-            if (a < 157.5f) return HotRoute.Block;
+            if (a < 157.5f) return ang > 0f ? HotRoute.Curl : HotRoute.Block;   // the two back diagonals are different routes now (outward back = curl, inward back = stay in and block) (QA-060)
             return HotRoute.Curl;
         }
 

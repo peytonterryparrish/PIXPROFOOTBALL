@@ -66,7 +66,6 @@ namespace PixFootball.Sim
                 if (ForcePassMode) return true;
                 if (S.BallSide != SimSide.Offense) return false;
                 // a draw shows pass protection until the exchange: the rushers get upfield past the blockers and the back follows them
-                if (false && S.OffPlay.Category == PlayCategory.Draw && !HandedOff && !S.QbHasCrossedLos && S.Time < 1.6f) return true;
                 return S.OffAI.IsPassPlay && !S.PassCompleted && !S.QbHasCrossedLos;
             }
         }
@@ -110,6 +109,7 @@ namespace PixFootball.Sim
 
         private bool CanBlock(SimAgent b)
         {
+            if (S.Kind == PlayKind.Kickoff && S.Specials.IsOnsideKick && S.Specials.KickAway) return false;
             if (b.Side != BlockerSide) return false;
             if (b.HasBall || b.State != AgentState.Normal || b.Body.FallenTime > 0f) return false;
             if (b.Engagement != null) return false;
@@ -158,6 +158,8 @@ namespace PixFootball.Sim
             {
                 SimAgent b = S.Agents[i];
                 if (!CanBlock(b)) continue;
+                // the first step: nobody locks up on the snap tick, linemen fire out of their stances for about a tenth of a second
+                if (S.Kind == PlayKind.Scrimmage && S.Time < 0.09f + 0.06f * (1f - b.Body.Agility01)) continue;
                 // a puller is off the line before he can lock up with whoever happens to be across from him
                 var pba = b.Assign as BlockAssignment;
                 if (pba != null && pba.Block == BlockKind.Pull && pba.Path.Count > 0 && b.PullStage < 1 && (b.Pos - b.StartPos).Length < 1.5f && S.Kind == PlayKind.Scrimmage) continue;
@@ -173,7 +175,7 @@ namespace PixFootball.Sim
                     if (S.Tackles.InTackleLock(b, d)) continue;
                     Vec2 rel = d.Pos - b.Pos;
                     float dist = rel.Length;
-                    float contact = b.Body.Radius + d.Body.Radius + 0.42f;
+                    float contact = b.Body.Radius + d.Body.Radius + 0.34f;
                     if (dist > contact) continue;
                     // must be roughly in front of the blocker (or his assigned man), unless pass blocking
                     bool assigned = b.BlockTargetId == d.Id;
@@ -210,8 +212,9 @@ namespace PixFootball.Sim
             if (e == null)
             {
                 e = new BlockEngagement { Defender = d, RunMode = !PassMode };
-                e.MoveCooldown = 0.25f + S.Rng.NextFloat() * 0.45f;
+                e.MoveCooldown = PassMode ? 0.46f + S.Rng.NextFloat() * 0.55f : 0.25f + S.Rng.NextFloat() * 0.45f;
                 if (!PassMode) e.Lev = SimMath.Clamp(S.Rng.Gaussian(0.10f, 0.34f), -0.9f, 0.9f); // the first step decides a lot against the run
+                else if (S.Kind == PlayKind.Scrimmage) e.Lev = SimMath.Clamp(S.Rng.Gaussian(0.03f, 0.12f), -0.2f, 0.4f); // the set: the blocker is square and balanced for the first beat
                 d.Engagement = e;
                 d.State = AgentState.Engaged;
                 d.StateTime = 0f;
@@ -229,12 +232,13 @@ namespace PixFootball.Sim
         // Engagement dynamics
         // =====================================================================================
 
-        private static float MassScore(SimAgent a) { return SimMath.Clamp01((a.Body.Mass - 80f) / 80f) * 100f; }
+        private static float MassScore(SimAgent a) { return SimMath.Clamp01((a.Body.Mass - 70f) / 100f) * 100f; }
 
         private float BlockerScore(SimAgent b, bool run)
         {
             float skill = run ? b.R.RunBlocking : b.R.PassBlocking;
             if (b.PlayPos == Position.WR || b.PlayPos == Position.CB || b.PlayPos == Position.FS || b.PlayPos == Position.SS) skill = Math.Max(skill, 35f);
+            else if (b.PlayPos == Position.TE || b.PlayPos == Position.FB || b.PlayPos == Position.RB) skill = Math.Max(skill, 42f);   // tight ends and backs block better than receivers do
             if (!PositionGroup.IsOffensiveLine(b.PlayPos) && (S.Kind != PlayKind.Scrimmage || b.Side == SimSide.Defense)) skill = Math.Max(skill, 45f);
             return 0.46f * skill + 0.30f * b.R.Strength + 0.09f * b.R.Awareness + 0.15f * MassScore(b);
         }
@@ -287,7 +291,8 @@ namespace PixFootball.Sim
             float closing = (e.Blockers[0].Vel - d.Vel).Dot(n0);
             float momentum = SimMath.Clamp(-closing * 0.012f, -0.05f, 0.05f) * (e.Age < 0.35f ? 1f : 0f);
 
-            float bias = run ? 0.33f : -0.18f;
+            float bias = run ? 0.30f : -0.18f;
+            if (run && !d.IsDefensiveLineman && b0Side(e) == SimSide.Offense) bias += 0.22f; // climbing blockers get angle and leverage on linebackers who are already moving downhill
             if (e.Age < 1.0f && !run) bias += 0.04f; // initial set favors the blocker
             float noise = S.Rng.Gaussian(0f, 1f) * 0.62f * (float)Math.Sqrt(dt);
             float kGain = run ? 1.05f : 1.55f;
@@ -295,7 +300,7 @@ namespace PixFootball.Sim
             // a fast, light edge rusher leans on speed rather than strength
             // the coverage unit sheds the wall once the kick is away: gunners and lane runners beat their blockers and run to the ball
             if (S.Kind != PlayKind.Scrimmage && S.Specials.KickAway && d.Side == SimSide.Offense && d.Assign is LaneAssignment && ((LaneAssignment)d.Assign).Gunner) drift -= 0.2f * dt;
-            if (S.Kind == PlayKind.Kickoff && S.Specials.KickAway && d.Side == SimSide.Offense) drift -= 0.7f * dt;
+            if (S.Kind == PlayKind.Kickoff && S.Specials.KickAway && d.Side == SimSide.Offense) drift -= 0.30f * dt;
             e.Lev += drift + noise;
 
             // ---- defender moves ----
@@ -324,10 +329,10 @@ namespace PixFootball.Sim
                 if (e.ShedLeft <= 0f) { CompleteShed(e); ApplyPairMotion(e); return; }
             }
 
-            if (e.Lev >= 1f)
+            if (e.Lev >= (run ? 1f : 0.85f))
             {
                 e.HighLevTime += dt;
-                bool pancake = run ? e.HighLevTime > 0.18f : (e.HighLevTime > 1.4f && S.Rng.NextFloat() < 0.02f);
+                bool pancake = run ? e.HighLevTime > 0.18f : (e.HighLevTime > 0.9f && S.Rng.NextFloat() < 0.03f);
                 if (pancake)
                 {
                     SimAgent b0 = e.Blockers[0];
@@ -343,7 +348,7 @@ namespace PixFootball.Sim
             else e.HighLevTime = 0f;
 
             // combo blocks: once the double team has the man controlled, one blocker climbs to the second level
-            if (e.Blockers.Count == 2 && run && e.Lev > 0.05f && e.Age > 0.4f)
+            if (e.Blockers.Count == 2 && run && e.Lev > -0.1f && e.Age > 0.25f)
             {
                 SimAgent peel = PickPeel(e);
                 if (peel != null)
@@ -358,6 +363,8 @@ namespace PixFootball.Sim
             }
             ApplyPairMotion(e);
         }
+
+        private static SimSide b0Side(BlockEngagement e) { return e.Blockers.Count > 0 ? e.Blockers[0].Side : SimSide.Offense; }
 
         private SimAgent PickPeel(BlockEngagement e)
         {
@@ -380,22 +387,22 @@ namespace PixFootball.Sim
 
         private void MaybeBlockInBack(SimAgent b, SimAgent d)
         {
-            if (!S.Options.Penalties || b.Side != SimSide.Offense || S.Kind != PlayKind.Scrimmage || S.PendingPenalty != null || S.BallSide != SimSide.Offense) return;
+            if (!S.Options.Penalties || b.Side != SimSide.Offense || S.Kind != PlayKind.Scrimmage || !S.FoulOpen(SimSide.Offense) || S.BallSide != SimSide.Offense) return;
             if (d.Pos.Y - S.LosY < 3f) return;
             Vec2 toD = (d.Pos - b.Pos).Norm();
             if (d.Facing.Dot(toD) < 0.55f || d.Speed < 2.5f) return;
-            if (S.Rng.NextFloat() < 0.07f) S.Flag(PenaltyType.IllegalBlockInBack, b, d.Pos.Y - S.LosY);
+            if (S.Rng.NextFloat() < 0.04f) S.Flag(PenaltyType.IllegalBlockInBack, b, d.Pos.Y - S.LosY);
         }
 
         private void MaybeHolding(BlockEngagement e, SimAgent blocker, float scale = 1f)
         {
             if (!S.Options.Penalties || blocker.Side != SimSide.Offense || S.Kind != PlayKind.Scrimmage) return;
-            if (S.PendingPenalty != null) return;
+            if (!S.FoulOpen(SimSide.Offense)) return;
             if (S.BallSide != SimSide.Offense) return;
             Vec2 focus = S.Carrier != null ? S.Carrier.Pos : S.Qb.Pos;
             float near = (e.Defender.Pos - focus).Length;
             if (near > 7f) return;
-            float p = scale * 0.10f * (1.25f - SimMath.Rating01(blocker.R.Awareness)) * (1.1f - 0.5f * SimMath.Rating01(blocker.R.PassBlocking));
+            float p = scale * 0.062f * (1.25f - SimMath.Rating01(blocker.R.Awareness)) * (1.1f - 0.5f * SimMath.Rating01(blocker.R.PassBlocking));
             if (S.Rng.NextFloat() < p)
                 S.Flag(PenaltyType.OffensiveHolding, blocker, blocker.Pos.Y - S.LosY);
         }
@@ -529,7 +536,7 @@ namespace PixFootball.Sim
             else db = BlockDriveDir(b0, d);
 
             float strRatio = (float)Math.Sqrt(Math.Max(0.3f, e.Blockers[0].R.Strength + 10f) / Math.Max(10f, d.R.Strength + 10f));
-            float pmax = e.RunMode ? 2.8f : 2.0f;
+            float pmax = e.RunMode ? 2.8f : 1.5f;   // a pass-protection pair never walks faster than 1.5 yd/s
             float lev = e.Lev;
             Vec2 v = Vec2.Zero;
             if (e.RunMode)
@@ -538,8 +545,7 @@ namespace PixFootball.Sim
                 if (f >= 0f) v = db * (f * pmax * Math.Min(1.4f, strRatio));
                 else v = dd * (-f * pmax * Math.Min(1.4f, 1f / strRatio));
             }
-            else if (lev > 0f) v = db * (lev * pmax * Math.Min(1.4f, strRatio));
-            else v = dd * (-lev * pmax * Math.Min(1.4f, 1f / strRatio));
+            else v = PassProVelocity(e, b0, d, dd, db, pmax, strRatio);
             if (e.RunMode && b0.Side == SimSide.Offense && S.OffPlay.Category == PlayCategory.Draw && !S.QbHasCrossedLos && S.Time < 2.6f && lev > -0.55f)
             {
                 // the draw: the line shows pass protection and rides the rushers up and past the back's lane
@@ -624,6 +630,47 @@ namespace PixFootball.Sim
             for (int i = 0; i < ca.Path.Count; i++)
                 if (ca.Path[i].Y > -0.8f) return ca.Path[i];
             return ca.Path[ca.Path.Count - 1];
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    internal sealed partial class BlockingSystem
+    {
+        /// <summary>Retreat speed (yd/s, toward the passer) of a pass-blocking pair at equilibrium: the kick-slide that gives a clean, cupped pocket.</summary>
+        public const float PocketRetreat = 0.95f;
+
+        /// <summary>
+        /// Pass-protection pair motion. Blockers do not drive upfield: they kick-slide back at a steady pace (tackles the most, the center the
+        /// least, so the line bows into a cup around the passer), win by holding their depth and slowing the retreat, and lose by being walked
+        /// back toward the quarterback. Lateral spring keeps the splits so guards do not collapse into the center.
+        /// </summary>
+        private Vec2 PassProVelocity(BlockEngagement e, SimAgent b0, SimAgent d, Vec2 dd, Vec2 db, float pmax, float strRatio)
+        {
+            float lev = e.Lev;
+            bool protector = b0.Side == SimSide.Offense && S.Kind == PlayKind.Scrimmage;
+            Vec2 v;
+            if (lev > 0f) v = db * (lev * (protector ? 0.40f : pmax) * Math.Min(1.4f, strRatio));
+            else v = dd * (-lev * pmax * Math.Min(1.4f, 1f / strRatio));
+            if (!protector) return v;
+            // slot factor: tackles kick out and back furthest, the center sits closest to the line
+            float slot = 1.0f;
+            if (b0.Slot == 2 || b0.Slot == 6) slot = 1.25f; else if (b0.Slot == 4) slot = 0.75f; else if (!PositionGroup.IsOffensiveLine(b0.PlayPos)) slot = 1.0f;
+            float retreat = PocketRetreat * slot * (1f - 0.55f * SimMath.Clamp(lev, -1f, 1f));
+            if (S.Time > 3.4f) retreat *= 0.6f;
+            // never walk into the passer's lap
+            Vec2 q = S.Qb.Pos;
+            if (b0.Pos.Y < q.Y + 2.4f) retreat = 0f;
+            // the retreat is straight back with only a hint toward the passer, so tackles do not slide into the guards
+            Vec2 back = new Vec2(SimMath.Clamp((q.X - b0.Pos.X) * 0.05f, -0.2f, 0.2f), -1f).Norm();
+            v = v + back * retreat;
+            // keep the splits: lateral spring to the blocker's own slot unless he is being beaten
+            if (lev > -0.4f && PositionGroup.IsOffensiveLine(b0.PlayPos))
+            {
+                float k = SimMath.Clamp((b0.StartPos.X - b0.Pos.X) * 1.1f, -0.9f, 0.9f);
+                v = new Vec2(v.X + k, v.Y);
+            }
+            return v;
         }
     }
 }

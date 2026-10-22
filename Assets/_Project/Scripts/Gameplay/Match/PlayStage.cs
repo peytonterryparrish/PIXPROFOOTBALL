@@ -9,6 +9,10 @@ namespace PixFootball.Gameplay
     public struct UniformSet
     {
         public TeamColors Uniform, Helmet;
+        /// <summary>True for the home kit (team colours); the visitors wear white (v0.6 number colours depend on it).</summary>
+        public bool Home;
+        /// <summary>Team nickname for the chest wordmark and the key of the crest sprite for the helmet decal (v0.6).</summary>
+        public string Wordmark, CrestKey;
 
         /// <summary>Home teams wear their primary colour; visitors wear white with the primary colour as trim.</summary>
         public static UniformSet For(TeamInfo t, bool home)
@@ -19,6 +23,7 @@ namespace PixFootball.Gameplay
             if (home) u.Uniform = c;
             else u.Uniform = new TeamColors(white, pants, c.Primary);
             u.Helmet = new TeamColors(c.Primary, c.Secondary, c.Tertiary);
+            u.Home = home; u.Wordmark = t.Nickname; u.CrestKey = "crest_" + t.Id;
             return u;
         }
     }
@@ -29,7 +34,7 @@ namespace PixFootball.Gameplay
     /// </summary>
     public sealed class PlayStage : MonoBehaviour
     {
-        readonly Dictionary<PlayerSize, Stack<SimAgentView>> _pool = new Dictionary<PlayerSize, Stack<SimAgentView>>();
+        readonly Dictionary<PlayerSize, List<SimAgentView>> _pool = new Dictionary<PlayerSize, List<SimAgentView>>();
         readonly SimAgentView[] _views = new SimAgentView[22];
         readonly int[] _carrySide = new int[22];
         readonly float[] _carrySideAt = new float[22];
@@ -41,6 +46,8 @@ namespace PixFootball.Gameplay
         public BallFollower Ball;
         /// <summary>v0.4 contact director: authored tackle takes, gang tackles, ragdoll hit reactions and get-ups.</summary>
         public ContactDirector Contacts;
+        /// <summary>v0.6 look: kit dirt, field wear, jersey numbers (null in tests / free roam).</summary>
+        public LookDirector Look;
         public PlaySimulation Sim { get; private set; }
         public PlayFrame Frame { get; private set; }
         public SimAgentView[] Views { get { return _views; } }
@@ -56,10 +63,16 @@ namespace PixFootball.Gameplay
             if (Contacts == null) Contacts = new ContactDirector(this);
         }
 
-        SimAgentView Acquire(PlayerSize size)
+        /// <summary>Takes a pooled view of this body size. v0.6.0: a view that last wore <paramref name="wantId"/> is preferred, so the same player keeps his face / kit options from play to play (no re-dressing hitch with the photoreal bodies).</summary>
+        SimAgentView Acquire(PlayerSize size, int wantId = int.MinValue)
         {
-            Stack<SimAgentView> st;
-            if (_pool.TryGetValue(size, out st) && st.Count > 0) { var v = st.Pop(); v.gameObject.SetActive(true); return v; }
+            List<SimAgentView> st;
+            if (_pool.TryGetValue(size, out st) && st.Count > 0)
+            {
+                int pick = st.Count - 1;
+                if (wantId != int.MinValue) for (int i = st.Count - 1; i >= 0; i--) if (st[i].IdentityId == wantId) { pick = i; break; }
+                var v = st[pick]; st.RemoveAt(pick); v.gameObject.SetActive(true); return v;
+            }
             return SimAgentView.CreateForMatch(transform, size, "Player_" + size);
         }
 
@@ -67,9 +80,9 @@ namespace PixFootball.Gameplay
         {
             if (v == null) return;
             v.gameObject.SetActive(false);
-            Stack<SimAgentView> st;
-            if (!_pool.TryGetValue(v.Size, out st)) _pool[v.Size] = st = new Stack<SimAgentView>();
-            st.Push(v);
+            List<SimAgentView> st;
+            if (!_pool.TryGetValue(v.Size, out st)) _pool[v.Size] = st = new List<SimAgentView>();
+            st.Add(v);
         }
 
         /// <summary>Pre-creates a pool so the first snaps do not hitch.</summary>
@@ -90,15 +103,19 @@ namespace PixFootball.Gameplay
             Sim = sim; Frame = frame; _logIdx = 0; _playIndex = playIndex; _fresh.Clear(); _tackled.Clear(); _tackler.Clear();
             OffenseKit = offense; DefenseKit = defense; ClearWalks();
             Contacts.Reset();
+            if (Look != null) Look.BeginPlay();
             var qbForm = sim.OffForm != null && sim.OffForm.Slots.Length > 0 ? sim.OffForm.Slots[0] : null;
             _shotgun = qbForm != null && qbForm.Y < -2.5f;
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = sim.Agents[i];
-                var v = Acquire(RoleUtil.SizeOf(a.PlayPos));
+                var v = Acquire(PixSettings.PhotoPlayers && a.Player != null && a.Player.Bio != null ? RoleUtil.SizeOf(a.PlayPos, a.Player.Bio.WeightLb) : RoleUtil.SizeOf(a.PlayPos), a.Player != null ? a.Player.Id : 1000 + i);
                 v.AgentId = i; v.Role = RoleUtil.Of(a.PlayPos);
+                v.Stance = StanceRules.For(a.PlayPos, a.Side, sim.Kind, a.Side == SimSide.Offense ? sim.OffForm.Unit : sim.DefForm.Unit, a.StartPos.X - sim.BallX0, a.StartPos.Y - sim.LosY, _shotgun, a.ReturnerRole);
                 var set = a.Side == SimSide.Offense ? offense : defense;
                 v.Dress(set.Uniform, set.Helmet);
+                v.SetIdentity(a.Player != null ? a.Player.Id : 1000 + i, a.PlayPos);
+                if (Look != null) Look.Dress(v, a, set);
                 Vector3 p = frame.ToUnity(a.Pos);
                 Vector3 f = frame.DirToUnity(a.Facing);
                 v.ResetForPlay(p, Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg);
@@ -110,8 +127,35 @@ namespace PixFootball.Gameplay
             Present(0.0166f);
         }
 
+        // ------------------------------------------------------------------------------------------ v0.6 coin toss
+        readonly List<SimAgentView> _toss = new List<SimAgentView>();
+
+        /// <summary>The coin toss on the field: two captains per team face the referee (at <paramref name="center"/>), the home team on the -X side.</summary>
+        public void BeginToss(UniformSet home, UniformSet away, Vector3 center)
+        {
+            Init(); EndToss();
+            for (int k = 0; k < 4; k++)
+            {
+                bool isHome = k < 2;
+                var v = Acquire(PlayerSize.Medium);
+                v.AgentId = -1; v.Role = PlayerRole.WR; v.Stance = default(StanceSpec);
+                var kit = isHome ? home : away;
+                v.Dress(kit.Uniform, kit.Helmet);
+                v.SetIdentity(7000 + k * 31 + (isHome ? 0 : 500), Position.QB);
+                float side = isHome ? -1f : 1f;
+                Vector3 p = center + new Vector3(side * (2.35f + 0.95f * (k & 1)), 0f, (k & 1) == 0 ? -0.3f : 0.4f);
+                Vector3 d = center - p; d.y = 0f;
+                v.ResetForPlay(p, Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg);
+                v.name = "Captain" + k;
+                _toss.Add(v);
+            }
+        }
+
+        public void EndToss() { foreach (var v in _toss) Return(v); _toss.Clear(); }
+
         public void End()
         {
+            if (Look != null && Sim != null) Look.EndPlay();
             for (int i = 0; i < 22; i++) { if (_views[i] != null) Return(_views[i]); _views[i] = null; }
             Sim = null;
         }
@@ -175,8 +219,8 @@ namespace PixFootball.Gameplay
             if (v == null || v.Rig == null || !v.Rig.Valid) return false;
             var plan = AnimKit.Reaction(clipKey, seed, loop);
             if (!plan.Valid) return false;
-            v.ContactDriven = true;
-            v.Rig.Play(plan.Clip, plan.Start, plan.End, plan.Speed, plan.FadeIn, plan.FadeOut, plan.Loop, plan.Hold);
+            v.ContactDriven = true; v.NoteClip(plan.Clip);
+            v.Rig.Play(plan);
             return true;
         }
 
@@ -187,6 +231,7 @@ namespace PixFootball.Gameplay
             {
                 var e = ev[_logIdx++];
                 _fresh.Add(e);
+                if (Look != null) Look.OnEvent(e);
                 if (Contacts != null) Contacts.OnEvent(e, _logIdx < ev.Count && ev[_logIdx].Type == SimEventType.Sack);
                 if ((e.Type == SimEventType.Tackle || e.Type == SimEventType.Sack) && e.AgentA >= 0 && e.AgentB >= 0)
                 {
@@ -204,6 +249,7 @@ namespace PixFootball.Gameplay
             if (Sim == null) return;
             _fresh.Clear();
             ScanLog();
+            if (Sim.Phase == PlayPhase.PreSnap && Sim.OffForm != null && Sim.OffForm.Slots.Length > 0) _shotgun = Sim.OffForm.Slots[0].Y < -2.5f;
             bool specials = Sim.Kind != PlayKind.Scrimmage && Sim.Kind != PlayKind.Kneel && Sim.Kind != PlayKind.Spike;
             for (int i = 0; i < 22; i++)
             {
@@ -212,6 +258,7 @@ namespace PixFootball.Gameplay
                 Vector3 pos = Frame.ToUnity(a.Pos);
                 Vector3 vel = Frame.VelToUnity(a.Vel);
                 Vector3 face = Frame.DirToUnity(a.Facing);
+                if (Sim.Phase == PlayPhase.PreSnap && a.Action == AgentAction.Stance) v.ReplanStance(StanceRules.For(a.PlayPos, a.Side, Sim.Kind, a.Side == SimSide.Offense ? Sim.OffForm.Unit : Sim.DefForm.Unit, a.StartPos.X - Sim.BallX0, a.StartPos.Y - Sim.LosY, _shotgun, a.ReturnerRole));   // audibles, flips and shifts move players
                 AnimHints h = BuildHints(a, v);
                 float lat = 0f;
                 if (a.Move != CarrierMove.None)
@@ -224,6 +271,7 @@ namespace PixFootball.Gameplay
                 v.ApplyMatch(pos, vel, face, a.Action, h, lat, specials, _shotgun, dt);
             }
             if (Contacts != null) Contacts.Tick(dt);
+            if (Look != null) Look.Tick(dt);
             ApplyContacts();
             UpdateBall(dt);
         }
@@ -271,7 +319,7 @@ namespace PixFootball.Gameplay
 
         AnimHints BuildHints(SimAgent a, SimAgentView v)
         {
-            var h = new AnimHints { Seed = a.Id * 7 + _playIndex * 3, Side = 'C' };
+            var h = new AnimHints { Seed = a.Id * 7 + _playIndex * 3, Side = 'C', Carrying = a.HasBall, Kind = Sim.Kind };
             Vector3 fwd = v.Forward, right = Vector3.Cross(Vector3.up, fwd);
             switch (a.Action)
             {

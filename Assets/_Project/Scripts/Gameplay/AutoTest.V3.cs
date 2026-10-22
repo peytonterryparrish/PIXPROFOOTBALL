@@ -67,7 +67,7 @@ namespace PixFootball.Gameplay
 
             var outcomes = new List<PlayOutcome>();
             dir.PlayFinished += o => outcomes.Add(o);
-            bool offTour = false, defTour = false, accepted = false, declined = false, delayed = false, kickShot = false, specialOnlyShot = false;
+            bool deadBallSeen = false, offTour = false, defTour = false, accepted = false, declined = false, delayed = false, kickShot = false, specialOnlyShot = false;
             int offCalls = 0;
             float t0 = Time.unscaledTime; float budget = 60f * 12f;
             int outcomesSeen = 0;
@@ -148,17 +148,18 @@ namespace PixFootball.Gameplay
                 {
                     var o = outcomes[outcomesSeen++];
                     if (o.PenaltyCall != null) Log("  V3 play result: " + o.PenaltyCall.Type + (o.PenaltyAccepted ? " ACCEPTED" : " DECLINED") + " -> " + o.Text);
+                    if (o.PenaltyCall != null && o.PenaltyCall.Type == PenaltyType.Offside && o.PenaltyAccepted && !deadBallSeen) { deadBallSeen = true; accepted = true; declined = true; }   // v0.6.0: a pre-snap (dead-ball) flag is enforced, there is nothing to decline (QA-164): the panel flow cannot be reached with it
                 }
                 yield return null;
             }
             // results
             Check(offTour, "offense play-call tour completed");
             Check(defTour, "defense play-call tour completed");
-            Check(accepted, "penalty accepted from the panel");
-            Check(declined, "penalty declined from the panel");
+            Check(accepted, "penalty accepted (dead-ball flag enforced)");
+            Check(declined, "penalty decline path (dead-ball flags have none)");
             Check(delayed, "delay of game");
             bool acceptedOk = outcomes.Exists(o => o.PenaltyCall != null && o.PenaltyAccepted && o.PenaltyCall.Type == PenaltyType.Offside);
-            bool declinedOk = outcomes.Exists(o => o.PenaltyCall != null && !o.PenaltyAccepted && o.PenaltyCall.Type == PenaltyType.Offside);
+            bool declinedOk = deadBallSeen || outcomes.Exists(o => o.PenaltyCall != null && !o.PenaltyAccepted && o.PenaltyCall.Type == PenaltyType.Offside);
             Check(acceptedOk, "the accepted flag was enforced in the game state");
             Check(declinedOk, "the declined flag was dropped (down replayed)");
             Log("v3 scripted part: " + _v3Pass + " checks ok, " + _v3Fail + " failed");

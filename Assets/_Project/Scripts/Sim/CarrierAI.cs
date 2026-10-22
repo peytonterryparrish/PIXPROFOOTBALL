@@ -24,11 +24,12 @@ namespace PixFootball.Sim
             float bestOpen = look;
             int n = 0;
             // candidates: fan around goal direction + the guide + current heading
-            for (int k = -8; k <= 9; k++)
+            int kmax = c.Speed < 4.5f ? 13 : 8;   // a slow runner can reverse field / cut back up to 155 degrees
+            for (int k = -kmax; k <= kmax + 1; k++)
             {
                 Vec2 d;
-                if (k == 9) d = guide.LenSq() > 0.25f ? guide.Norm() : cur;
-                else if (k == 8) d = cur;
+                if (k == kmax + 1) d = guide.LenSq() > 0.25f ? guide.Norm() : cur;
+                else if (k == kmax) d = cur;
                 else d = g.Rotate(k * 0.20f); // +-92 degrees in 11 degree steps
                 n++;
                 float open = look;
@@ -116,12 +117,20 @@ namespace PixFootball.Sim
                 guideW = 0.5f;
             }
 
+            var retA = c.Assign as ReturnerAssignment;
+            if (retA != null && S.Kind != PlayKind.Scrimmage && path == null)
+            {
+                // the designed return lane: head for it until the blocking shows something better
+                Vec2 lanePt = new Vec2(S.BallX0 + retA.ReturnLaneX, c.Pos.Y + 10f * dirY);
+                guide = (lanePt - c.Pos).Norm();
+                guideW = 0.9f;
+            }
             float look = 8f;
             float dist2Goal = dirY > 0 ? 100f - c.Pos.Y : c.Pos.Y;
             if (dist2Goal < look) look = Math.Max(2.5f, dist2Goal + 0.5f);
 
-            c.ReactionClock -= PlaySimulation.Dt;
-            if (c.ReactionClock <= 0f || c.LastTargetDir.LenSq() < 0.25f)
+            c.CarrierClock -= PlaySimulation.Dt;
+            if (c.CarrierClock <= 0f || c.LastTargetDir.LenSq() < 0.25f)
             {
                 float aw = SimMath.Rating01(c.R.Awareness);
                 float open, val;
@@ -130,11 +139,12 @@ namespace PixFootball.Sim
                 if (S.Rng.NextFloat() < (1f - aw) * 0.18f && guide.LenSq() > 0.25f) d = guide.Norm();
                 c.LastTargetDir = d;
                 c.PathIdxOpen = open;
-                c.ReactionClock = 0.07f + (1f - aw) * 0.16f;
+                c.CarrierClock = 0.07f + (1f - aw) * 0.16f;
             }
             Vec2 dir = c.LastTargetDir;
-            float cap = c.Body.EffectiveVMax * 0.955f;
-            if (c.PathIdxOpen < 1.8f) cap *= 0.80f + 0.05f * c.PathIdxOpen;
+            float cap = c.Body.EffectiveVMax * 0.955f;   // a carrier with the ball, reading blocks and protecting it, runs about 92% of his open-field top speed
+            if (S.Kind == PlayKind.Punt && c.ReturnerRole) cap *= 0.90f;   // a punt returner fields the ball on the move and looks for the fair-catch, then the coverage: slower to the open field
+            if (c.PathIdxOpen < 1.8f) cap *= 0.88f + 0.06f * c.PathIdxOpen;
             if (c.Protecting) cap *= 0.94f;
             c.Want = dir * cap;
             c.Intent = AgentAction.Carry;

@@ -24,12 +24,21 @@ namespace PixFootball.UI
 
         protected override void Awake() { base.Awake(); raycastTarget = false; }
 
-        public void SetDiagram(PlayDiagram d) { _d = d; SetVerticesDirty(); RefreshLabels(); }
+        // what the chip labels were last laid out for (QA-811: labels are rebuilt only when the diagram, the rect size or the label scale changed)
+        PlayDiagram _labelDiagram; Vector2 _labelSize = new Vector2(-1f, -1f); float _labelScaleDone = -1f;
+
+        public void SetDiagram(PlayDiagram d)
+        {
+            if (!ReferenceEquals(d, _d)) SetVerticesDirty();
+            _d = d;
+            RefreshLabels();
+        }
 
         protected override void OnRectTransformDimensionsChange() { base.OnRectTransformDimensionsChange(); RefreshLabels(); }
 
         static Color Ink(InkKind k)
         {
+            if (UiTheme.IsGlass) return GlassInk(k);
             switch (k)
             {
                 case InkKind.PrimaryRoute: return Gold;
@@ -46,6 +55,29 @@ namespace PixFootball.UI
                 case InkKind.Spy: return new Color(0.78f, 0.47f, 1f);
                 case InkKind.Kick: return new Color(0.07f, 0.94f, 0.33f);
                 default: return Color.gray;
+            }
+        }
+
+        // ---- glass look (the pack's tactical diagrams: thin white routes, orange for the primary read and the run, hollow circles and X marks, no field fill) ----
+        static Color GlassInk(InkKind k)
+        {
+            var t = Glass.GlassTheme.T;
+            switch (k)
+            {
+                case InkKind.PrimaryRoute: return t.accent;
+                case InkKind.HotRoute: return t.accentHot;
+                case InkKind.Route: return new Color(0.94f, 0.95f, 0.96f);
+                case InkKind.Run: return t.accent;
+                case InkKind.Fake: return new Color(t.accent.r, t.accent.g, t.accent.b, 0.65f);
+                case InkKind.Block: return new Color(0.86f, 0.87f, 0.89f);
+                case InkKind.Handoff: return t.accent;
+                case InkKind.Dropback: return new Color(0.66f, 0.67f, 0.70f);
+                case InkKind.Blitz: return t.accent;
+                case InkKind.Rush: return t.accentHot;
+                case InkKind.Man: return new Color(0.94f, 0.95f, 0.96f);
+                case InkKind.Spy: return new Color(0.78f, 0.79f, 0.82f);
+                case InkKind.Kick: return new Color(0.94f, 0.95f, 0.96f);
+                default: return new Color(0.7f, 0.7f, 0.72f);
             }
         }
 
@@ -112,10 +144,11 @@ namespace PixFootball.UI
             _vh = vh;
             Layout();
             float u = _scale;   // pixels per yard
+            bool glass = UiTheme.IsGlass;
             if (ShowField)
             {
-                RectFill(_rect.xMin, _rect.yMin, _rect.xMax, _rect.yMax, _field);
-                Color yl = new Color(0.20f, 0.28f, 0.22f, 1f);
+                if (!glass) RectFill(_rect.xMin, _rect.yMin, _rect.xMax, _rect.yMax, _field);
+                Color yl = glass ? new Color(1f, 1f, 1f, 0.09f) : new Color(0.20f, 0.28f, 0.22f, 1f);
                 for (float y = Mathf.Ceil(_vMinY / 5f) * 5f; y <= _vMaxY; y += 5f)
                 { Vector2 p = P(_d.MinX, y); RectFill(_rect.xMin, p.y - 1f, _rect.xMax, p.y + 1f, yl); }
                 // hash ticks
@@ -125,15 +158,14 @@ namespace PixFootball.UI
                     RectFill(a.x - 1f, a.y - 0.5f, a.x + 3f, a.y + 0.5f, yl); RectFill(b.x - 3f, b.y - 0.5f, b.x + 1f, b.y + 0.5f, yl);
                 }
                 Vector2 los = P(_d.MinX, 0f);
-                RectFill(_rect.xMin, los.y - 2.2f, _rect.xMax, los.y + 2.2f, new Color(0.24f, 0.45f, 1f, 1f));
+                RectFill(_rect.xMin, los.y - (glass ? 1.2f : 2.2f), _rect.xMax, los.y + (glass ? 1.2f : 2.2f), glass ? new Color(1f, 1f, 1f, 0.55f) : new Color(0.24f, 0.45f, 1f, 1f));
             }
             foreach (DiagramZone z in _d.Zones)
             {
                 Vector2 c = P(z.CenterX, z.CenterY);
                 float rx = Mathf.Max(6f, Mathf.Min(z.Width, 26f) * 0.5f * u), ry = Mathf.Max(6f, z.Height * 0.5f * u);
-                Color zc = z.Deep ? new Color(0.31f, 0.43f, 1f, 0.38f) : new Color(0.16f, 0.86f, 0.67f, 0.38f);
+                Color zc = glass ? (z.Deep ? new Color(0.96f, 0.6f, 0.32f, 0.16f) : new Color(1f, 1f, 1f, 0.10f)) : (z.Deep ? new Color(0.31f, 0.43f, 1f, 0.22f) : new Color(0.16f, 0.86f, 0.67f, 0.22f));   // QA-167: light fill so chips and labels stay readable on top
                 Ellipse(c, rx, ry, zc);
-                Ring(c, Mathf.Min(rx, ry) * 0.2f, 0.01f, zc);
             }
             foreach (DiagramStroke s in _d.Strokes) DrawStroke(s, u);
             foreach (DiagramPlayer p in _d.Players) DrawPlayer(p, u);
@@ -146,7 +178,7 @@ namespace PixFootball.UI
         {
             if (s.Points.Count < 2) return;
             Color c = Ink(s.Ink);
-            float w = s.Thick ? Mathf.Max(4f, u * 0.5f) : Mathf.Max(3f, u * 0.3f);
+            float w = UiTheme.IsGlass ? (s.Thick ? Mathf.Max(3f, u * 0.34f) : Mathf.Max(2.2f, u * 0.2f)) : (s.Thick ? Mathf.Max(4f, u * 0.5f) : Mathf.Max(3f, u * 0.3f));
             for (int i = 0; i + 1 < s.Points.Count; i++)
             {
                 Vector2 a = SP(s, i), b = SP(s, i + 1);
@@ -167,13 +199,33 @@ namespace PixFootball.UI
             {
                 float hl = Mathf.Max(10f, u * 1.7f), hw = Mathf.Max(6f, u * 0.95f);
                 Tri(pb, pb - dn * hl + nn * hw, pb - dn * hl - nn * hw, c);
+                // QA-810: a route that runs on past the card edge gets two break ticks behind its head ("//"), so a 15-yard dig and a 40-yard go no longer look alike
+                if (IsCut(s))
+                {
+                    for (int k = 1; k <= 2; k++)
+                    {
+                        Vector2 m = pb - dn * (hl + u * (0.5f + k * 1.1f));
+                        Seg(m - nn * hw * 1.1f, m + nn * hw * 1.1f, w * 0.9f, c);
+                    }
+                }
             }
+        }
+
+        /// <summary>True when the stroke was pulled back to the card edge, by the model's clamp or by this card's own shorter visible depth.</summary>
+        bool IsCut(DiagramStroke s)
+        {
+            if (s.Clipped) return true;
+            if (_d.Side == PlaySide.Special) return false;
+            float top = _vMaxY - 1.4f;
+            for (int i = 0; i < s.Points.Count; i++) if (s.Points[i].Y > top) return true;
+            return false;
         }
 
         void DrawPlayer(DiagramPlayer p, float u)
         {
             Vector2 c = P(p.X, p.Y);
-            float r = Mathf.Max(8f, u * 1.05f);
+            float r = Mathf.Max(MinChipRadius, u * 1.05f);
+            if (UiTheme.IsGlass) { DrawPlayerGlass(p, c, r, u); return; }
             if (p.Ghost)
             {
                 Color g = new Color(0.62f, 0.62f, 0.66f, 0.8f); float k = r * 0.55f;
@@ -181,15 +233,50 @@ namespace PixFootball.UI
             }
             bool line = PositionGroup.IsOffensiveLine(p.Position);
             Color fill = p.Defense ? new Color(0.76f, 0.16f, 0.2f, 1f) : (line ? new Color(0.28f, 0.29f, 0.36f, 1f) : (p.Highlight ? Orange : new Color(0.13f, 0.13f, 0.15f, 1f)));
-            if (line && !p.Defense) RectFill(c.x - r * 0.92f, c.y - r * 0.92f, c.x + r * 0.92f, c.y + r * 0.92f, fill);
-            else Disc(c, r, fill);
-            if (line && !p.Defense) { Seg(new Vector2(c.x - r * 0.92f, c.y - r * 0.92f), new Vector2(c.x + r * 0.92f, c.y - r * 0.92f), 2f, Gold); Seg(new Vector2(c.x - r * 0.92f, c.y + r * 0.92f), new Vector2(c.x + r * 0.92f, c.y + r * 0.92f), 2f, Gold); Seg(new Vector2(c.x - r * 0.92f, c.y - r * 0.92f), new Vector2(c.x - r * 0.92f, c.y + r * 0.92f), 2f, Gold); Seg(new Vector2(c.x + r * 0.92f, c.y - r * 0.92f), new Vector2(c.x + r * 0.92f, c.y + r * 0.92f), 2f, Gold); }
-            else Ring(c, r, 2.4f, Gold);
+            if (line && !p.Defense)
+            {
+                // QA-159: the five linemen are separate boxes (half a yard each, 1.25 yards apart), not one solid slab
+                float h = Mathf.Max(3.5f, Mathf.Min(r * 0.92f, u * 0.52f));
+                RectFill(c.x - h, c.y - h, c.x + h, c.y + h, fill);
+                if (h >= 6f)
+                {
+                    Seg(new Vector2(c.x - h, c.y - h), new Vector2(c.x + h, c.y - h), 2f, Gold); Seg(new Vector2(c.x - h, c.y + h), new Vector2(c.x + h, c.y + h), 2f, Gold);
+                    Seg(new Vector2(c.x - h, c.y - h), new Vector2(c.x - h, c.y + h), 2f, Gold); Seg(new Vector2(c.x + h, c.y - h), new Vector2(c.x + h, c.y + h), 2f, Gold);
+                }
+            }
+            else { Disc(c, r, fill); Ring(c, r, 2.4f, Gold); }
+        }
+
+        void DrawPlayerGlass(DiagramPlayer p, Vector2 c, float r, float u)
+        {
+            var t = Glass.GlassTheme.T;
+            Color ink = new Color(0.94f, 0.95f, 0.96f);
+            if (p.Ghost) { float kg = r * 0.5f; Color g = new Color(0.7f, 0.7f, 0.74f, 0.55f); Seg(c + new Vector2(-kg, -kg), c + new Vector2(kg, kg), 2f, g); Seg(c + new Vector2(-kg, kg), c + new Vector2(kg, -kg), 2f, g); return; }
+            if (p.Defense)
+            {
+                float k = r * 0.62f; Color d = p.Highlight ? t.accent : ink;
+                Seg(c + new Vector2(-k, -k), c + new Vector2(k, k), 3f, d); Seg(c + new Vector2(-k, k), c + new Vector2(k, -k), 3f, d);
+                return;
+            }
+            if (PositionGroup.IsOffensiveLine(p.Position))
+            {
+                float h = Mathf.Max(3.5f, Mathf.Min(r * 0.8f, u * 0.5f));
+                RectFill(c.x - h, c.y - h, c.x + h, c.y + h, new Color(0.9f, 0.91f, 0.93f, 0.92f));
+                return;
+            }
+            Disc(c, r, p.Highlight ? new Color(t.accent.r, t.accent.g, t.accent.b, 0.28f) : new Color(0.08f, 0.08f, 0.09f, 0.85f));
+            Ring(c, r, 2.2f, p.Highlight ? t.accent : ink);
         }
 
         // ---- labels ----
+        /// <summary>Smallest chip label (px) and chip radius (px): the position letters stay readable at TV distance even on a small card (QA-809).</summary>
+        public const float MinLabelFont = 16f, MinChipRadius = 10f;
+
         void RefreshLabels()
         {
+            Vector2 size = rectTransform.rect.size;
+            if (ReferenceEquals(_labelDiagram, _d) && Mathf.Approximately(size.x, _labelSize.x) && Mathf.Approximately(size.y, _labelSize.y) && Mathf.Approximately(LabelScale, _labelScaleDone)) return;
+            _labelDiagram = _d; _labelSize = size; _labelScaleDone = LabelScale;
             int n = 0;
             if (_d != null && _rect.width >= 0f)
             {
@@ -203,8 +290,8 @@ namespace PixFootball.UI
                     var rt = t.rectTransform;
                     rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
                     rt.anchoredPosition = c - (Vector2)rectTransform.rect.center;
-                    rt.sizeDelta = new Vector2(_scale * 3f, _scale * 2f);
-                    t.fontSize = Mathf.Max(9f, _scale * 1.05f) * LabelScale;
+                    rt.sizeDelta = new Vector2(Mathf.Max(_scale * 3f, 40f), Mathf.Max(_scale * 2f, 24f));
+                    t.fontSize = Mathf.Max(MinLabelFont, _scale * 1.05f) * LabelScale;
                     t.text = p.Label;
                 }
             }

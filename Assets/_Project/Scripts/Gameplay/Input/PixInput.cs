@@ -37,7 +37,8 @@ namespace PixFootball.Gameplay
 
         public PixControls Controls { get { return _controls; } }
 
-        public static string ActiveScheme { get; private set; } = "Gamepad";
+        /// <summary>"Gamepad" or "KeyboardMouse": the last device that produced real input (QA-828 / QA-895: starts from the connected devices).</summary>
+        public static string ActiveScheme { get { return InputDeviceTracker.GamepadActive ? "Gamepad" : "KeyboardMouse"; } }
 
         /// <param name="flicks">convert right stick flicks into moves (off in first person where the stick looks)</param>
         public InputFrame Poll(float dt, bool flicks)
@@ -65,10 +66,8 @@ namespace PixFootball.Gameplay
             var look = g.Look.ReadValue<Vector2>();
             var ctrl = g.Look.activeControl;
             bool mouseLook = ctrl != null && ctrl.device is Mouse;
-            var pad = Gamepad.current;
-            if (pad != null && (pad.wasUpdatedThisFrame)) ActiveScheme = "Gamepad";
-            if (Keyboard.current != null && Keyboard.current.wasUpdatedThisFrame) ActiveScheme = "KeyboardMouse";
-            f.UsingGamepad = ActiveScheme == "Gamepad";
+            InputDeviceTracker.Update();
+            f.UsingGamepad = InputDeviceTracker.GamepadActive;
 
             if (mouseLook) f.LookDelta = new Vector2(look.x * 2f, look.y * 2f);
             else f.LookDelta = new Vector2(look.x * 150f * dt, look.y * 90f * dt);

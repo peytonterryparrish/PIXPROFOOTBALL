@@ -108,6 +108,10 @@ namespace PixFootball.Gameplay
         void ShowToast(string text, float seconds);
         void ShowCoinTossCall(string userTeam, string cpuTeam, Action<bool> onCallHeads);
         void ShowCoinTossResult(bool resultHeads, bool userWon, string winnerName, Action<bool> onReceive);
+        /// <summary>On-field coin toss: true makes the toss modal transparent (small title on top, buttons in the lower third) so the field scene shows; false (default) is the full-screen modal.</summary>
+        void SetTossBackdrop(bool onField);
+        /// <summary>The caption strip along the bottom of the screen during the toss ("Rollers choose tails."); empty hides it.</summary>
+        void SetTossCaption(string text);
         /// <summary>Shows (or refreshes) the full play-call screen for the model; <paramref name="playClock"/> is the seconds left.</summary>
         void ShowPlayCall(PlayCallModel model, float playClock);
         void HidePlayCall();
@@ -134,6 +138,10 @@ namespace PixFootball.Gameplay
         void SetHudVisible(bool visible);
         /// <summary>v0.5: whether the pause menu offers Instant Replay (a play has been recorded).</summary>
         void SetReplayAvailable(bool available);
+        /// <summary>v0.7: wind indicator (top right). <paramref name="degreesFromNorth"/> is the heading the wind blows toward, clockwise from the compass N; 0 mph = calm.</summary>
+        void SetWind(float degreesFromNorth, float mph);
+        /// <summary>v0.7: kick meter (bottom centre). timing01 and aim01 are marker positions along the gauges (0.5 = centre / perfect); the labels are the verdict text ("Perfect", "Good", "Early", "Late", "Centered", "Left", "Right").</summary>
+        void SetKickMeter(bool visible, float timing01, string timingLabel, float aim01, string aimLabel);
         /// <summary>The root RectTransform of the match HUD canvas (the TV overlays are built next to it).</summary>
         UnityEngine.Transform HudRoot { get; }
     }

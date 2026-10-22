@@ -28,10 +28,17 @@ namespace PixFootball.League
                 o.R.PenaltyDecision = penaltyAccepted ? PenaltyDecision.Accept : PenaltyDecision.Decline;
             }
 
+            // QA-600: the yardage charged to the team and the player is what the enforcement really moves the ball (half-the-distance, spot fouls), not the catalog base
+            int enforcedYds = 0;
+            if (penaltyAccepted && o.R.OffsettingPenalty == null)
+                enforcedYds = Math.Abs(PenaltyEnforcer.Enforce(_gs.Clone(), o.R.Penalty, o.R).Yards);
+
             float before = _gs.ClockSeconds;
             bool applied = _gs.Apply(o.R);
             float burned = before - _gs.ClockSeconds;
-            if (burned > 0f && _gs.Quarter == qBefore) off.Box.TimeOfPossessionSeconds += (int)burned;
+            // QA-605: a period that ended during the play still credits the seconds that ran off in it (the clock was reset for the next period)
+            if (_gs.Quarter != qBefore && qBefore <= 4) burned = before;
+            if (burned > 0f) off.Box.TimeOfPossessionSeconds += (int)burned;
 
             if (!applied)
             {
@@ -51,9 +58,9 @@ namespace PixFootball.League
             {
                 SimUnit by = o.R.Penalty.CommittedBy == possB ? off : def;
                 by.Box.Penalties++;
-                int py = o.R.Penalty.Def.YardsFor(_rules, o.R.Penalty.FoulSpotYards);
+                int py = enforcedYds;
                 by.Box.PenaltyYds += py;
-                SimPlayer pp = by == off ? off.OL[_rng.Range(0, 5)] : def.DL[_rng.Range(0, 4)];
+                SimPlayer pp = PenaltyCulprit(o.R.Penalty, by, by == off);   // QA-591: charged to the player the flag names, or by penalty type
                 pp.L.Penalties++; pp.L.PenaltyYds += py;
                 if (_log) _res.PlayLog.Add("Q" + qBefore + " " + ClockText(clockBefore) + " Penalty: " + o.R.Penalty.Def.Name + " on " + by.T.Abbreviation);
             }
@@ -64,6 +71,12 @@ namespace PixFootball.League
             }
 
             int dh = _gs.HomeScore - hs, da = _gs.AwayScore - aws;
+            // QA-611: a safety belongs to a defender (sacker, tackler, else a lineman) so player points add up to the team score
+            if ((possB == Side.Home ? da : dh) == 2 && o.K != OutKind.Try && o.K != OutKind.Fg)
+            {
+                SimPlayer sfty = o.Sacker ?? o.Tackler ?? def.DL[0];
+                sfty.L.Safeties++;
+            }
             if (o.K == OutKind.Try) { int tp = possB == Side.Home ? dh : da; if (tp > 0 && _pendingTd != null) _pendingTd.Points += tp; _pendingTd = null; }
             else _pendingTd = null;
             if (dh > 0) AddScoringEvent(0, dh, Describe(o, dh, penaltyAccepted), qBefore, (int)clockBefore);
@@ -86,7 +99,7 @@ namespace PixFootball.League
                 else if (offScored && _gs.Phase != GamePhase.Scrimmage) end = "Touchdown";
                 else if (_gs.Phase == GamePhase.Scrimmage && _gs.Possession != possB) end = "Downs";
                 else if (qBefore == 2 && _gs.Quarter == 3) end = "End of Half";
-                else if (qBefore == 4 && _gs.Quarter == 5) end = "End of Half";
+                else if (qBefore == 4 && _gs.Quarter == 5) end = "End of Regulation";
                 else if (_gs.IsFinal) end = "End of Game";
                 if (end != null)
                 {
@@ -120,7 +133,11 @@ namespace PixFootball.League
                 case OutKind.Fg: return Name(o.Kicker) + " " + o.Dist + " yd field goal " + (o.Good ? "GOOD" : "NO GOOD");
                 case OutKind.Kneel: return "QB kneel";
                 case OutKind.Spike: return "QB spike";
-                case OutKind.Kickoff: return "Kickoff" + (o.RetYards > 0 ? ", return " + o.RetYards : ", touchback");
+                case OutKind.Kickoff:
+                    if (o.Onside) return "Onside kick, recovered by the " + (o.R != null && o.R.RecoveredByKickingTeam ? "kicking" : "receiving") + " team";
+                    if (o.R != null && o.R.Touchback) return "Kickoff, touchback";
+                    if (o.R != null && o.R.OutOfBounds) return "Kickoff, out of bounds";
+                    return "Kickoff" + (o.RetYards > 0 ? ", return " + o.RetYards : ", fair catch");
                 case OutKind.Try: return o.TwoPoint ? "Two-point try " + (o.Good ? "GOOD" : "FAILED") : "Extra point " + (o.Good ? "GOOD" : "NO GOOD");
             }
             return o.K.ToString();
@@ -169,7 +186,7 @@ namespace PixFootball.League
                     r.L.RushAtt++; r.L.RushYds += o.Yards;
                     if (o.Yards > r.L.RushLong) r.L.RushLong = o.Yards;
                     if (o.Td) { ob.RushTd++; r.L.RushTd++; }
-                    if (o.Tackler != null && !o.Td) { o.Tackler.L.Tackles++; if (o.Yards < 0) o.Tackler.L.TacklesForLoss++; }
+                    if (o.Tackler != null && !o.Td) { o.Tackler.L.Tackles++; if (o.Yards < 0) o.Tackler.L.TacklesForLoss++; CreditAssist(def, o.Tackler, o.Yards < 0); }
                     if (o.Fumble) CommitFumble(o, r, ob, db);
                     break;
                 }
@@ -191,7 +208,7 @@ namespace PixFootball.League
                     t.L.Targets++; t.L.Rec++; t.L.RecYds += o.Yards;
                     if (o.Yards > t.L.RecLong) t.L.RecLong = o.Yards;
                     if (o.Td) { ob.PassTd++; q.L.PassTd++; t.L.RecTd++; }
-                    if (o.Tackler != null && !o.Td) o.Tackler.L.Tackles++;
+                    if (o.Tackler != null && !o.Td) { o.Tackler.L.Tackles++; CreditAssist(def, o.Tackler, false); }
                     if (o.Fumble) CommitFumble(o, t, ob, db);
                     break;
                 }
@@ -208,7 +225,7 @@ namespace PixFootball.League
                     ob.Sacked++; ob.SackYdsLost += -o.Yards;
                     o.Passer.L.Sacked++; o.Passer.L.SackYds += -o.Yards;
                     db.SacksMade++;
-                    if (o.Sacker != null) { o.Sacker.L.Sacks++; o.Sacker.L.Tackles++; }
+                    if (o.Sacker != null) { o.Sacker.L.Sacks++; o.Sacker.L.Tackles++; o.Sacker.L.TacklesForLoss++; }   // QA-601: a sack is also a tackle for loss
                     if (o.Fumble) CommitFumble(o, o.Passer, ob, db);
                     break;
                 }
@@ -227,8 +244,8 @@ namespace PixFootball.League
                 {
                     ob.Punts++; ob.PuntYds += o.Dist;
                     o.Kicker.L.Punts++; o.Kicker.L.PuntYds += o.Dist;
-                    if (spotB + o.Dist >= 80 && spotB + o.Dist < 100) o.Kicker.L.PuntIn20++;
-                    if (o.Returner != null && o.RetYards > 0 || (o.Returner != null && o.R.ReturnYards == 0 && !o.R.FairCatch && !o.R.Touchback))
+                    if (o.Land >= 80 && o.Land < 100) o.Kicker.L.PuntIn20++;
+                    if (o.Returner != null && !o.R.OutOfBounds && (o.RetYards > 0 || (o.R.ReturnYards == 0 && !o.R.FairCatch && !o.R.Touchback)))   // QA-598: a punt out of bounds is no return attempt
                     {
                         db.PuntReturnYds += o.RetYards;
                         o.Returner.L.PrAtt++; o.Returner.L.PrYds += o.RetYards;
@@ -254,7 +271,7 @@ namespace PixFootball.League
                 }
                 case OutKind.Try:
                 {
-                    if (o.TwoPoint) { ob.TwoPointAtt++; if (o.Good) ob.TwoPointMade++; }
+                    if (o.TwoPoint) { ob.TwoPointAtt++; if (o.Good) { ob.TwoPointMade++; off.RB1.L.TwoPtMade++; } }   // QA-611: the conversion is credited to the lead back
                     else { ob.XpAtt++; o.Kicker.L.XpAtt++; if (o.Good) { ob.XpMade++; o.Kicker.L.XpMade++; } }
                     break;
                 }
@@ -278,15 +295,61 @@ namespace PixFootball.League
         {
             if (deep)
             {
-                float a = def.LB[0].Cover + 0f;
                 // deep gains: mostly DBs and LBs
                 float r = _rng.NextFloat();
                 if (r < 0.28f) return def.CB[_rng.Range(0, 3)];
                 if (r < 0.58f) return def.S[_rng.Range(0, 2)];
                 return def.LB[_rng.Range(0, 3)];
             }
-            int i = Pick(def.TackleW, 9);
+            int i = Pick(def.TackleW, def.TackleW.Length);
             return def.Tacklers[i];
+        }
+
+        /// <summary>Some tackles are shared: a second defender is credited with an assisted tackle (combined tackles, QA-601).</summary>
+        private void CreditAssist(SimUnit def, SimPlayer first, bool tfl)
+        {
+            if (!_rng.Chance(0.38f)) return;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                SimPlayer other = def.Tacklers[Pick(def.TackleW, def.TackleW.Length)];
+                if (other == first) continue;
+                other.L.Tackles++;
+                if (tfl && _rng.Chance(0.5f)) other.L.TacklesForLoss++;
+                return;
+            }
+        }
+
+        /// <summary>A defensive back: a corner four times in five, otherwise a safety.</summary>
+        private SimPlayer DefBack(SimUnit def)
+        {
+            return _rng.Chance(0.8f) ? def.CB[_rng.Range(0, 3)] : def.S[_rng.Range(0, 2)];
+        }
+
+        /// <summary>The player a flag is charged to: the one named on the call when he is on the penalised team, otherwise a player of the position group the foul belongs to (QA-591).</summary>
+        private SimPlayer PenaltyCulprit(PenaltyCall call, SimUnit by, bool onOffense)
+        {
+            if (call.Type == PenaltyType.DelayOfGame || call.Type == PenaltyType.IntentionalGrounding) return by.QB;
+            if (call.PlayerId != 0)
+                for (int i = 0; i < by.All.Count; i++) if (by.All[i].P.Id == call.PlayerId) return by.All[i];
+            switch (call.Type)
+            {
+                case PenaltyType.FalseStart: case PenaltyType.OffensiveHolding: case PenaltyType.IllegalBlockInBack: case PenaltyType.IllegalFormation:
+                    return by.OL[_rng.Range(0, 5)];
+                case PenaltyType.OffensivePassInterference:
+                    return by.WR[_rng.Range(0, 3)];
+                case PenaltyType.Offside: case PenaltyType.Encroachment: case PenaltyType.RoughingThePasser:
+                    return by.DL[_rng.Range(0, 4)];
+                case PenaltyType.DefensiveHolding: case PenaltyType.DefensivePassInterference: case PenaltyType.IllegalContact:
+                    return DefBack(by);
+            }
+            // face mask, unnecessary roughness, too many men: any player on the field for that side
+            if (onOffense)
+            {
+                int r = _rng.Range(0, 9);
+                return r < 5 ? by.OL[r] : (r < 7 ? by.WR[r - 5] : (r == 7 ? by.TE[0] : by.RB1));
+            }
+            int d = _rng.Range(0, 9);
+            return d < 4 ? by.DL[d] : (d < 7 ? by.LB[d - 4] : by.CB[d - 7]);
         }
 
         private SimPlayer PickRusher(SimUnit def, bool sackPlay)
@@ -314,6 +377,7 @@ namespace PixFootball.League
             {
                 bool rec = _rng.Chance(0.14f);
                 o.R = PlayResult.Onside(12, rec);
+                o.Onside = true;
                 o.R.KickerId = k.K.P.Id;
                 ApplyOutcome(o);
                 return;
@@ -381,8 +445,8 @@ namespace PixFootball.League
             }
             else
             {
-                float basep = _rules.CollegeStyle ? 0.945f : 0.945f;
-                float p = basep + (u.K.Kick - 75f) * 0.0016f;
+                float basep = _rules.CollegeStyle ? 0.965f : 0.945f;   // QA-596: the college try is a 20 yard kick
+                float p = basep + (u.K.Kick - 72f) * 0.0035f;   // the kicker term works on the flattened composite, centred on an average kicker
                 o.Good = _rng.Chance(Clamp(p, 0.84f, 0.995f));
                 o.R = PlayResult.Extra(o.Good);
                 o.R.KickerId = u.K.P.Id;
@@ -445,7 +509,7 @@ namespace PixFootball.League
             SimUnit off = Off, def = Def;
             OpenDriveIfNeeded();
             if (MaybeCallTimeout(off, def)) return;
-            if (!_gs.IsOvertime || !_gs.IsCollegeOvertime)
+            // QA-595: pre-snap flags are live in college overtime too (a delay of game there is a false start, see PreSnapPenalty)
             {
                 if (_rng.NextFloat() < SimTuning.PenaltyPreSnap * (_gs.Down == 4 && _gs.Distance > 8 ? 0.7f : 1f)) { ApplyOutcome(PreSnapPenalty(off, def)); return; }
             }
@@ -521,7 +585,7 @@ namespace PixFootball.League
             {
                 int dist = _gs.Distance;
                 double a = off.Aggression / 100.0;
-                bool desperate = q == 4 && d < 0 && (c <= 150f || (c <= 300f && d <= -9));
+                bool desperate = (q == 4 && d < 0 && (c <= 150f || (c <= 300f && d <= -9))) || (_gs.IsOvertime && d < 0);   // QA-594: trailing in pro overtime (the second possession) is as desperate as the last minutes
                 if (_gs.IsOvertime && d == 0 && !fgRange) desperate = false;
                 if (desperate)
                 {
@@ -586,12 +650,17 @@ namespace PixFootball.League
         }
 
         // ============================================================ special teams plays
+        /// <summary>How far behind the line of scrimmage the punter stands.</summary>
+        private const int PuntDepth = 14;
+
         private PlayOutcome DoPunt(SimUnit off, SimUnit def)
         {
             var o = new PlayOutcome { K = OutKind.Punt, Kicker = off.P };
             float power = off.P.R.KickPower, acc = off.P.R.KickAccuracy;
-            int dist = (int)Math.Round(_rng.Gaussian(44f + (power - 75f) * 0.22f, 5.5f));
-            dist = Clamp(dist, 22, 76);
+            // QA-593: the gross kick is measured from the punter, who stands about 14 yards behind the line of scrimmage, so the ball travels
+            // that much less from the line (a 46 yard gross punt lands 32 yards past it)
+            int gross = Clamp((int)Math.Round(_rng.Gaussian(46f + (power - 75f) * 0.22f, 5.5f)), 32, 80);
+            int dist = gross - PuntDepth;
             int spot = _gs.BallSpot;
             if (spot >= 55)
             {
@@ -599,8 +668,10 @@ namespace PixFootball.League
                 int maxIn = 100 - spot - 1 - (int)Math.Round(Exp(4f * (1.4f - acc / 100f)));
                 if (maxIn < 14) maxIn = 14;
                 if (dist > maxIn) dist = maxIn;
+                gross = dist + PuntDepth;
             }
             int land = spot + dist;
+            o.Dist = gross; o.Land = land;   // QA-592: set before the touchback early return so the box score and the play log see the yards
             if (land >= 100)
             {
                 o.R = PlayResult.Punt(dist, 0, false, true);
@@ -622,7 +693,6 @@ namespace PixFootball.League
             o.Returner = returner; o.RetYards = ret; o.Td = td;
             o.R = PlayResult.Punt(dist, ret, td, false, oob, fair);
             o.R.KickerId = off.P.P.Id; o.R.ReturnerId = returner.P.Id;
-            o.Dist = dist;
             return TimeAndRunoff(o, 8f, false, false);
         }
 
@@ -685,10 +755,10 @@ namespace PixFootball.League
                 float air = Math.Max(1f, o.Air);
                 if (r < 0.30f) call = PenaltyCall.For(PenaltyType.OffensiveHolding, _gs, -3f, off.OL[_rng.Range(0, 5)].P.Id);
                 else if (r < 0.37f) call = PenaltyCall.For(PenaltyType.OffensivePassInterference, _gs, air, o.Target != null ? o.Target.P.Id : 0);
-                else if (r < 0.50f) call = PenaltyCall.For(PenaltyType.DefensiveHolding, _gs, 0f, def.CB[_rng.Range(0, 3)].P.Id);
-                else if (r < 0.77f) call = PenaltyCall.For(PenaltyType.DefensivePassInterference, _gs, air, def.CB[_rng.Range(0, 3)].P.Id);
+                else if (r < 0.50f) call = PenaltyCall.For(PenaltyType.DefensiveHolding, _gs, 0f, DefBack(def).P.Id);
+                else if (r < 0.77f) call = PenaltyCall.For(PenaltyType.DefensivePassInterference, _gs, air, DefBack(def).P.Id);
                 else if (r < 0.85f && o.Pressure) call = PenaltyCall.For(PenaltyType.RoughingThePasser, _gs, 0f, def.DL[_rng.Range(0, 4)].P.Id);
-                else if (r < 0.92f) call = PenaltyCall.For(PenaltyType.IllegalContact, _gs, 0f, def.CB[_rng.Range(0, 3)].P.Id);
+                else if (r < 0.92f) call = PenaltyCall.For(PenaltyType.IllegalContact, _gs, 0f, DefBack(def).P.Id);
                 else if (r < 0.96f) call = new PenaltyCall(PenaltyType.FaceMask, _rng.Chance(0.85f) ? _gs.Defense : _gs.Possession, 0f, 0);
                 else call = PenaltyCall.For(PenaltyType.OffensiveHolding, _gs, -3f, off.OL[_rng.Range(0, 5)].P.Id);
             }

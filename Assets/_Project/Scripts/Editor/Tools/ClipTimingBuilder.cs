@@ -23,6 +23,7 @@ namespace PixFootball.EditorTools
         [MenuItem("PIX Football/Assets/Build Clip Timing")]
         public static void Run()
         {
+            BatchWatchdog.Arm(20);
             ArtLibrary.ResetCache();
             var lib = ArtLibrary.Load();
             if (lib == null) { Debug.LogError("[ClipTiming] no ArtLibrary"); return; }
@@ -55,6 +56,20 @@ namespace PixFootball.EditorTools
                     table.entries.Add(new ClipTimingTable.Entry { clip = clip.name, t = t });
                     log.AppendLine("catch " + key + "[" + v + "] " + clip.name + " len=" + clip.length.ToString("0.00") + " catch=" + t.ToString("0.00"));
                 }
+            // v0.8: kicks - the foot contact is the peak speed of the faster foot (the kicking leg)
+            var rf = anim.GetBoneTransform(HumanBodyBones.RightFoot); var lf = anim.GetBoneTransform(HumanBodyBones.LeftFoot);
+            foreach (string key in new[] { "kick_off", "kick_field_goal", "punt", "punt_fast", "kick_return_catch" })
+                for (int v = 0; v < lib.ClipVariantCount(key); v++)
+                {
+                    var clip = lib.ClipVariant(key, v);
+                    if (clip.length > 9f) continue;
+                    float t = key == "kick_return_catch" ? HandsTogether(go, anim, rh, lh, clip) : Mathf.Max(PeakHandSpeedOf(go, anim, rf, clip, 0.2f, 0.95f, true), 0f);
+                    float t2 = key == "kick_return_catch" ? 0f : PeakHandSpeedOf(go, anim, lf, clip, 0.2f, 0.95f, true);
+                    float s1 = key == "kick_return_catch" ? 0f : PeakHandSpeedOf(go, anim, rf, clip, 0.2f, 0.95f, false), s2 = key == "kick_return_catch" ? 0f : PeakHandSpeedOf(go, anim, lf, clip, 0.2f, 0.95f, false);
+                    if (key != "kick_return_catch" && s2 > s1) t = t2;
+                    table.entries.Add(new ClipTimingTable.Entry { clip = clip.name, t = t });
+                    log.AppendLine("kick " + key + "[" + v + "] " + clip.name + " len=" + clip.length.ToString("0.00") + " contact=" + t.ToString("0.00"));
+                }
             Object.DestroyImmediate(go);
             EditorUtility.SetDirty(table);
             AssetDatabase.SaveAssets();
@@ -66,7 +81,7 @@ namespace PixFootball.EditorTools
 
         static void Pose(GameObject go, Animator anim, AnimationClip clip, float t, out PlayableGraph graph)
         {
-            AnimationPlayableUtilities.PlayClip(anim, clip, out graph);
+            PixFootball.EditorTools.AnimPlay.PlayClip(anim, clip, out graph);
             graph.Evaluate(0f); if (t > 0f) graph.Evaluate(t);
         }
 
@@ -75,7 +90,7 @@ namespace PixFootball.EditorTools
             const float step = 1f / 30f;
             float best = 0f, bestT = clip.length * 0.45f; Vector3 prev = Vector3.zero; bool have = false;
             PlayableGraph g;
-            AnimationPlayableUtilities.PlayClip(anim, clip, out g);
+            PixFootball.EditorTools.AnimPlay.PlayClip(anim, clip, out g);
             g.Evaluate(0f);
             for (float t = 0f; t <= clip.length; t += step)
             {
@@ -92,12 +107,31 @@ namespace PixFootball.EditorTools
             return bestT;
         }
 
+        /// <summary>Time (returnTime = true) or value (false) of the peak speed of a bone in the character frame inside [f0, f1] of the clip.</summary>
+        static float PeakHandSpeedOf(GameObject go, Animator anim, Transform bone, AnimationClip clip, float f0, float f1, bool returnTime)
+        {
+            const float step = 1f / 30f;
+            float best = 0f, bestT = clip.length * 0.5f; Vector3 prev = Vector3.zero; bool have = false;
+            PlayableGraph g;
+            PixFootball.EditorTools.AnimPlay.PlayClip(anim, clip, out g);
+            g.Evaluate(0f);
+            for (float t = 0f; t <= clip.length; t += step)
+            {
+                if (t > 0f) g.Evaluate(step);
+                Vector3 p = go.transform.InverseTransformPoint(bone.position);
+                if (have && t > clip.length * f0 && t < clip.length * f1) { float sp = (p - prev).magnitude / step; if (sp > best) { best = sp; bestT = t; } }
+                prev = p; have = true;
+            }
+            g.Destroy();
+            return returnTime ? bestT : best;
+        }
+
         static float HandsTogether(GameObject go, Animator anim, Transform rh, Transform lh, AnimationClip clip)
         {
             const float step = 1f / 30f;
             float best = float.MaxValue, bestT = clip.length * 0.35f;
             PlayableGraph g;
-            AnimationPlayableUtilities.PlayClip(anim, clip, out g);
+            PixFootball.EditorTools.AnimPlay.PlayClip(anim, clip, out g);
             g.Evaluate(0f);
             for (float t = 0f; t <= clip.length; t += step)
             {

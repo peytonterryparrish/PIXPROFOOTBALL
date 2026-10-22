@@ -19,7 +19,13 @@ namespace PixFootball.EditorTools
         static readonly string[] LoopWords =
         {
             "idle", "walk", "jog", "run", "sprint", "backpedal", "strafe", "shuffle", "loop", "cycle", "stance", "lookaround",
-            "cadence", "cheer", "neutral", "freestyle"
+            "cadence", "cheer", "neutral", "freestyle", "huddle", "bench"
+        };
+
+        static readonly string[] NoLoopWords =
+        {
+            "_to_", "to_stand", "transition", "trans_", "turn", "_90", "_180", "avoid", "dodge", "juke", "stiff", "truck", "dive", "kick", "punt",
+            "catch", "block", "tackle", "idleto", "stand_to", "handoff", "throw", "pass"
         };
 
         /// <summary>Applied from the AssetPostprocessor (first import).</summary>
@@ -37,11 +43,15 @@ namespace PixFootball.EditorTools
             mi.optimizeGameObjects = false;
             mi.animationCompression = ModelImporterAnimationCompression.KeyframeReductionAndCompression;
             mi.resampleCurves = true;
+            // QA-906: tight keyframe-reduction tolerances (the 0.5 defaults add wrist and foot jitter on 60 fps takes)
+            mi.animationRotationError = 0.1f; mi.animationPositionError = 0.1f; mi.animationScaleError = 0.1f;
         }
 
         public static bool IsLoopName(string clipName)
         {
             string n = clipName.ToLowerInvariant();
+            if (n.Contains("loop")) return true;
+            for (int i = 0; i < NoLoopWords.Length; i++) if (n.Contains(NoLoopWords[i])) return false;
             for (int i = 0; i < LoopWords.Length; i++) if (n.Contains(LoopWords[i])) return true;
             return false;
         }
@@ -81,8 +91,41 @@ namespace PixFootball.EditorTools
                 c.cycleOffset = 0f;
                 list.Add(c);
             }
-            mi.clipAnimations = list.ToArray();
+            var arr = list.ToArray();
+            // QA-908: only touch (and re-import) the model when a flag really changed
+            var old = mi.clipAnimations;
+            bool changed = old == null || old.Length != arr.Length;
+            for (int i = 0; !changed && i < arr.Length; i++)
+            {
+                var a = old[i]; var b = arr[i];
+                changed = a.name != b.name || a.loopTime != b.loopTime || a.loopPose != b.loopPose || a.lockRootRotation != b.lockRootRotation || a.lockRootHeightY != b.lockRootHeightY
+                          || a.lockRootPositionXZ != b.lockRootPositionXZ || a.keepOriginalOrientation != b.keepOriginalOrientation || a.keepOriginalPositionY != b.keepOriginalPositionY
+                          || a.keepOriginalPositionXZ != b.keepOriginalPositionXZ || a.heightFromFeet != b.heightFromFeet;
+            }
+            if (!changed) return false;
+            mi.clipAnimations = arr;
             return true;
+        }
+
+        /// <summary>Humanoid + clip flags for the models of one folder only (new imports).</summary>
+        public static int ApplyFolder(string folder)
+        {
+            int changed = 0;
+            try
+            {
+                AssetDatabase.StartAssetEditing();
+                foreach (string g in AssetDatabase.FindAssets("t:Model", new[] { folder }))
+                {
+                    var mi = AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(g)) as ModelImporter;
+                    if (mi == null) continue;
+                    bool dirty = false;
+                    if (mi.animationType != ModelImporterAnimationType.Human) { ConfigureHumanoid(mi); dirty = true; }
+                    if (ConfigureClips(mi)) dirty = true;
+                    if (dirty) { mi.SaveAndReimport(); changed++; }
+                }
+            }
+            finally { AssetDatabase.StopAssetEditing(); }
+            return changed;
         }
 
         [MenuItem("PIX Football/Assets/Animations/Apply Humanoid + Clip Flags")]

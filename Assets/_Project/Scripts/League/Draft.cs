@@ -69,14 +69,14 @@ namespace PixFootball.League
         }
 
         /// <summary>Synthetic class for leagues without a college world (talent curve shaped like a real class).</summary>
-        public static List<Prospect> Standalone(IPlayerIdSource ids, int year, Rng rng, IList<string> colleges, int classSize = DefaultClassSize)
+        public static List<Prospect> Standalone(IPlayerIdSource ids, int year, Rng rng, IList<string> colleges, int classSize = DefaultClassSize, HashSet<string> usedNames = null)
         {
-            var used = new HashSet<string>();
+            var used = usedNames ?? new HashSet<string>();   // QA-612: pass the league-wide names so a prospect never shares a name with a pro
             var pool = new List<Prospect>();
             for (int r = 0; r < classSize; r++)
             {
                 float q = (float)r / classSize;
-                int pot = (int)Math.Round(86f - 36f * (float)Math.Pow(q, 0.72) + rng.Gaussian(0f, 3.5f));
+                int pot = (int)Math.Round(94f - 44f * (float)Math.Pow(q, 0.55) + rng.Gaussian(0f, 3.5f));   // QA-580: the top of a class reaches the mid-90s so stars get replaced (the old curve topped out near 86)
                 Position pos = LeagueFactory.RandomRosterPosition(rng);
                 int age = rng.Range(21, 24);
                 Player p = PlayerFactory.Create(rng, ids, used, pos, pot, age);
@@ -97,7 +97,20 @@ namespace PixFootball.League
             for (int i = 0; i < pool.Count; i++) scored.Add(new KeyValuePair<float, Prospect>(pool[i].TrueGrade + rng.Gaussian(0f, 0.2f), pool[i]));
             scored.Sort((a, b) => b.Key.CompareTo(a.Key));
             var cls = new List<Prospect>();
-            for (int i = 0; i < scored.Count && cls.Count < classSize; i++) cls.Add(scored[i].Value);
+            // QA-581: reserve a share of the class for every position group (best of each group first), then fill the rest by grade, so a class
+            // is never 7 quarterbacks and 49 corners
+            var inClass = new HashSet<Prospect>();
+            var taken = new Dictionary<PositionBucket, int>();
+            for (int i = 0; i < scored.Count && cls.Count < classSize; i++)
+            {
+                Prospect pr = scored[i].Value;
+                PositionBucket b = PositionBuckets.Of(pr.Player.Position);
+                int have; taken.TryGetValue(b, out have);
+                if (have >= (int)(PositionBuckets.ProCount(b) * classSize / 53f * 0.7f)) continue;
+                taken[b] = have + 1; cls.Add(pr); inClass.Add(pr);
+            }
+            for (int i = 0; i < scored.Count && cls.Count < classSize; i++)
+                if (!inClass.Contains(scored[i].Value)) { cls.Add(scored[i].Value); inClass.Add(scored[i].Value); }
 
             // kickers and punters are rare in the top of the pool; make sure a handful exist
             EnsureSpecialists(pool, cls, Position.K, 6);
@@ -233,6 +246,7 @@ namespace PixFootball.League
                     choice.Drafted = true; choice.DraftedByTeamId = teamId; choice.OverallPick = overall;
                     Player p = choice.Player;
                     p.DraftYear = year; p.DraftRound = round; p.DraftPick = overall; p.Experience = 0;
+                    if (choice.SchoolId >= 0) CollegeFactory.ApplyProTransition(p);   // a college prospect turns pro: ratings move back toward the pro age curve
                     p.Contract = ContractModel.RookieContract(overall, year);
                     p.Morale = 80;
                     p.Bio.JerseyNumber = LeagueFactory.PickJersey(p.Position, rng, jerseys[teamId]);

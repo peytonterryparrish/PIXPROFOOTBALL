@@ -207,7 +207,8 @@ namespace PixFootball.Tests
             CollectionAssert.IsSubsetOf(new[] { "ZONE COVERAGE", "MAN COVERAGE", "BLITZ" }, labels);
             m.Confirm();
             Assert.IsTrue(m.Plays.All(p => p.Category == PlayCategory.ZoneCoverage));
-            CollectionAssert.AreEqual(new[] { CallFilter.All, CallFilter.Zone, CallFilter.Man, CallFilter.Blitz }, m.FiltersFor());
+            // QA-616: a ZONE COVERAGE set offers only the filters that have a play in it (ALL and ZONE), never one that opens an empty page
+            CollectionAssert.AreEqual(new[] { CallFilter.All, CallFilter.Zone }, m.FiltersFor());
         }
 
         [Test]
@@ -392,7 +393,7 @@ namespace PixFootball.Tests
                 if (p.IsPass && p.Assignments.OfType<RouteAssignment>().Any(r => r.Route == RouteKind.Out || r.Route == RouteKind.Corner || r.Route == RouteKind.Fade || r.Route == RouteKind.Comeback)) sideline++;
             }
             Assert.Greater(sideline, 35);
-            var spike = State(60, 2, 8, 4, 12f, -3); spike.HomeTimeouts = 0;
+            var spike = State(60, 2, 8, 4, 12f, -3); spike.HomeTimeouts = 0; spike.ClockRunning = true; spike.PendingRunoff = 25f;   // a spike only saves time when the clock is running (SIM-052)
             Assert.IsTrue(PlayCaller.ShouldSpike(spike));
             Assert.IsFalse(PlayCaller.ShouldSpike(State(60, 2, 8, 2, 500f)));
         }

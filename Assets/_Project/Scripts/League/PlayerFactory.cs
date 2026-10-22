@@ -407,12 +407,13 @@ namespace PixFootball.League
         }
 
         public static Player Create(Rng rng, IPlayerIdSource ids, HashSet<string> usedNames, Position pos, int potential, int age,
-            Archetype arch = Archetype.None, DevTrait? devOverride = null, bool collegeStyle = false)
+            Archetype arch = Archetype.None, DevTrait? devOverride = null, bool collegeStyle = false, int collegeGap = 0)
         {
             potential = Math.Max(40, Math.Min(99, potential));
             if (arch == Archetype.None) arch = RandomArchetype(pos, rng);
             DevTrait dev = devOverride ?? RollDev(potential, rng);
-            int cur = collegeStyle ? potential : CurrentFromPeak(pos, age, potential, dev, rng);
+            // college players are rated near their ceiling minus what the class year still has to grow (QA-556), not on the pro age curve whose peak is 25-28
+            int cur = collegeStyle ? Math.Max(35, potential - Math.Max(0, collegeGap)) : CurrentFromPeak(pos, age, potential, dev, rng);
             if (cur > potential) cur = potential;
             var p = new Player { Position = pos, Archetype = arch, Potential = potential, Dev = dev };
             p.Ratings = BuildRatings(pos, arch, cur, rng);
@@ -469,6 +470,7 @@ namespace PixFootball.League
                     Player pl = t.GetPlayer(ids[s]);
                     if (pl == null) continue;
                     float w = Weight(p, s);
+                    if ((s >= 3 && (p == Position.WR || p == Position.CB)) || (s >= 1 && p == Position.TE)) w *= 0.5f;   // QA-577: the 4th WR, 2nd TE and 4th CB count at half weight
                     sum += w * pl.Ratings.Overall(p);
                     tot += w;
                 }
@@ -541,7 +543,7 @@ namespace PixFootball.League
                 }
                 cands.Sort((a, b) => Rank(b, p).CompareTo(Rank(a, p)));
                 for (int c = 0; c < cands.Count && list.Count < need; c++)
-                    if (!list.Contains(cands[c])) list.Add(cands[c]);
+                    if (!list.Contains(cands[c]) && used.Add(cands[c].Id)) list.Add(cands[c]);   // QA-578: a backup fills one hole only
             }
             for (int i = 0; i < LeagueRules.RosterOrder.Length; i++)
             {

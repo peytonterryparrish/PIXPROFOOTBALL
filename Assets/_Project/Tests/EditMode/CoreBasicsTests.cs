@@ -245,7 +245,8 @@ namespace PixFootball.Tests
             Assert.AreEqual(OvertimeFormat.CollegeAlternating, col.Overtime);
             Assert.AreEqual(10, pro.OvertimeMinutes);
             Assert.IsFalse(pro.ClockStopsOnFirstDown);
-            Assert.IsTrue(col.ClockStopsOnFirstDown);
+            Assert.AreEqual(120, col.FirstDownStopWindowSeconds);   // college stops the clock on first downs only inside the last two minutes of a half
+            Assert.AreEqual(0, pro.FirstDownStopWindowSeconds);     // the NFL never does
             Assert.AreEqual(18.5f, pro.HashWidthFeet);
             Assert.AreEqual(40f, col.HashWidthFeet);
             Assert.AreEqual(85, pro.PatSpot);

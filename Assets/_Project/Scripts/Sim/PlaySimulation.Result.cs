@@ -63,7 +63,7 @@ namespace PixFootball.Sim
             {
                 if (BallSide == SimSide.Offense)
                 {
-                    int toGo = Math.Max(1, (int)Math.Ceiling(100f - State.BallSpot));
+                    int toGo = Math.Max(1, (int)Math.Ceiling(100f - LosY));
                     r = PassCompleted ? PlayResult.Pass(toGo, time, false, passerPid, Pid(CatcherId)) : PlayResult.Run(toGo, time, false, rusherPid, 0);
                     r.Touchdown = true;
                     return r;
@@ -83,7 +83,7 @@ namespace PixFootball.Sim
                 return r;
             }
 
-            if (reason == EndReason.Sack || QbSack)
+            if ((reason == EndReason.Sack || QbSack) && !Turnover)
             {
                 r = PlayResult.Sack(Math.Max(0, RoundYards(LosY - EndY)), time, Pid(0), tacklerPid);
                 if (EndY <= 0f) r.Safety = true;

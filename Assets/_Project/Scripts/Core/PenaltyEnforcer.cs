@@ -42,6 +42,9 @@ namespace PixFootball.Core
         public PenaltyOutcome Accept, Decline;
         /// <summary>What the CPU would do (the expected-points comparison).</summary>
         public bool RecommendAccept;
+        /// <summary>QA-489: both teams fouled on the play. Nothing is enforced, the down is replayed; there is nothing for either team to choose.</summary>
+        public bool Offsetting;
+        public PenaltyCall OffsettingCall;
     }
 
     public static class PenaltyEnforcer
@@ -51,13 +54,20 @@ namespace PixFootball.Core
         {
             if (play == null || play.Penalty == null) throw new ArgumentException("The play has no penalty.");
             var choice = new PenaltyChoice { Call = play.Penalty, DeadBall = play.Type == PlayType.Penalty };
+            if (play.OffsettingPenalty != null && play.Type != PlayType.Penalty)
+            {
+                choice.Offsetting = true; choice.OffsettingCall = play.OffsettingPenalty;
+                choice.Accept = choice.Decline = Outcome(before, before.Clone());
+                choice.RecommendAccept = true;
+                return choice;
+            }
             GameState acc = before.Clone();
             EnforcementResult er = Enforce(acc, play.Penalty, play);
             choice.Yards = er.Yards; choice.LossOfDown = er.LossOfDown; choice.AutomaticFirstDown = er.AutomaticFirstDown; choice.HalfDistance = er.HalfDistance;
             choice.Accept = Outcome(before, acc);
             if (choice.DeadBall) choice.Decline = Outcome(before, before.Clone());
             else { GameState dec = before.Clone(); dec.ApplyPlayCore(play); choice.Decline = Outcome(before, dec); }
-            choice.RecommendAccept = ShouldAccept(before, play);
+            choice.RecommendAccept = choice.DeadBall || ShouldAccept(before, play);   // QA-164: a dead-ball (pre-snap) foul is enforced, the offended team cannot decline it
             return choice;
         }
 
@@ -79,7 +89,7 @@ namespace PixFootball.Core
         /// Enforces <paramref name="call"/> on <paramref name="s"/> (mutating the down, distance and ball spot).
         /// The state must still be the pre-play state. Does not touch the clock.
         /// </summary>
-        public static EnforcementResult Enforce(GameState s, PenaltyCall call, PlayResult play = null)
+        public static EnforcementResult Enforce(GameState s, PenaltyCall call, PlayResult play = null, string homeName = null, string awayName = null)
         {
             if (s == null) throw new ArgumentNullException("s");
             if (call == null) throw new ArgumentNullException("call");
@@ -87,8 +97,13 @@ namespace PixFootball.Core
             RuleSet rules = s.Rules;
             var res = new EnforcementResult { Call = call };
 
-            if (s.Phase == GamePhase.Kickoff) return EnforceOnKick(s, call, def, res);
-            if (s.Phase == GamePhase.PointAfter) return EnforceOnTry(s, call, def, res);
+            if (s.Phase == GamePhase.Kickoff) return EnforceOnKick(s, call, def, res, homeName, awayName);
+            if (s.Phase == GamePhase.PointAfter)
+            {
+                // QA-486: a voluntary two-point try is snapped from the two-point spot, not the extra-point spot the state still holds
+                if (play != null && play.Type == PlayType.TwoPoint && !s.RequiresTwoPoint) s.BallSpot = rules.TwoPointSpot;
+                return EnforceOnTry(s, call, def, res, homeName, awayName);
+            }
 
             bool onOffense = call.CommittedBy == s.Possession;
             int los = s.BallSpot;
@@ -157,11 +172,18 @@ namespace PixFootball.Core
                     }
                 }
             }
-            res.Description = def.Name + " on " + call.CommittedBy + ": " + Math.Abs(res.Yards) + " yards"
+            res.Description = def.Name + " on " + TeamLabel(call.CommittedBy, homeName, awayName) + ": " + Math.Abs(res.Yards) + " yards"
                               + (res.HalfDistance ? " (half the distance)" : "")
                               + (res.FirstDown ? ", first down" : "")
                               + (res.LossOfDown ? ", loss of down" : "");
             return res;
+        }
+
+        /// <summary>Display name of a side for descriptions: the caller's team name when supplied, otherwise "Home" / "Away" (QA-492).</summary>
+        public static string TeamLabel(Team t, string homeName, string awayName)
+        {
+            string n = t == Team.Home ? homeName : awayName;
+            return string.IsNullOrEmpty(n) ? t.ToString() : n;
         }
 
         /// <summary>Offsetting fouls: the down is replayed from the same spot.</summary>
@@ -174,7 +196,7 @@ namespace PixFootball.Core
             };
         }
 
-        private static EnforcementResult EnforceOnKick(GameState s, PenaltyCall call, Penalty def, EnforcementResult res)
+        private static EnforcementResult EnforceOnKick(GameState s, PenaltyCall call, Penalty def, EnforcementResult res, string homeName, string awayName)
         {
             int yards = def.YardsFor(s.Rules, 0f);
             if (call.CommittedBy == s.Possession)
@@ -189,11 +211,11 @@ namespace PixFootball.Core
             }
             s.BallSpot = s.KickSpot;
             res.NewSpot = s.KickSpot;
-            res.Description = def.Name + " on " + call.CommittedBy + " (kickoff re-kick)";
+            res.Description = def.Name + " on " + TeamLabel(call.CommittedBy, homeName, awayName) + " (kickoff re-kick)";
             return res;
         }
 
-        private static EnforcementResult EnforceOnTry(GameState s, PenaltyCall call, Penalty def, EnforcementResult res)
+        private static EnforcementResult EnforceOnTry(GameState s, PenaltyCall call, Penalty def, EnforcementResult res, string homeName, string awayName)
         {
             int yards = def.YardsFor(s.Rules, 0f);
             bool onOffense = call.CommittedBy == s.Possession;
@@ -203,7 +225,7 @@ namespace PixFootball.Core
             res.Yards = onOffense ? -yards : yards;
             res.NewSpot = s.BallSpot;
             res.HalfDistance = true;
-            res.Description = def.Name + " on " + call.CommittedBy + " (try)";
+            res.Description = def.Name + " on " + TeamLabel(call.CommittedBy, homeName, awayName) + " (try)";
             return res;
         }
 

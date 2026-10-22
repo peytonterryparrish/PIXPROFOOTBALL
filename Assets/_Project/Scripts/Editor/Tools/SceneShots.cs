@@ -43,7 +43,7 @@ namespace PixFootball.EditorTools
             var anim = go.GetComponentInChildren<Animator>();
             if (anim == null || clip == null) return;
             PlayableGraph graph;
-            AnimationPlayableUtilities.PlayClip(anim, clip, out graph);
+            PixFootball.EditorTools.AnimPlay.PlayClip(anim, clip, out graph);
             graph.Evaluate(0f); graph.Evaluate(t); graph.Destroy();
             foreach (var smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(false))
             {

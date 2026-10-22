@@ -60,6 +60,8 @@ namespace PixFootball.Presentation
             BuildFlashes();
         }
 
+        void OnDestroy() { if (_star != null) { if (_star.texture != null) Destroy(_star.texture); Destroy(_star); } }   // QA-856
+
         void BuildFlashes()
         {
             _canvas = UiKit.CreateCanvas("CameraFlashCanvas", 4, transform);
@@ -121,6 +123,8 @@ namespace PixFootball.Presentation
         void Update()
         {
             if (!_built) return;
+            // the crowd freezes with the pause menu (replays and shows run on unscaled time with the game paused: they keep it moving)
+            if (GameSession.Paused && !(BroadcastDirector.Instance != null && BroadcastDirector.Instance.Busy)) return;
             float dt = Time.unscaledDeltaTime;
             var cam = Camera.main;
             if (_excite > 0.001f)

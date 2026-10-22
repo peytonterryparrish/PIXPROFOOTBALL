@@ -34,7 +34,6 @@ namespace PixFootball.League
         public List<Player> FreeAgents = new List<Player>();
         public List<Player> RetiredPlayers = new List<Player>();
         public List<Prospect> DraftClass = new List<Prospect>();
-        public List<int> DraftOrder = new List<int>();
         public List<DraftPickRecord> LastDraft = new List<DraftPickRecord>();
         public List<ScoutingReport> ScoutingReports = new List<ScoutingReport>();
         public Season Season;
@@ -138,6 +137,15 @@ namespace PixFootball.League
         {
             for (int i = 0; i < Conferences.Count; i++) if (Conferences[i].Id == id) return Conferences[i];
             return null;
+        }
+
+        public const string IndependentName = "Independent";
+
+        /// <summary>Conference name of a school for headers and standings: "Independent" for the independents (conference id -1 has no conference row or logo), never null (QA-999).</summary>
+        public string ConferenceNameOf(School s)
+        {
+            Conference c = s != null ? GetConference(s.ConferenceId) : null;
+            return c != null ? c.Name : IndependentName;
         }
 
         public List<Team> TeamList()

@@ -6,13 +6,38 @@ using UnityEngine.UI;
 
 namespace PixFootball.UI
 {
-    /// <summary>Palette from Docs/UIStyleGuide.md.</summary>
+    /// <summary>
+    /// Palette from Docs/UIStyleGuide.md (Classic) and Docs/UIStyleGuide_Glass.md (Glass). The tokens are properties: a screen that still reads <c>UiColors.Gold</c> gets the glass accent orange while
+    /// the glass theme is active, so the parts that were not rebuilt still sit inside the one palette.
+    /// </summary>
     public static class UiColors
     {
-        public static readonly Color BgDeep = Hex("#11141C"), BgNav = Hex("#1A252C"), BgPanel = Hex("#1E1F28"), BgPanelDark = Hex("#15161E"),
-            Row = Hex("#2A2B37"), RowHover = Hex("#34364A"), AccentBlue = Hex("#2D5ABC"), AccentBlueHot = Hex("#2D6AED"), AccentBlueDeep = Hex("#1D4190"),
-            Gold = Hex("#FFC837"), Orange = Hex("#FF9000"), Danger = Hex("#C20000"), Disabled = Hex("#333333"), TextPrimary = Color.white,
-            TextSecondary = Hex("#C5C5C5"), TextMuted = Hex("#6D6D6D"), Scrim = new Color(0.02f, 0.03f, 0.05f, 0.82f);
+        static readonly Color cBgDeep = Hex("#11141C"), cBgNav = Hex("#1A252C"), cBgPanel = Hex("#1E1F28"), cBgPanelDark = Hex("#15161E"),
+            cRow = Hex("#2A2B37"), cRowHover = Hex("#34364A"), cAccentBlue = Hex("#2D5ABC"), cAccentBlueHot = Hex("#2D6AED"), cAccentBlueDeep = Hex("#1D4190"),
+            cGold = Hex("#FFC837"), cOrange = Hex("#FF9000"), cDanger = Hex("#C20000"), cDisabled = Hex("#333333"), cTextPrimary = Color.white,
+            cTextSecondary = Hex("#C5C5C5"), cTextMuted = Hex("#6D6D6D"), cScrim = new Color(0.02f, 0.03f, 0.05f, 0.82f);
+        static readonly Color gBgDeep = Hex("#151618"), gBgNav = Hex("#1B1C1E"), gBgPanel = Hex("#232326"), gBgPanelDark = Hex("#19191B"), gRow = Hex("#2A2B2E"), gRowHover = Hex("#36373B"),
+            gAccent = Hex("#F49A52"), gAccentHot = Hex("#FFB070"), gAccentDeep = Hex("#C9722F"), gDanger = Hex("#E2685C"), gDisabled = Hex("#3A3B3E"), gTextPrimary = Hex("#F5F5F5"),
+            gTextSecondary = Hex("#BFC1C4"), gTextMuted = Hex("#8E9094"), gScrim = new Color(0.02f, 0.025f, 0.035f, 0.74f);
+
+        static bool G { get { return UiTheme.IsGlass; } }
+        public static Color BgDeep { get { return G ? gBgDeep : cBgDeep; } }
+        public static Color BgNav { get { return G ? gBgNav : cBgNav; } }
+        public static Color BgPanel { get { return G ? gBgPanel : cBgPanel; } }
+        public static Color BgPanelDark { get { return G ? gBgPanelDark : cBgPanelDark; } }
+        public static Color Row { get { return G ? gRow : cRow; } }
+        public static Color RowHover { get { return G ? gRowHover : cRowHover; } }
+        public static Color AccentBlue { get { return G ? gAccent : cAccentBlue; } }
+        public static Color AccentBlueHot { get { return G ? gAccentHot : cAccentBlueHot; } }
+        public static Color AccentBlueDeep { get { return G ? gAccentDeep : cAccentBlueDeep; } }
+        public static Color Gold { get { return G ? gAccent : cGold; } }
+        public static Color Orange { get { return G ? gAccent : cOrange; } }
+        public static Color Danger { get { return G ? gDanger : cDanger; } }
+        public static Color Disabled { get { return G ? gDisabled : cDisabled; } }
+        public static Color TextPrimary { get { return G ? gTextPrimary : cTextPrimary; } }
+        public static Color TextSecondary { get { return G ? gTextSecondary : cTextSecondary; } }
+        public static Color TextMuted { get { return G ? gTextMuted : cTextMuted; } }
+        public static Color Scrim { get { return G ? gScrim : cScrim; } }
 
         public static Color Hex(string h) { Color c; ColorUtility.TryParseHtmlString(h, out c); return c; }
     }
@@ -20,8 +45,11 @@ namespace PixFootball.UI
     /// <summary>Code-built UI helpers: flat panels, TextMeshPro labels (Saira Condensed / Barlow), Xbox glyphs.</summary>
     public static class UiKit
     {
-        public static TMP_FontAsset Title { get { var rt = PixRuntimeAssets.Load(); return rt != null ? rt.fontTitle as TMP_FontAsset : null; } }
-        public static TMP_FontAsset Body { get { var rt = PixRuntimeAssets.Load(); return rt != null ? rt.fontBody as TMP_FontAsset : null; } }
+        /// <summary>The Classic title font (Saira Condensed Bold); the glass theme draws with DejaVu Sans Bold instead (see <see cref="Title"/>).</summary>
+        public static TMP_FontAsset ClassicTitle { get { var rt = PixRuntimeAssets.Load(); return rt != null ? rt.fontTitle as TMP_FontAsset : null; } }
+        public static TMP_FontAsset ClassicBody { get { var rt = PixRuntimeAssets.Load(); return rt != null ? rt.fontBody as TMP_FontAsset : null; } }
+        public static TMP_FontAsset Title { get { return UiTheme.IsGlass ? PixFootball.UI.Glass.GlassTheme.Current.Title : ClassicTitle; } }
+        public static TMP_FontAsset Body { get { return UiTheme.IsGlass ? PixFootball.UI.Glass.GlassTheme.Current.Body : ClassicBody; } }
         public static Sprite Sprite(string key) { var rt = PixRuntimeAssets.Load(); return rt != null ? rt.Sprite(key) : null; }
 
         public static Canvas CreateCanvas(string name, int sortOrder, Transform parent = null)
@@ -32,6 +60,7 @@ namespace PixFootball.UI
             c.renderMode = RenderMode.ScreenSpaceOverlay; c.sortingOrder = sortOrder;
             var s = go.AddComponent<CanvasScaler>();
             s.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize; s.referenceResolution = new Vector2(1920, 1080); s.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight; s.matchWidthOrHeight = 0.5f;
+            PixFootball.UI.Glass.GlassGraphic.Prepare(c);   // the glass shader reads texcoord 1..3
             go.AddComponent<GraphicRaycaster>();
             return c;
         }
@@ -53,6 +82,17 @@ namespace PixFootball.UI
             r.anchorMin = r.anchorMax = anchor; r.pivot = pivot; r.anchoredPosition = pos; r.sizeDelta = size;
         }
 
+        /// <summary>GetComponent-or-AddComponent. (The Editor hands out a "fake null" for a missing component, which `??` does not treat as null: always go through TryGetComponent.)</summary>
+        public static T GetOrAdd<T>(GameObject go) where T : Component
+        {
+            T c;
+            if (!go.TryGetComponent(out c)) c = go.AddComponent<T>();
+            return c;
+        }
+
+        /// <summary>Destroys an object: deferred in play, immediate in edit-mode tools.</summary>
+        public static void Kill(GameObject go) { if (Application.isPlaying) Object.Destroy(go); else Object.DestroyImmediate(go); }
+
         public static Image Panel(Transform parent, string name, Color color, Sprite sprite = null)
         {
             var r = Rect(parent, name);
@@ -72,6 +112,14 @@ namespace PixFootball.UI
             return t;
         }
 
+        /// <summary>Shrinks the text to fit its rect (down to <paramref name="minSize"/>), then truncates with an ellipsis (long team names, play names, ticker lines: QA-765).</summary>
+        public static TextMeshProUGUI Fit(TextMeshProUGUI t, float minSize)
+        {
+            if (t == null) return null;
+            float size = t.fontSize; t.fontSizeMax = size; t.fontSizeMin = Mathf.Min(minSize, size); t.enableAutoSizing = true; t.overflowMode = TextOverflowModes.Ellipsis;
+            return t;
+        }
+
         public static Image Glyph(Transform parent, string key, float height)
         {
             var s = Sprite(key);
@@ -87,6 +135,7 @@ namespace PixFootball.UI
         /// <summary>Flat menu button in the UI-3 style: dark row, blue highlight with gold accent bar.</summary>
         public static Button MenuButton(Transform parent, string label, System.Action onClick, float width = 560f, float height = 76f, float fontSize = 34f)
         {
+            if (UiTheme.IsGlass) return PixFootball.UI.Glass.GlassKit.Button(parent, label, onClick, PixFootball.UI.Glass.GlassButtonStyle.Secondary, width, height, null, "Btn_" + label, Mathf.Clamp(fontSize * 0.78f, 22f, 34f));
             var r = Rect(parent, "Btn_" + label);
             r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
@@ -101,6 +150,7 @@ namespace PixFootball.UI
             var t = Label(r, label, fontSize, UiColors.TextPrimary, true, TextAlignmentOptions.MidlineLeft, "Text");
             Stretch(t.rectTransform, 32, 0, 12, 0);
             var sel = r.gameObject.AddComponent<MenuItemVisual>(); sel.Background = bg; sel.Accent = bar.gameObject; sel.Text = t;
+            btn.onClick.AddListener(UiAudio.Click);
             if (onClick != null) btn.onClick.AddListener(() => onClick());
             return btn;
         }
@@ -123,6 +173,7 @@ namespace PixFootball.UI
             var go = new GameObject("EventSystem", typeof(EventSystem));
             var m = go.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
             m.AssignDefaultActions();
+            go.AddComponent<UiNavKeeper>();
         }
     }
 
@@ -131,9 +182,14 @@ namespace PixFootball.UI
     {
         public Image Background; public GameObject Accent; public TextMeshProUGUI Text;
         bool _selected, _hover;
-        public void OnSelect(BaseEventData e) { _selected = true; Refresh(); }
+        public void OnSelect(BaseEventData e) { _selected = true; Refresh(); UiAudio.Move(); }
         public void OnDeselect(BaseEventData e) { _selected = false; Refresh(); }
-        public void OnPointerEnter(PointerEventData e) { _hover = true; Refresh(); }
+        // hover also moves the selection, so the mouse and the controller never highlight two rows at once and A acts on the row under the cursor (QA-764)
+        public void OnPointerEnter(PointerEventData e)
+        {
+            _hover = true; Refresh();
+            if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != gameObject) EventSystem.current.SetSelectedGameObject(gameObject);
+        }
         public void OnPointerExit(PointerEventData e) { _hover = false; Refresh(); }
         void OnEnable() { _selected = EventSystem.current != null && EventSystem.current.currentSelectedGameObject == gameObject; _hover = false; Refresh(); }
         void Refresh()
@@ -141,6 +197,38 @@ namespace PixFootball.UI
             bool on = _selected || _hover;
             if (Background != null) Background.color = on ? UiColors.AccentBlue : UiColors.Row;
             if (Accent != null) Accent.SetActive(on);
+        }
+    }
+}
+
+namespace PixFootball.UI
+{
+    /// <summary>
+    /// Scales a fixed-size design block down (never up) so it fits its host rectangle: the host is stretched by anchors, the block (child 0) is laid out at its design size and shrunk when the
+    /// canvas is shorter or narrower than the design (4:3, 21:9). Used by the screens that were laid out for 16:9 only.
+    /// </summary>
+    public sealed class FitScale : MonoBehaviour
+    {
+        public RectTransform Block;
+        public Vector2 DesignSize = new Vector2(800, 700);
+        public float MaxScale = 1f;
+
+        /// <summary>The scale a block of <paramref name="design"/> size needs to fit <paramref name="host"/> (pure, tested).</summary>
+        public static float ScaleFor(Vector2 host, Vector2 design, float max = 1f)
+        {
+            if (design.x <= 0f || design.y <= 0f) return max;
+            return Mathf.Clamp(Mathf.Min(host.x / design.x, host.y / design.y), 0.3f, max);
+        }
+
+        void OnRectTransformDimensionsChange() { Apply(); }
+        void OnEnable() { Apply(); }
+
+        public void Apply()
+        {
+            if (Block == null) return;
+            var host = (RectTransform)transform;
+            float k = ScaleFor(host.rect.size, DesignSize, MaxScale);
+            Block.localScale = new Vector3(k, k, 1f);
         }
     }
 }

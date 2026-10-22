@@ -16,20 +16,33 @@ namespace PixFootball.Sim
         private SimAgent _returner;
         private bool _kicked;
         private float _kickTime;       // sim time at which the kick happens
-        private float _catchTime;      // sim time the kicker has the ball in hand
         private bool _ballInHands;
         private bool _blockResolved;
         private Vec3 _kickPoint;
-        private bool _landed;
-        private bool _firstTouchDone;
         private KickKind _kind;
         private float _aimX;
         private bool _catchMade;
+        private readonly System.Collections.Generic.Dictionary<int, float> _fieldLock = new System.Collections.Generic.Dictionary<int, float>();
 
-        public SpecialTeamsAI(PlaySimulation s) { S = s; }
+        private readonly CarrierAI _carrierAI;
+        public SpecialTeamsAI(PlaySimulation s) { S = s; _carrierAI = new CarrierAI(s); }
 
         /// <summary>True once the ball has been kicked (punt or kickoff): the kicking team is in coverage, not protection.</summary>
         public bool KickAway { get { return _kicked; } }
+
+        /// <summary>The kicker / punter, the holder (field goals and extra points) and the long snapper of the current kick; null when the play has none.</summary>
+        public SimAgent KickerAgent { get { return _kicker; } }
+        public SimAgent HolderAgent { get { return _holder; } }
+        public SimAgent SnapperAgent { get { return _snapper; } }
+
+        /// <summary>Agent id named in the Snap event of a kick: the kicker (kickoff), the long snapper (punt, field goal).</summary>
+        public int SnapAgentId { get { return S.Kind == PlayKind.Kickoff ? (_kicker != null ? _kicker.Id : 0) : (_snapper != null ? _snapper.Id : 1); } }
+
+        /// <summary>True for an onside kick (nobody blocks: both teams go after the ball).</summary>
+        public bool IsOnsideKick { get { return S.Kind == PlayKind.Kickoff && _kind == KickKind.Onside; } }
+
+        /// <summary>True once a returner has fielded the kick (kickoff wall blockers hold their rows until then).</summary>
+        public bool CatchMade { get { return _catchMade; } }
 
         public bool IsKickerOrHolder(SimAgent a)
         {
@@ -44,7 +57,7 @@ namespace PixFootball.Sim
         public void Prepare()
         {
             if (S.Kind == PlayKind.Scrimmage || S.Kind == PlayKind.Kneel || S.Kind == PlayKind.Spike) return;
-            _kicker = S.Agents[0];
+            _kicker = AgentWithRole(KickRole.Kicker, 0);
             var ka = S.OffPlay.Assignments[0] as KickAssignment;
             _kind = ka != null ? ka.KickType : KickKind.Deep;
             _aimX = ka != null ? ka.AimX : 0f;
@@ -58,16 +71,17 @@ namespace PixFootball.Sim
                     _returner = ChooseReturner();
                     break;
                 case PlayKind.Punt:
-                    _snapper = S.Agents[1];
+                    _snapper = AgentWithRole(KickRole.Snapper, 1);
                     S.Blocks.BlockerSideOverride = SimSide.Offense;
                     S.Blocks.ForcePassMode = true;
                     S.Blocks.HasAnchor = true;
                     S.Blocks.AnchorOverride = _kicker.Pos;
                     _returner = S.Agents[11];
+                    for (int i = 11; i < 22; i++) if (S.Agents[i].Assign is ReturnerAssignment) { _returner = S.Agents[i]; break; }
                     break;
                 case PlayKind.FieldGoal:
-                    _holder = S.Agents[1];
-                    _snapper = S.Agents[2];
+                    _holder = AgentWithRole(KickRole.Holder, 1);
+                    _snapper = AgentWithRole(KickRole.Snapper, 2);
                     S.Blocks.BlockerSideOverride = SimSide.Offense;
                     S.Blocks.ForcePassMode = true;
                     S.Blocks.HasAnchor = true;
@@ -77,6 +91,7 @@ namespace PixFootball.Sim
                     break;
             }
             if (_returner != null) _returner.ReturnerRole = true;
+            AlignHandsTeam();
         }
 
         private SimAgent ChooseReturner()
@@ -126,7 +141,6 @@ namespace PixFootball.Sim
             {
                 S.GiveBall(to);
                 _ballInHands = true;
-                _catchTime = S.Time;
                 _kickTime = S.Time + (S.Kind == PlayKind.Punt ? 0.5f : 0.35f);
                 return;
             }
@@ -152,7 +166,6 @@ namespace PixFootball.Sim
             else UpdateFieldGoal();
         }
 
-        private bool RetPhase { get { return S.BallSide == SimSide.Defense && S.Kind != PlayKind.FieldGoal || S.Turnover; } }
 
         // ---------------------------------------------------------------- common agent helpers
 
@@ -209,23 +222,25 @@ namespace PixFootball.Sim
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = S.Agents[i];
-                if (a.ControlledByUser || a.State == AgentState.Down || a.Body.FallenTime > 0f) continue;
+                if ((a.ControlledByUser && a != _kicker) || a.State == AgentState.Down || a.Body.FallenTime > 0f) continue;
                 if (a.State == AgentState.Engaged) continue;
-                if (a.HasBall && a.Side == S.BallSide) { new CarrierAI(S).Update(a); continue; }
+                if (a.HasBall && a.Side == S.BallSide) { _carrierAI.Update(a); continue; }
                 if (a.Side == SimSide.Offense)
                 {
                     if (a == _kicker) KickerRunUp(a);
-                    else if (a.Assign is LaneAssignment) CoverageRun(a, 0.92f);
+                    else if (a.Assign is LaneAssignment) { if (_kind == KickKind.Onside && _kicked && S.BallSide == SimSide.Offense && (S.Ball.State == BallState.Kick || S.Ball.State == BallState.Loose)) HandsTeamPursue(a); else CoverageRun(a, _kind == KickKind.Onside ? 0.80f : 0.92f); }
                     else a.Want = Vec2.Zero;
                 }
                 else
                 {
                     if (a.Assign is ReturnerAssignment) ReturnerUpdate(a);
+                    else if (_kind == KickKind.Onside && _kicked && S.BallSide == SimSide.Offense && (S.Ball.State == BallState.Kick || S.Ball.State == BallState.Loose)) HandsTeamPursue(a);
                     else ReturnBlocker(a);
                 }
             }
-            if (!_kicked && S.Time >= _kickTime && (_kicker.Pos - S.Ball.Pos.XY).Length < 1.6f) DoKickoff();
-            else if (!_kicked && S.Time >= _kickTime + 0.6f) DoKickoff();
+            bool kickGo = !_kicked && S.Time >= _kickTime && KickGate(_kickTime);
+            if (kickGo && (_kicker.Pos - S.Ball.Pos.XY).Length < 1.6f) DoKickoff();
+            else if (kickGo && S.Time >= _kickTime + 1.4f) DoKickoff();   // the ball is struck from the tee: he gets there first (no teleporting the ball)
         }
 
         private void KickerRunUp(SimAgent a)
@@ -236,6 +251,7 @@ namespace PixFootball.Sim
             Vec2 ball = new Vec2(S.BallX0, S.LosY);
             Vec2 dir = (ball - a.Pos).Norm();
             float speed = Math.Min(a.Body.EffectiveVMax * 0.7f, 5f + S.Time * 4f);
+            speed = Math.Min(speed, 1.2f + (ball - a.Pos).Length * 3.2f);   // he plants at the tee instead of running through it
             a.Want = dir * speed;
             a.HasFace = true; a.FaceDir = dir;
         }
@@ -246,7 +262,8 @@ namespace PixFootball.Sim
             SimAgent k = _kicker;
             float kp = SimMath.Rating01(k.R.KickPower), acc = SimMath.Rating01(k.R.KickAccuracy);
             float dist, hang;
-            Vec2 aim = new Vec2(S.BallX0 + _aimX, 0f);
+            KickMods mods = Mods();
+            Vec2 aim = new Vec2(S.BallX0 + _aimX + mods.AimYards, 0f);
             switch (_kind)
             {
                 case KickKind.Onside: dist = 11.5f + S.Rng.Gaussian(0f, 1.3f); hang = 1.15f; break;
@@ -254,9 +271,10 @@ namespace PixFootball.Sim
                 case KickKind.Rugby: dist = 42f + 10f * kp + S.Rng.Gaussian(0f, 3f); hang = 3.3f; break;
                 default: dist = 52f + 22f * kp + S.Rng.Gaussian(0f, 2.5f + 3f * (1f - acc)); hang = 3.55f + 1.0f * kp; break;
             }
-            float latErr = S.Rng.Gaussian(0f, 0.8f + 4.5f * (1f - acc));
+            if (_kind != KickKind.Onside) dist *= mods.Power;
+            float latErr = S.Rng.Gaussian(0f, (0.8f + 4.5f * (1f - acc)) * mods.Spread);
             if (_kind == KickKind.Onside) latErr *= 0.5f;
-            Vec2 target = new Vec2(SimMath.Clamp(aim.X + latErr, 1f, FieldGeometry.Width - 1f), S.LosY + dist);
+            Vec2 target = new Vec2(SimMath.Clamp(aim.X + latErr, 1f, FieldGeometry.Width - 1f), Math.Min(S.LosY + dist, 108.5f));   // never past the back line
             Vec3 from = new Vec3(S.BallX0, S.LosY, 0.3f);
             Vec3 vel = SolveKick(from, target, hang);
             S.Ball.Launch(BallState.Kick, from, vel, k.Id);
@@ -277,6 +295,14 @@ namespace PixFootball.Sim
 
         /// <summary>Launch velocity so a kicked ball lands near target with the requested hang time (drag-corrected).</summary>
         public static Vec3 SolveKick(Vec3 from, Vec2 target, float hang)
+        {
+            // a kicker aims for still air: the wind then moves the ball (see FieldGoal compensation for the placekicker)
+            Vec2 w = BallPhysics.Wind; BallPhysics.Wind = Vec2.Zero;
+            try { return SolveKickCore(from, target, hang); }
+            finally { BallPhysics.Wind = w; }
+        }
+
+        private static Vec3 SolveKickCore(Vec3 from, Vec2 target, float hang)
         {
             Vec2 d = target - from.XY;
             float dist = d.Length;
@@ -351,14 +377,14 @@ namespace PixFootball.Sim
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = S.Agents[i];
-                if (a.ControlledByUser || a.State == AgentState.Down || a.Body.FallenTime > 0f) continue;
+                if ((a.ControlledByUser && a != _kicker) || a.State == AgentState.Down || a.Body.FallenTime > 0f) continue;
                 if (a.State == AgentState.Engaged) continue;
-                if (a.HasBall && a.Side == S.BallSide && a != _kicker) { new CarrierAI(S).Update(a); continue; }
+                if (a.HasBall && a.Side == S.BallSide && a != _kicker) { _carrierAI.Update(a); continue; }
                 if (a.Side == SimSide.Offense)
                 {
                     if (a == _kicker) PunterUpdate(a);
                     else if (a == _snapper) { if (_kicked) CoverageRun(a, 0.9f); else { a.Want = Vec2.Zero; } }
-                    else if (a.Assign is LaneAssignment) { if (S.Time < 0.35f) { a.Want = Vec2.Zero; a.Intent = AgentAction.Stance; } else CoverageRun(a, 0.98f); }
+                    else if (a.Assign is LaneAssignment) { if (S.Time < 0.08f) { a.Want = Vec2.Zero; a.Intent = AgentAction.Stance; } else CoverageRun(a, 0.98f); }
                     else if (a.Assign is BlockAssignment)
                     {
                         if (_kicked && S.Ball.State == BallState.Kick) CoverageRun(a, 0.85f);
@@ -376,7 +402,7 @@ namespace PixFootball.Sim
                 }
             }
             S.Blocks.AnchorOverride = _kicker.Pos;
-            if (_ballInHands && !_kicked && S.Time >= _kickTime && S.Ball.Holder == _kicker.Id) DoPunt();
+            if (_ballInHands && !_kicked && S.Time >= _kickTime && S.Ball.Holder == _kicker.Id && KickGate(_kickTime)) DoPunt();
         }
 
         private void RushPunter(SimAgent a)
@@ -418,15 +444,17 @@ namespace PixFootball.Sim
             }
             if (blocker != null && bd < 1.35f)
             {
-                float pBlock = 0.55f + 0.3f * SimMath.Rating01(blocker.R.Jumping) - 0.2f * SimMath.Rating01(k.R.Awareness);
+                float pBlock = 0.20f + 0.15f * SimMath.Rating01(blocker.R.Jumping) - 0.10f * SimMath.Rating01(k.R.Awareness);   // about one punt in fifty
+                if (blocker.Pos.Y < from.Y - 0.4f) pBlock *= 0.3f;   // he has to be in front of the kicker
                 if (S.Rng.NextFloat() < pBlock) { BlockKick(k, blocker, from); return; }
             }
-            float flight = (44f + 22f * kp) * (1f - 0.25f * pressure) + S.Rng.Gaussian(0f, 2.5f + 4f * (1f - acc));
+            KickMods mods = Mods();
+            float flight = (44f + 22f * kp) * (1f - 0.25f * pressure) * mods.Power + S.Rng.Gaussian(0f, (2.5f + 4f * (1f - acc)) * mods.Spread);
             float hang = (3.75f + 1.1f * kp) * (1f - 0.12f * pressure);
             var ka = (KickAssignment)S.OffPlay.Assignments[0];
-            float aimX = S.BallX0 + ka.AimX;
+            float aimX = S.BallX0 + ka.AimX + mods.AimYards;
             if (_kind == KickKind.Rugby) { flight *= 0.78f; hang *= 0.82f; }
-            float latErr = S.Rng.Gaussian(0f, 0.8f + 3.2f * (1f - acc));
+            float latErr = S.Rng.Gaussian(0f, (0.8f + 3.2f * (1f - acc)) * mods.Spread);
             Vec2 target = new Vec2(SimMath.Clamp(aimX + latErr, 2f, FieldGeometry.Width - 2f), from.Y + flight);
             Vec3 vel = SolveKick(from, target, hang);
             S.Ball.Launch(BallState.Kick, from, vel, k.Id);
@@ -462,9 +490,9 @@ namespace PixFootball.Sim
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = S.Agents[i];
-                if (a.ControlledByUser || a.State == AgentState.Down || a.Body.FallenTime > 0f) continue;
+                if ((a.ControlledByUser && a != _kicker) || a.State == AgentState.Down || a.Body.FallenTime > 0f) continue;
                 if (a.State == AgentState.Engaged) continue;
-                if (a.HasBall && a != _holder && a.Side == S.BallSide) { new CarrierAI(S).Update(a); continue; }
+                if (a.HasBall && a != _holder && a.Side == S.BallSide) { _carrierAI.Update(a); continue; }
                 if (a.Side == SimSide.Offense)
                 {
                     if (a == _kicker) FgKickerUpdate(a);
@@ -484,7 +512,7 @@ namespace PixFootball.Sim
                 }
             }
             S.Blocks.AnchorOverride = _holder != null ? _holder.Pos : _kicker.Pos;
-            if (_ballInHands && !_kicked && S.Time >= _kickTime && S.Ball.Holder == _holder.Id) DoFieldGoal();
+            if (_ballInHands && !_kicked && S.Time >= _kickTime && S.Ball.Holder == _holder.Id && KickGate(_kickTime)) DoFieldGoal();
         }
 
         private void PursueLoose(SimAgent a)
@@ -555,21 +583,32 @@ namespace PixFootball.Sim
             {
                 float pBlock = 0.16f + 0.28f * SimMath.Rating01(blocker.R.Jumping) + 0.2f * (blocker.IsDefensiveLineman ? 1f : 0f) - 0.08f * (1f - SimMath.Rating01(blocker.R.BlockShedding));
                 pBlock *= SimMath.Clamp01(1.2f - (bd - 0.6f) / 1.8f);
-                if (S.Rng.NextFloat() < pBlock) { BlockKick(k, blocker, from); S.Fumbled = true; return; }
+                if (S.Rng.NextFloat() < pBlock) { BlockKick(k, blocker, from); return; }   // (BlockKick already counts the loose ball once)
             }
+            KickMods mods = Mods();
             float dist0 = S.KickDistance;
-            float vmax = 23.5f + 10.5f * kp;
+            float vmax = (23.5f + 10.5f * kp) * mods.Power;
             vmax *= 1f + S.Rng.Gaussian(0f, 0.012f * (2f - acc));
-            // lateral miss angle: gets worse with distance, rush pressure and poor accuracy
-            float baseSd = SimMath.Lerp(0.094f, 0.036f, acc) * (1f + 0.012f * Math.Max(0f, dist0 - 40f)) * (1f + 0.35f * pressure);
-            float err = S.Rng.Gaussian(0f, baseSd);
+            // lateral miss angle: gets worse with distance, rush pressure and poor accuracy (and a mistimed user kick)
+            float baseSd = SimMath.Lerp(0.094f, 0.036f, acc) * (1f + 0.012f * Math.Max(0f, dist0 - 40f)) * (1f + 0.35f * pressure) * mods.Spread;
+            float err = S.Rng.Gaussian(0f, baseSd) + mods.AimAngle;
             float aimX = FieldGeometry.CenterX;
-            Vec3 aim = new Vec3(aimX + (float)Math.Tan(err) * dist0, GoalPostY, 4.6f);
+            // trajectory scatter: the ball clears the crossbar by a yard or two on a good kick, barely (or hits it) on a poor one
+            float zAim = 4.9f + S.Rng.Gaussian(0f, 0.55f * mods.Spread * (1.5f - acc));
+            Vec3 aim = new Vec3(aimX + (float)Math.Tan(err) * dist0, GoalPostY, Math.Max(2.9f, zAim));
             Vec3 vel;
             // a field goal is a steep kick: fix the launch elevation, find the speed that clears the crossbar, and fall short if the leg can't supply it
             float theta = SimMath.Clamp(0.78f - dist0 * 0.0045f, 0.50f, 0.72f);
-            aim = new Vec3(aim.X, GoalPostY, 5.0f);
             float vReq = SolveSpeedAtAngle(from, aim, theta);
+            if (!mods.User && (S.Wind.X != 0f || S.Wind.Y != 0f))
+            {
+                // a CPU kicker allows for the wind: part of the drift is aimed off and part of the range is added or taken away
+                float comp = 0.45f + 0.40f * acc;
+                float vWind = SolveSpeedAtAngleCore(from, aim, theta);
+                float drift = FlightPlaneX(from, aim, theta, vReq) - aim.X;
+                aim = new Vec3(aim.X - comp * drift, aim.Y, aim.Z);
+                vReq = vReq + comp * (vWind - vReq);
+            }
             float vUse = Math.Min(vReq, vmax);
             vel = LaunchAtAngle(from, aim, theta, vUse);
             S.Ball.Launch(BallState.Kick, from, vel, k.Id);
@@ -588,10 +627,13 @@ namespace PixFootball.Sim
             BallSim ball = S.Ball;
             if (S.Kind == PlayKind.FieldGoal) { UpdateFieldGoalFlight(); return; }
             // a returner (or any receiving player at hand) fields the ball
+            // QA-448: if the designated returner is down or gone, any receiving-team player can field the ball
+            bool returnerUp = false;
+            for (int i = 11; i < 22; i++) { SimAgent r = S.Agents[i]; if (r.Assign is ReturnerAssignment && r.Body.FallenTime <= 0.3f && r.State != AgentState.Down) { returnerUp = true; break; } }
             for (int i = 11; i < 22 && ball.State == BallState.Kick; i++)
             {
                 SimAgent a = S.Agents[i];
-                if (!(a.Assign is ReturnerAssignment) || a.Body.FallenTime > 0.3f || a.State == AgentState.Down) continue;
+                if ((!(a.Assign is ReturnerAssignment) && returnerUp) || a.Body.FallenTime > 0.3f || a.State == AgentState.Down) continue;
                 float closest;
                 if (S.Catches.Touches(a, ball.PrevPos, ball.Pos, out closest))
                 {
@@ -604,7 +646,6 @@ namespace PixFootball.Sim
                 ball.State = BallState.Loose;
                 ball.IsKick = true;
                 S.KickLandY = ball.Pos.Y;
-                _landed = true;
                 S.LogEvent(SimEventType.KickLanded, -1, -1, ball.Pos);
             }
             if (ball.Pos.X < -0.5f || ball.Pos.X > FieldGeometry.Width + 0.5f)
@@ -623,8 +664,8 @@ namespace PixFootball.Sim
         {
             BallSim ball = S.Ball;
             float skill = SimMath.Rating01(a.R.Catching);
-            var ra = (ReturnerAssignment)a.Assign;
-            float p = 0.90f + 0.09f * skill - 0.04f * SimMath.Clamp01(a.Speed / Math.Max(1f, a.Body.VMax));
+            var ra = a.Assign as ReturnerAssignment;
+            float p = 0.935f + 0.055f * skill - 0.03f * SimMath.Clamp01(a.Speed / Math.Max(1f, a.Body.VMax));
             if (ball.Pos.Z > a.Body.HeightYd * 1.2f || ball.Pos.Z < 0.5f) p -= 0.04f;
             if (S.Rng.NextFloat() > p)
             {
@@ -633,7 +674,6 @@ namespace PixFootball.Sim
                 ball.MakeLoose(ball.Pos, new Vec3(S.Rng.Gaussian(0f, 2.5f), S.Rng.Gaussian(0f, 2.5f) + 1f, 1.8f));
                 ball.IsKick = true;
                 S.KickLandY = ball.Pos.Y;
-                _landed = true;
                 return;
             }
             float y = a.Pos.Y;
@@ -660,8 +700,11 @@ namespace PixFootball.Sim
                 float nearest = 99f;
                 for (int i = 0; i < 11; i++) { SimAgent o = S.Agents[i]; if (o.State != AgentState.Down) nearest = Math.Min(nearest, (o.Pos - a.Pos).Length); }
                 float aw = SimMath.Rating01(a.R.Awareness);
-                // a safe call signals early at the sight of coverage; a return call only waves it when a gunner is already on top of him
-                fair = nearest < (ra.FairCatchAllowed ? 16.5f + 4.0f * (1f - aw) : 8.0f + 3.0f * (1f - aw)) && (ball.Pos.Z > 0f);
+                // a probability from the nearest gunner's distance, the call and his awareness (no deterministic distance trigger)
+                float pf = nearest < 8f ? 0.92f : nearest < 14f ? 0.78f : nearest < 20f ? 0.58f : nearest < 28f ? 0.30f : 0.08f;   // calibrated to ~35% fair catches (coverage arrives 5-17 yd away: median 17)
+                if (ra != null && !ra.FairCatchAllowed) pf *= 0.50f;
+                pf = SimMath.Clamp01(pf + 0.10f * (1f - aw) - 0.05f);
+                fair = S.Rng.NextFloat() < pf && ball.Pos.Z > 0f;
             }
             S.GiveBall(a);
             S.BallSide = a.Side;
@@ -706,18 +749,23 @@ namespace PixFootball.Sim
                 return;
             }
             // fielding the bouncing ball
-            for (int i = 0; i < 22; i++)
+            var order = new System.Collections.Generic.List<SimAgent>(22);
+            for (int i = 0; i < 22; i++) order.Add(S.Agents[i]);
+            order.SortStable((p, q) => (p.Pos - ball.Pos.XY).LenSq().CompareTo((q.Pos - ball.Pos.XY).LenSq()));
+            for (int oi = 0; oi < order.Count; oi++)
             {
-                SimAgent a = S.Agents[i];
+                SimAgent a = order[oi];
+                { float fl; if (_fieldLock.TryGetValue(a.Id, out fl) && S.Time < fl) continue; }
                 if (a.Body.FallenTime > 0.3f || a.State == AgentState.Down || a.State == AgentState.Engaged) continue;
                 float d = (a.Pos - ball.Pos.XY).Length;
                 if (d > a.Body.Radius + 0.9f || ball.Pos.Z > 1.6f) continue;
                 bool receiving = a.Side == SimSide.Defense;
                 if (receiving)
                 {
-                    float p = 0.55f + 0.35f * SimMath.Rating01(a.R.Catching);
+                    float p = 0.62f + 0.30f * SimMath.Rating01(a.R.Catching);
                     if (a.Assign is ReturnerAssignment) p += 0.1f;
-                    if (ball.Vel.Length > 7f) p -= 0.25f;
+                    if (S.Kind == PlayKind.Kickoff) _fieldLock[a.Id] = S.Time + 0.55f;
+                    if (ball.Vel.Length > 7f) p -= 0.15f;
                     if (S.Rng.NextFloat() < p)
                     {
                         S.KickReturnStartY = a.Pos.Y;
@@ -748,7 +796,8 @@ namespace PixFootball.Sim
                         }
                         continue;
                     }
-                    float p = 0.35f + 0.3f * SimMath.Rating01(a.R.Catching) + 0.1f * SimMath.Rating01(a.R.Awareness);
+                    float p = 0.09f + 0.12f * SimMath.Rating01(a.R.Catching) + 0.03f * SimMath.Rating01(a.R.Awareness); // diving on a bouncing ball in traffic: expected onside kicks are recovered about one time in six
+                    _fieldLock[a.Id] = S.Time + 0.55f;
                     if (S.Rng.NextFloat() < p)
                     {
                         S.KickRecoveredByKicker = true;
@@ -987,6 +1036,13 @@ namespace PixFootball.Sim
         /// <summary>Launch speed that puts the ball through the aim point at a fixed elevation (bisection on speed).</summary>
         public static float SolveSpeedAtAngle(Vec3 from, Vec3 aim, float theta)
         {
+            Vec2 w = BallPhysics.Wind; BallPhysics.Wind = Vec2.Zero;
+            try { return SolveSpeedAtAngleCore(from, aim, theta); }
+            finally { BallPhysics.Wind = w; }
+        }
+
+        private static float SolveSpeedAtAngleCore(Vec3 from, Vec3 aim, float theta)
+        {
             float lo = 8f, hi = 70f;
             for (int i = 0; i < 24; i++)
             {
@@ -994,6 +1050,67 @@ namespace PixFootball.Sim
                 if (HeightAtRun(from, aim, theta, mid) < aim.Z) lo = mid; else hi = mid;
             }
             return 0.5f * (lo + hi);
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    internal sealed partial class SpecialTeamsAI
+    {
+        /// <summary>
+        /// Hands team: when the kick is an expected onside kick the receiving team lines up its front row a few yards past the ten-yard
+        /// restraining line (a surprise onside keeps the normal return alignment, which is why it is far more likely to be recovered).
+        /// </summary>
+        private void AlignHandsTeam()
+        {
+            if (S.Kind != PlayKind.Kickoff || _kind != KickKind.Onside) return;
+            bool surprise = S.OffPlay.Name != null && S.OffPlay.Name.IndexOf("Surprise", StringComparison.OrdinalIgnoreCase) >= 0;
+            float rowAdd = surprise ? 5.0f : 0f; // a surprise kick catches the front row a few yards deeper
+            var rows = new System.Collections.Generic.List<SimAgent>();
+            for (int i = 11; i < 22; i++) if (!(S.Agents[i].Assign is ReturnerAssignment)) rows.Add(S.Agents[i]);
+            rows.SortStable((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
+            float[] frontX = { -17f, -10.5f, -4f, 4f, 10.5f, 17f };
+            for (int k = 0; k < rows.Count; k++)
+            {
+                SimAgent a = rows[k];
+                Vec2 p = k < 6 ? new Vec2(S.BallX0 + frontX[k], S.LosY + 10.8f + rowAdd + (k % 2) * 0.8f)
+                               : new Vec2(S.BallX0 + (k - 6 - 1) * 9f, S.LosY + 17f + rowAdd);
+                p = new Vec2(SimMath.Clamp(p.X, 1f, FieldGeometry.Width - 1f), p.Y);
+                a.Body.Pos = p; a.StartPos = p; a.Body.Vel = Vec2.Zero; a.ClearHistory(p);
+            }
+        }
+
+        /// <summary>A hands-team man goes after the onside kick: he works to where it will come down and fields it.</summary>
+        private void HandsTeamPursue(SimAgent a)
+        {
+            a.Intent = AgentAction.Run;
+            Vec2 tgt = S.Ball.Pos.XY;
+            if (S.Ball.State == BallState.Kick)
+            {
+                Vec3 at; float tt;
+                if (BallPhysics.PredictAtHeight(S.Ball.Pos, S.Ball.Vel, 0.8f, out at, out tt)) tgt = at.XY + S.Ball.Vel.XY.Norm() * 2.0f;
+            }
+            else tgt = tgt + S.Ball.Vel.XY * 0.25f;
+            Vec2 to = tgt - a.Pos;
+            a.Want = to.Norm() * a.Body.EffectiveVMax * 0.97f;
+            if (to.Length < 0.4f) a.Want = Vec2.Zero;
+            a.HasFace = true; a.FaceDir = to.LenSq() > 0.2f ? to.Norm() : new Vec2(0f, -1f);
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    internal sealed partial class SpecialTeamsAI
+    {
+        /// <summary>The kicking-unit player holding a role (kicker, holder, snapper) by assignment; a formation that orders its slots differently, or a flipped or edited play, still names the right man. Falls back to the classic slot.</summary>
+        private SimAgent AgentWithRole(KickRole role, int fallbackSlot)
+        {
+            for (int i = 0; i < 11; i++)
+            {
+                var ka = S.Agents[i].Assign as KickAssignment;
+                if (ka != null && ka.Role == role) return S.Agents[i];
+            }
+            return S.Agents[fallbackSlot];
         }
     }
 }

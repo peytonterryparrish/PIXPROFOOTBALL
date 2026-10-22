@@ -74,6 +74,7 @@ namespace PixFootball.Sim
             PasserId = q.Id;
             TargetId = target != null ? target.Id : -1;
             PassThrowY = q.Pos.Y;
+            PassReleaseTime = Time;
             Ball.Intended = TargetId;
             q.HasBall = false;
             PlayAction(q, AgentAction.Throw, 0.5f);
@@ -103,7 +104,7 @@ namespace PixFootball.Sim
             Ball.MakeLoose(new Vec3(pos.X, pos.Y, Math.Max(0.5f, pos.Z)), new Vec3(v, Rng.Range(1.5f, 4.5f)));
             FumbleSpotY = pos.Y;
             LogEvent(SimEventType.Fumble, carrier.Id, forcer != null ? forcer.Id : -1);
-            if (carrier.State == AgentState.Down) carrier.State = AgentState.Normal;
+            if (carrier.State == AgentState.Down && carrier.Body.FallenTime <= 0f) carrier.State = AgentState.Normal;   // a carrier lying on the ground stays down
         }
 
         private void UpdateLooseBall()
@@ -117,16 +118,9 @@ namespace PixFootball.Sim
                 return;
             }
             if (Ball.State != BallState.Loose) return;
-            // out of bounds?
-            if (Ball.Pos.X < 0f || Ball.Pos.X > FieldGeometry.Width)
-            {
-                OutOfBounds = true;
-                Ball.Kill();
-                EndPlay(EndReason.OutOfBounds);
-                return;
-            }
-            if (Ball.Pos.Y < -10f) { Ball.Kill(); EndPlay(EndReason.OutOfBounds); return; }
-            if (Ball.Pos.Y > 110f) { Ball.Kill(); EndPlay(EndReason.OutOfBounds); return; }
+            // out of bounds? a fumble through the sideline in an end zone or out of the back of one is a touchback / safety, not a dead ball at the spot
+            bool oobSide = Ball.Pos.X < 0f || Ball.Pos.X > FieldGeometry.Width;
+            if (oobSide || Ball.Pos.Y < -10f || Ball.Pos.Y > 110f) { LooseBallOut(); return; }
 
             if (Ball.Pos.Z > 1.6f) return;
             // contest for the loose ball
@@ -142,11 +136,11 @@ namespace PixFootball.Sim
                 float skill = (a.R.Awareness * 0.25f + a.R.Catching * 0.30f + a.R.Carrying * 0.25f + a.R.Agility * 0.20f) / 99f;
                 float prox = 1f - d / reach;
                 float eng = a.State == AgentState.Engaged ? 0.25f : 1f;
-                float score = (0.35f + 0.65f * skill) * (0.4f + 0.6f * prox) * eng * (a.Body.StumbleTime > 0f ? 0.7f : 1f) + Rng.NextFloat() * 0.35f;
+                float score = (0.35f + 0.65f * skill) * (0.4f + 0.6f * prox) * eng * (a.Body.StumbleTime > 0f ? 0.7f : 1f) + Rng.NextFloat() * 0.16f;
                 if (score > bestScore) { bestScore = score; best = a; }
             }
             if (best == null) return;
-            if (speed > 7f && Rng.NextFloat() < 0.55f) return; // too hot to handle this tick
+            if (speed > 7f && Rng.NextFloat() < 0.35f) return; // too hot to handle this tick
             Recover(best);
         }
 
@@ -165,14 +159,16 @@ namespace PixFootball.Sim
                 Blocks.ReleaseAll();
             }
             // fall on it unless there is open field (scoop and score)
-            bool opponentsNear = false;
+            float nearestOpp = 99f;
             for (int i = 0; i < 22; i++)
             {
                 SimAgent o = Agents[i];
                 if (o.Side == a.Side || o.State == AgentState.Down) continue;
-                if ((o.Pos - a.Pos).Length < 3.8f) { opponentsNear = true; break; }
+                nearestOpp = Math.Min(nearestOpp, (o.Pos - a.Pos).Length);
             }
-            bool scoop = !opponentsNear && Rng.NextFloat() < 0.55f;
+            bool opponentsNear = nearestOpp < 3.8f;
+            // QA-322: a defender can scoop it with a man 2.4-3.8 yd away; with one on top of him he falls on it (dog pile)
+            bool scoop = Rng.NextFloat() < (nearestOpp >= 3.8f ? 0.55f : (nearestOpp > 2.4f ? 0.25f : 0f));
             if (!scoop && (opponentsNear || Rng.NextFloat() < 0.6f))
             {
                 a.State = AgentState.Down;
@@ -215,16 +211,16 @@ namespace PixFootball.Sim
             SimAgent q = Agents[0];
             if (Kind == PlayKind.Punt || Kind == PlayKind.FieldGoal) { Specials.UpdateSnap(); return; }
             float d = (q.Pos - Ball.Pos.XY).Length;
-            if (d < 1.0f && Ball.Pos.Z < 2.4f)
+            if (d < 1.0f && Ball.Pos.Z < 2.4f && Ball.FlightTime >= 0.1f)
             {
                 // a bad snap is rare and tied to the center's awareness
-                SimAgent c = Agents[4];
+                SimAgent c = Snapper;
                 float pBad = 0.0018f * (1.6f - SimMath.Rating01(c.R.Awareness));
                 if (Rng.Chance(pBad)) { Ball.MakeLoose(Ball.Pos, new Vec3(Ball.Vel.XY * 0.3f, 1f)); Fumbled = true; FumbleCount++; FumbleSpotY = Ball.Pos.Y; LogEvent(SimEventType.Fumble, c.Id, -1, TackleType.None, 0f, "snap"); return; }
                 GiveBall(q);
                 return;
             }
-            if (Ball.GroundContactThisStep) { Ball.State = BallState.Loose; Fumbled = true; FumbleCount++; FumbleSpotY = Ball.Pos.Y; LogEvent(SimEventType.Fumble, Agents[4].Id, -1, TackleType.None, 0f, "snap"); }
+            if (Ball.GroundContactThisStep) { Ball.State = BallState.Loose; Fumbled = true; FumbleCount++; FumbleSpotY = Ball.Pos.Y; LogEvent(SimEventType.Fumble, Snapper.Id, -1, TackleType.None, 0f, "snap"); }
         }
 
         private void CheckPassGround()
@@ -238,7 +234,7 @@ namespace PixFootball.Sim
             {
                 bool oob = Ball.Pos.X < 0f || Ball.Pos.X > FieldGeometry.Width || Ball.Pos.Y > 110f || Ball.Pos.Y < -10f;
                 LogEvent(SimEventType.Incomplete, PasserId, TargetId, new Vec3(Ball.Pos.X, Ball.Pos.Y, 0f), TackleType.None, oob ? 1f : 0f);
-                Ball.Kill();
+                Ball.State = BallState.Loose; Ball.Holder = -1;   // the ball bounces and rolls out dead instead of stopping on the grass
                 EndPlay(EndReason.Incomplete);
             }
         }
@@ -255,7 +251,8 @@ namespace PixFootball.Sim
             float ballY = c.Pos.Y + dirY * (c.Move == CarrierMove.Dive && c.MoveTime > 0f ? 0.8f : 0.25f);
 
             // out of bounds laterally
-            if (c.Pos.X < 0f || c.Pos.X > FieldGeometry.Width)
+            // the ball and the body use the same rule: out when the ball (held in front of him) or his body crosses the sideline
+            if (c.Pos.X < 0f || c.Pos.X > FieldGeometry.Width || Ball.Pos.X < -0.05f || Ball.Pos.X > FieldGeometry.Width + 0.05f)
             {
                 OutOfBounds = true;
                 LogEvent(SimEventType.OutOfBounds, c.Id, -1);
@@ -292,13 +289,42 @@ namespace PixFootball.Sim
         {
             if (FirstDownCrossed || BallSide != SimSide.Offense) return;
             SimAgent c = Carrier;
-            float y;
-            if (c != null) y = c.Pos.Y + 0.25f; else if (Ball.State == BallState.Pass) return; else return;
+            if (c == null) return;
+            float y = c.Pos.Y + 0.25f;
             if (State.Phase == GamePhase.Scrimmage && y >= LineToGainY && LineToGainY > LosY + 0.5f)
             {
                 FirstDownCrossed = true;
                 LogEvent(SimEventType.FirstDownCrossed, c.Id, -1);
             }
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    public sealed partial class PlaySimulation
+    {
+        /// <summary>A live ball leaves the field: end-zone exits are a touchback (the fumbling team was driving) or a safety (it was in its own end zone), anywhere else it is dead at the spot.</summary>
+        private void LooseBallOut()
+        {
+            SimAgent last = Ball.LastHolder >= 0 ? Agents[Ball.LastHolder] : null;
+            bool offenseLast = last != null && last.Side == SimSide.Offense && BallSide == SimSide.Offense && !Turnover && Kind == PlayKind.Scrimmage;
+            Ball.Kill();
+            if (offenseLast && Ball.Pos.Y >= 100f)
+            {
+                Turnover = true; TurnoverFumble = true; TurnoverSpotY = 100f; BallSide = SimSide.Defense;
+                LogEvent(SimEventType.Touchback, -1, -1, TackleType.None, 0f, "fumble");
+                EndPlay(EndReason.FumbleLost);
+                return;
+            }
+            if (offenseLast && Ball.Pos.Y <= 0f)
+            {
+                SafetyScored = true;
+                LogEvent(SimEventType.Safety, last.Id, -1);
+                EndPlay(EndReason.Safety);
+                return;
+            }
+            OutOfBounds = true;
+            EndPlay(EndReason.OutOfBounds);
         }
     }
 }

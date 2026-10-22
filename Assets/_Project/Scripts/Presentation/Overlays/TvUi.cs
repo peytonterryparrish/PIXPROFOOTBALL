@@ -14,13 +14,30 @@ namespace PixFootball.Presentation
         public static readonly Color Navy = new Color(0.043f, 0.055f, 0.094f, 0.96f);
         public static readonly Color NavyDeep = new Color(0.027f, 0.035f, 0.063f, 0.98f);
         public static readonly Color Panel = new Color(0.082f, 0.086f, 0.118f, 0.96f);
-        public static readonly Color Gold = new Color(1f, 0.784f, 0.216f, 1f);
-        public static readonly Color Blue = new Color(0.176f, 0.353f, 0.737f, 1f);
+        static readonly Color ClassicGold = new Color(1f, 0.784f, 0.216f, 1f), ClassicBlue = new Color(0.176f, 0.353f, 0.737f, 1f);
+        /// <summary>The headline accent: gold in Classic, the glass orange in the Glass theme.</summary>
+        public static Color Gold { get { return UiTheme.IsGlass ? PixFootball.UI.Glass.GlassTheme.T.accent : ClassicGold; } }
+        /// <summary>The secondary tag colour: blue in Classic, a graphite glass tone in the Glass theme.</summary>
+        public static Color Blue { get { return UiTheme.IsGlass ? new Color(0.22f, 0.23f, 0.26f, 0.95f) : ClassicBlue; } }
         public static readonly Color Row = new Color(0.165f, 0.169f, 0.216f, 0.96f);
         public static readonly Color RowAlt = new Color(0.115f, 0.12f, 0.16f, 0.96f);
         public static readonly Color Muted = new Color(0.77f, 0.77f, 0.77f, 1f);
 
-        public static Color Readable(Color c) { float l = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b; return l > 0.55f ? new Color(0.06f, 0.07f, 0.1f) : Color.white; }
+        /// <summary>Builds the strip sprites the overlays use most while the intro plays, so the first stat card or score card does not generate a texture mid-play (QA-855).</summary>
+        public static void Prewarm()
+        {
+            Para(124, 26, true, true); Para(70, 26, true, true); Para(104, 22, true, false); Para(160, 30, true, true); Para(76, 22, true, false); Para(96, 22, true, true);
+            Para(64, 18, true, true); Para(52, 18, true, true); Para(82, 24, true, true); Fade();
+        }
+
+        /// <summary>Destroys every cached procedural sprite and texture (the cache is rebuilt on demand).</summary>
+        public static void ReleaseAll()
+        {
+            foreach (var kv in _cache) { if (kv.Value == null) continue; var tex = kv.Value.texture; Object.Destroy(kv.Value); if (tex != null) Object.Destroy(tex); }
+            _cache.Clear();
+        }
+
+        public static Color Readable(Color c) { if (UiTheme.IsGlass) return Color.white; float l = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b; return l > 0.55f ? new Color(0.06f, 0.07f, 0.1f) : Color.white; }
 
         /// <summary>A white parallelogram strip of the given height whose ends lean by <paramref name="slant"/> pixels (9-sliced: stretch it horizontally and tint it).</summary>
         public static Sprite Para(int height, int slant, bool leftLean, bool rightLean)
@@ -73,8 +90,34 @@ namespace PixFootball.Presentation
             return s;
         }
 
+        static bool IsTeamTint(Color c)
+        {
+            var acc = PixFootball.UI.Glass.GlassTheme.T.accent;
+            if (Mathf.Abs(c.r - acc.r) < 0.02f && Mathf.Abs(c.g - acc.g) < 0.02f && Mathf.Abs(c.b - acc.b) < 0.02f) return false;
+            float lum = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b, sat = Mathf.Max(c.r, Mathf.Max(c.g, c.b)) - Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+            return sat > 0.2f || lum > 0.4f;
+        }
+
+        /// <summary>Glass strip: team-coloured strips become dark glass with a thin team-colour bar at the left; the accent stays a flat accent fill (dark type); neutral dark colours are glass already.</summary>
+        static Image GlassStrip(Transform parent, string name, Color color)
+        {
+            if (!IsTeamTint(color))
+            {
+                var plain = UiKit.Panel(parent, name, color);
+                var acc = PixFootball.UI.Glass.GlassTheme.T.accent;
+                if (Mathf.Abs(color.r - acc.r) < 0.02f && Mathf.Abs(color.g - acc.g) < 0.02f && Mathf.Abs(color.b - acc.b) < 0.02f) plain.gameObject.AddComponent<PixFootball.UI.Glass.GlassImageSkin>().Role = PixFootball.UI.Glass.GlassSkinRole.Solid;
+                return plain;
+            }
+            var img = UiKit.Panel(parent, name, new Color(0.13f, 0.135f, 0.15f, 0.92f));
+            var bar = UiKit.Panel(img.transform, "TeamBar", new Color(color.r, color.g, color.b, 1f));
+            bar.rectTransform.anchorMin = new Vector2(0f, 0f); bar.rectTransform.anchorMax = new Vector2(0f, 1f); bar.rectTransform.pivot = new Vector2(0f, 0.5f);
+            bar.rectTransform.offsetMin = new Vector2(12f, 14f); bar.rectTransform.offsetMax = new Vector2(19f, -14f);
+            return img;
+        }
+
         public static Image Strip(Transform parent, string name, Color color, int height, int slant, bool leftLean, bool rightLean)
         {
+            if (UiTheme.IsGlass) return GlassStrip(parent, name, color);   // the glass skin draws a rounded surface instead of the parallelogram strip
             var img = UiKit.Panel(parent, name, color, Para(height, slant, leftLean, rightLean));
             img.type = Image.Type.Sliced; img.pixelsPerUnitMultiplier = 1f;
             return img;
@@ -92,6 +135,7 @@ namespace PixFootball.Presentation
             var t = UiKit.Label(parent, text, size, color, title, align);
             UiKit.Anchor(t.rectTransform, anchor, pivot, pos, box);
             t.characterSpacing = spacing;
+            if (UiTheme.IsGlass) UiKit.Fit(t, Mathf.Max(14f, size * 0.5f));   // DejaVu is wider than the Classic face: shrink to fit the card box
             return t;
         }
 

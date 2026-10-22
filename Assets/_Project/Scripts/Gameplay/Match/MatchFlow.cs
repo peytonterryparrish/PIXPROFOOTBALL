@@ -25,6 +25,11 @@ namespace PixFootball.Gameplay
         public float RunoffScale = 1.0f;
         /// <summary>Used by the autotest: both teams are CPU controlled.</summary>
         public bool CpuVsCpu;
+        /// <summary>v0.6: what the team-select screen chose for the weather and the time of day (Random is resolved with the game seed when the match starts).</summary>
+        public WeatherChoice Weather = WeatherChoice.Clear;
+        public TimeChoice Time = TimeChoice.Night;
+        /// <summary>Filled in when the match starts: the weather that was actually picked and how slick the ball is (0 dry .. 1 soaked).</summary>
+        public WeatherKind ResolvedWeather; public TimeOfDay ResolvedTime; public float BallSlickness;
 
         public static int[] QuarterChoices = { 2, 3, 5, 8, 15 };
 
@@ -66,7 +71,33 @@ namespace PixFootball.Gameplay
         public PenaltyCall PenaltyCall;
         public bool PeriodChanged { get { return QuarterAfter != QuarterBefore; } }
         public bool GameOver;
+        /// <summary>UI-FLOW (QA-761/840): yards the accepted flag actually moved the ball (rule set, spot fouls and half-the-distance applied; 0 is a real value, e.g. at the one yard line); -1 while no flag has been enforced.</summary>
+        public int PenaltyYards = -1;
+        /// <summary>The accepted flag gave the offense a first down (automatic or by yardage).</summary>
+        public bool PenaltyFirstDown;
+        /// <summary>The offense earned a first down on this play (line to gain reached, also on a touchdown, or an accepted defensive flag). Set by <see cref="MatchFlow.Finish(PlaySimulation)"/>.</summary>
+        public bool FirstDownGained;
+
+        /// <summary>A never-empty tag for logs and play-by-play (QA-279): the headline text, or the play type and yardage for an ordinary run / pass. <see cref="Text"/> stays empty for those on purpose (it drives the banner).</summary>
+        public string LogText
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(Text)) return Text;
+                if (Result == null) return "PLAY";
+                switch (Result.Type)
+                {
+                    case PlayType.Run: return "RUN " + Result.Yards + " YDS";
+                    case PlayType.Pass: return "PASS COMPLETE " + Result.Yards + " YDS";
+                    case PlayType.Kneel: return "KNEEL DOWN";
+                    default: return Result.Type.ToString().ToUpperInvariant();
+                }
+            }
+        }
     }
+
+    /// <summary>How a <see cref="PlayType.Fumble"/> result is booked in the yardage stats (same rule for the final screen and the broadcast box score).</summary>
+    public enum FumbleBooking { None, Rush, Pass }
 
     public struct PeriodChange
     {
@@ -78,6 +109,8 @@ namespace PixFootball.Gameplay
     public sealed class TeamStats
     {
         public int Plays, PassYards, RushYards, FirstDowns, Turnovers, Penalties, PenaltyYards, Sacks;
+        /// <summary>UI-FLOW (QA-171): the standard extra rows. Sacks above = sacks MADE by this team's defense; SacksTaken = times this offense was sacked.</summary>
+        public int PassAtt, PassComp, RushAtt, SacksTaken, ThirdDownAtt, ThirdDownConv, FourthDownAtt, FourthDownConv;
         public int TotalYards { get { return PassYards + RushYards; } }
     }
 
@@ -103,6 +136,9 @@ namespace PixFootball.Gameplay
         public readonly List<string> Log = new List<string>();
 
         Hash _nextHash = Hash.Middle;
+        /// <summary>Game-long fatigue: players carry their energy from snap to snap (engine SIM-024).</summary>
+        public readonly FatigueTracker Fatigue = new FatigueTracker();
+        int _fatigueQuarter;
 
         public MatchFlow(MatchConfig cfg, LeagueTeam home, LeagueTeam away, CoreTeam openingKicker, Rng rng, Playbook book = null)
         {
@@ -112,6 +148,7 @@ namespace PixFootball.Gameplay
             Rules.OvertimeMinutes = Math.Min(Rules.OvertimeMinutes, Math.Max(2, cfg.QuarterMinutes));
             Book = book ?? DefaultPlaybooks.Create();
             State = new GameState(Rules, openingKicker);
+            State.Conditions = MatchConditions.Generate(cfg.Seed != 0 ? cfg.Seed : 1234);   // the game wind (engine SIM-021): the sim, the kick meter and the HUD all read it
             Cpu = new PhysicalGameSim(home, away, State, rng.Fork(), Book);
         }
 
@@ -286,17 +323,22 @@ namespace PixFootball.Gameplay
             CoreTeam offTeam = State.Possession;
             LeagueTeam offL = TeamOf(offTeam), defL = TeamOf(offTeam.Opponent());
             Formation of = Book.FindFormation(off.FormationName), df = Book.FindFormation(def.FormationName);
-            Player[] ro = SimRosters.ForFormation(offL, of);
-            Player[] rd = SimRosters.ForFormation(defL, df);
+            Player[] ro = SimRosters.ForFormation(offL, of, Fatigue);
+            Player[] rd = SimRosters.ForFormation(defL, df, Fatigue);
             int delta = Config.CpuRatingDelta;
             Dictionary<int, Ratings> sro = IsUser(offTeam) ? null : Boost(ro, delta);
             Dictionary<int, Ratings> srd = IsUser(offTeam.Opponent()) ? null : Boost(rd, delta);
             var sim = new PlaySimulation();
-            var simOptions = new PlaySimOptions { Playbook = Book, Hash = _nextHash, AutoSnap = autoSnap, AutoSnapDelay = autoSnapDelay, Penalties = true };
+            var simOptions = new PlaySimOptions { Playbook = Book, Hash = _nextHash, AutoSnap = autoSnap, AutoSnapDelay = autoSnapDelay, Penalties = true, BallSlickness = Config.BallSlickness, Fatigue = Fatigue };
+            if (State.Conditions != null) simOptions.SetWind(State.Conditions.ForQuarter(State.Quarter), PlayFrame.For(State).TowardsPlusZ);
             if (SimOptionsHook != null) SimOptionsHook(simOptions);
-            sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions);
-            if (sro != null) Restore(ro, sro);
-            if (srd != null) Restore(rd, srd);
+            try { sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions); }
+            finally
+            {
+                // QA-738: the CPU rating boost is always taken back, even when Setup throws
+                if (sro != null) Restore(ro, sro);
+                if (srd != null) Restore(rd, srd);
+            }
             return sim;
         }
 
@@ -326,6 +368,28 @@ namespace PixFootball.Gameplay
                 o.PenaltyName = r.Penalty.Type.ToString();
             }
 
+            if (r.Penalty != null && o.PenaltyAccepted && r.OffsettingPenalty == null)
+            {
+                // the yardage actually enforced (college vs pro yards, spot fouls, half the distance), worked out on a copy of the pre-play state
+                try
+                {
+                    EnforcementResult er = PenaltyEnforcer.Enforce(State.Clone(), r.Penalty, r);
+                    o.PenaltyYards = Math.Abs(er.Yards); o.PenaltyFirstDown = er.FirstDown || er.AutomaticFirstDown;
+                }
+                catch (Exception) { o.PenaltyYards = Math.Abs(r.Penalty.Def.YardsFor(Rules, r.Penalty.FoulSpotYards)); }
+            }
+            // the energy the players burned carries into the next snap (engine SIM-024); quarter breaks and halftime rest everyone a little
+            try
+            {
+                if (_fatigueQuarter != State.Quarter) { if (_fatigueQuarter > 0) Fatigue.Rest(_fatigueQuarter == 2 ? 600f : 90f); _fatigueQuarter = State.Quarter; }
+                var onField = new HashSet<int>();
+                for (int i = 0; i < 22; i++) if (sim.Agents[i].Player != null) onField.Add(sim.Agents[i].Player.Id);
+                var sitting = new List<Player>();
+                foreach (Player p in Home.Roster) if (!onField.Contains(p.Id)) sitting.Add(p);
+                foreach (Player p in Away.Roster) if (!onField.Contains(p.Id)) sitting.Add(p);
+                Fatigue.AfterPlay(sim, 25f, sitting);
+            }
+            catch (Exception) { }
             o.Applied = State.Apply(r);
             State.PendingRunoff *= Config.RunoffScale;
             Snaps++;
@@ -336,8 +400,9 @@ namespace PixFootball.Gameplay
             o.GameOver = State.IsFinal;
             if (o.HomePoints > 0 && o.AwayPoints <= 0) o.ScoringTeam = CoreTeam.Home;
             else if (o.AwayPoints > 0 && o.HomePoints <= 0) o.ScoringTeam = CoreTeam.Away;
-            int q = Math.Min(o.QuarterBefore, 7);
+            int q = Math.Max(1, Math.Min(o.QuarterBefore, 7));
             HomeByQuarter[q] += o.HomePoints; AwayByQuarter[q] += o.AwayPoints;
+            ReconcileLineScore(q);
 
             // hash for the next snap (field X mirrors when the ball changes hands)
             if (State.Phase == GamePhase.Scrimmage && phase0 == GamePhase.Scrimmage && !(r.Type == PlayType.Punt))
@@ -350,7 +415,7 @@ namespace PixFootball.Gameplay
 
             if (sim.Kind == PlayKind.Scrimmage || sim.Kind == PlayKind.Kneel || sim.Kind == PlayKind.Spike) Cpu.Remember(poss0, sim.OffPlay);
             Classify(o, r, phase0, poss0, down0, dist0, spot0);
-            Stats(o, r, poss0);
+            Stats(o, r, poss0, down0, dist0);
             Log.Add("Q" + o.QuarterBefore + " " + Abbr(poss0) + " " + (o.Text.Length > 0 ? o.Text : r.Type.ToString()) + " " + State.HomeScore + "-" + State.AwayScore);
             return o;
         }
@@ -388,22 +453,105 @@ namespace PixFootball.Gameplay
             return sb.ToString();
         }
 
-        void Stats(PlayOutcome o, PlayResult r, CoreTeam poss0)
+        /// <summary>
+        /// Makes the per-quarter line score add up to the real score after every play: any points the state gained outside the
+        /// per-play bookkeeping (QA-107/170) land in the quarter that was current, so the final line score always equals the final score.
+        /// </summary>
+        void ReconcileLineScore(int q)
+        {
+            int h = 0, a = 0;
+            for (int i = 0; i < HomeByQuarter.Length; i++) { h += HomeByQuarter[i]; a += AwayByQuarter[i]; }
+            if (h != State.HomeScore) HomeByQuarter[q] += State.HomeScore - h;
+            if (a != State.AwayScore) AwayByQuarter[q] += State.AwayScore - a;
+        }
+
+        /// <summary>True when the per-quarter line score of both teams adds up to the live score.</summary>
+        public bool LineScoreMatchesScore()
+        {
+            int h = 0, a = 0;
+            for (int i = 0; i < HomeByQuarter.Length; i++) { h += HomeByQuarter[i]; a += AwayByQuarter[i]; }
+            return h == State.HomeScore && a == State.AwayScore;
+        }
+
+        /// <summary>
+        /// Books a fumble: a completed catch (passer and receiver known) counts as a reception, anything else as a carry by the rusher / receiver / quarterback.
+        /// <paramref name="carrierId"/> is the fumbling player (0 when the play result does not say).
+        /// </summary>
+        public static FumbleBooking FumbleBookingOf(PlayResult r, out int carrierId)
+        {
+            carrierId = 0;
+            if (r == null) return FumbleBooking.None;
+            if (r.RusherId > 0) { carrierId = r.RusherId; return FumbleBooking.Rush; }
+            if (r.ReceiverId > 0 && r.PasserId > 0) { carrierId = r.ReceiverId; return FumbleBooking.Pass; }
+            if (r.ReceiverId > 0) { carrierId = r.ReceiverId; return FumbleBooking.Rush; }
+            if (r.PasserId > 0) { carrierId = r.PasserId; return FumbleBooking.Rush; }
+            return FumbleBooking.None;
+        }
+
+        void Stats(PlayOutcome o, PlayResult r, CoreTeam poss0, int down0, int dist0)
         {
             TeamStats s = StatsOf(poss0);
-            if (o.PenaltyAccepted) { StatsOf(r.Penalty.CommittedBy).Penalties++; StatsOf(r.Penalty.CommittedBy).PenaltyYards += Math.Abs(r.Penalty.Def.ProYards); return; }
-            if (r.Type == PlayType.Run || r.Type == PlayType.Kneel) { s.RushYards += r.Yards; s.Plays++; }
-            else if (r.Type == PlayType.Pass) { s.PassYards += r.Yards; s.Plays++; }
-            else if (r.Type == PlayType.Sack) { s.PassYards += r.Yards; s.Plays++; StatsOf(poss0.Opponent()).Sacks++; }
-            else if (r.Type == PlayType.Incomplete) s.Plays++;
-            if (r.Turnover || o.Headline == Headline.TurnoverOnDowns) { if (r.Turnover) s.Turnovers++; }
-            if (o.Headline == Headline.FirstDown) s.FirstDowns++;
+            if (o.PenaltyAccepted)
+            {
+                // the enforced yardage (set in Finish from the rules in force); the nominal pro yardage only as a last resort
+                TeamStats pen = StatsOf(r.Penalty.CommittedBy);
+                pen.Penalties++;
+                pen.PenaltyYards += o.PenaltyYards >= 0 ? o.PenaltyYards : Math.Abs(r.Penalty.Def.YardsFor(Rules, r.Penalty.FoulSpotYards));
+                if (o.PenaltyFirstDown && r.Penalty.CommittedBy != poss0) { s.FirstDowns++; o.FirstDownGained = true; }
+                return;
+            }
+            bool scrimmage = false, keptBall = !r.Turnover && !o.PossessionChanged;
+            switch (r.Type)
+            {
+                case PlayType.Run:
+                case PlayType.Kneel:
+                    s.RushYards += r.Yards; s.Plays++; s.RushAtt++; scrimmage = true; break;
+                case PlayType.Pass:
+                    s.PassYards += r.Yards; s.Plays++; s.PassAtt++; s.PassComp++; scrimmage = true; break;
+                case PlayType.Sack:
+                    s.PassYards += r.Yards; s.Plays++; s.SacksTaken++; StatsOf(poss0.Opponent()).Sacks++; scrimmage = true; break;
+                case PlayType.Incomplete:
+                    s.Plays++; s.PassAtt++; scrimmage = true; break;
+                case PlayType.Interception:
+                    s.Plays++; s.PassAtt++; scrimmage = true; break;
+                case PlayType.Spike:
+                    s.Plays++; scrimmage = true; break;
+                case PlayType.Fumble:
+                {
+                    // a fumble keeps the yardage gained up to the point of the fumble (QA-835)
+                    int carrier;
+                    FumbleBooking fb = FumbleBookingOf(r, out carrier);
+                    if (fb == FumbleBooking.Pass) { s.PassYards += r.Yards; s.PassAtt++; s.PassComp++; }
+                    else if (fb == FumbleBooking.Rush) { s.RushYards += r.Yards; s.RushAtt++; }
+                    s.Plays++; scrimmage = true; break;
+                }
+            }
+            if (r.Turnover) s.Turnovers++;
+
+            // first downs: the line to gain was reached (also on a touchdown play), never on a turnover
+            bool firstDown = false;
+            if (scrimmage && keptBall && dist0 > 0 && (r.Type == PlayType.Run || r.Type == PlayType.Pass || r.Type == PlayType.Fumble) && r.Yards >= dist0) firstDown = true;
+            else if (o.Headline == Headline.FirstDown && keptBall) firstDown = true;
+            if (firstDown) { s.FirstDowns++; o.FirstDownGained = true; }
+            if (scrimmage && r.Type != PlayType.Kneel && r.Type != PlayType.Spike)
+            {
+                bool conv = firstDown || (r.Touchdown && keptBall);
+                if (down0 == 3) { s.ThirdDownAtt++; if (conv) s.ThirdDownConv++; }
+                else if (down0 == 4) { s.FourthDownAtt++; if (conv) s.FourthDownConv++; }
+            }
+        }
+
+        /// <summary>The one spot notation used everywhere (QA-282): "BUF 29" on the offense's own side, "MIA 33" past midfield, "50" at midfield. <paramref name="spot"/> is yards from the offense's own goal line.</summary>
+        public static string FieldPositionText(int spot, string ownAbbr, string oppAbbr)
+        {
+            if (spot == 50) return "50";
+            return spot < 50 ? ownAbbr + " " + spot : oppAbbr + " " + (100 - spot);
         }
 
         public string Summary()
         {
             return "Q" + State.Quarter + " " + State.ClockDisplay + "  " + Abbr(CoreTeam.Home) + " " + State.HomeScore + " - " + Abbr(CoreTeam.Away) + " " + State.AwayScore
-                   + "  " + Abbr(State.Possession) + " ball " + State.Down + "&" + State.Distance + " @" + State.BallSpot;
+                   + "  " + Abbr(State.Possession) + " ball " + State.Down + "&" + State.Distance + " at " + FieldPositionText(State.BallSpot, Abbr(State.Possession), Abbr(State.Possession.Opponent()));
         }
 
         /// <summary>Coin toss: returns true when the user's call (heads when userCallsHeads) won.</summary>

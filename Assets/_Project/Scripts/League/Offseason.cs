@@ -24,7 +24,7 @@ namespace PixFootball.League
         {
             List<Prospect> cls = college != null
                 ? ProspectGenerator.FromCollege(college, league.Year, rng)
-                : ProspectGenerator.Standalone(league, league.Year, rng, null);
+                : ProspectGenerator.Standalone(league, league.Year, rng, null, ProspectGenerator.DefaultClassSize, LeagueUsedNames(league));
             league.DraftClass = cls;
             league.ScoutingReports = DraftEngine.BuildScouting(league, cls, rng, league.Year);
         }
@@ -96,7 +96,8 @@ namespace PixFootball.League
                     p.Contract.AdvanceYear();
                     p.Morale = Math.Max(30, Math.Min(100, p.Morale + rng.Range(-8, 10)));
                 }
-                team.DeadCap = 0;
+                team.DeadCap = team.DeadCapNext;   // QA-561: dead money deferred from last offseason's cuts lands now, everything older is gone
+                team.DeadCapNext = 0;
             }
             for (int i = 0; i < league.FreeAgents.Count; i++)
             {
@@ -124,7 +125,7 @@ namespace PixFootball.League
             for (int i = league.FreeAgents.Count - 1; i >= 0; i--)
             {
                 Player p = league.FreeAgents[i];
-                bool junk = p.Ratings.Overall(p.Position) < 46 || (p.Bio.Age >= 34 && p.Ratings.Overall(p.Position) < 66);
+                bool junk = p.Ratings.Overall(p.Position) < 42 || (p.Bio.Age >= 34 && p.Ratings.Overall(p.Position) < 62);   // QA-610: a thinner purge keeps the market deep
                 if (junk || Retirement.Check(p, rng, true))
                 {
                     Retire(league, p);
@@ -145,6 +146,7 @@ namespace PixFootball.League
                     float prob = ovr < 60 ? 0.2f : Math.Min(0.95f, 0.4f + (ovr - 60) * 0.025f);
                     if (IsStarter(team, p)) prob = Math.Min(0.97f, prob + 0.2f);
                     if (p.Bio.Age >= 33) prob *= 0.6f;
+                    prob = Math.Max(0.02f, Math.Min(0.99f, prob + (p.Morale - 70) * 0.002f));   // QA-619: a happy player is easier to keep
                     long ask = ContractModel.MarketAav(p.Position, ovr, p.Bio.Age);
                     bool afford = team.CapSpace - ask > -20000000L; // restructure fixes the rest later
                     if (rng.Chance(prob) && afford)
@@ -180,6 +182,7 @@ namespace PixFootball.League
                 int grade = (int)pr.TrueGrade;
                 if (grade < 52) continue;
                 p.DraftYear = league.Year; p.DraftRound = 0; p.DraftPick = 0; p.Experience = 0;
+                if (pr.SchoolId >= 0) CollegeFactory.ApplyProTransition(p);
                 p.TeamId = -1; p.Contract = new Contract();
                 p.Retired = false; p.IsRedshirting = false;
                 league.FreeAgents.Add(p);
@@ -188,23 +191,36 @@ namespace PixFootball.League
 
             // ---- 6. free agency & roster building
             SignFreeAgents(league, rng, rep);
+            HashSet<string> usedNames = LeagueUsedNames(league);   // QA-612: one league-wide name set for every new hire
             for (int t = 0; t < league.Teams.Count; t++)
             {
                 Team team = league.Teams[t];
                 CutDown(league, team, rep);
-                FillDeficits(league, team, rng, rep);
-                EnforceCap(team, rep);
+                FillDeficits(league, team, rng, rep, usedNames);
+                EnforceCap(team, rep, league);
+                // a cap-forced release leaves a hole: fill it with a minimum-salary body and check the cap again
+                for (int pass = 0; pass < 6 && team.Roster.Count < LeagueRules.RosterSize; pass++)
+                {
+                    FillDeficits(league, team, rng, rep, usedNames);
+                    EnforceCap(team, rep, league);
+                }
+                // v0.6.0: the passes above can still end on a cap-forced release (roster 48-52 after ten standalone offseasons): the last fill is never followed by a cut, the cap is met by restructuring / scaling the biggest deals instead
+                if (team.Roster.Count < LeagueRules.RosterSize)
+                {
+                    FillDeficits(league, team, rng, rep, usedNames);
+                    EnforceCap(team, rep, league, false);
+                }
                 DepthChartBuilder.Build(team);
             }
             // anyone who got squeezed out of the pool by the cut-down and is useless leaves
-            if (league.FreeAgents.Count > 400)
+            if (league.FreeAgents.Count > 700)
             {
                 league.FreeAgents.Sort((a, b) => b.Ratings.Overall(b.Position).CompareTo(a.Ratings.Overall(a.Position)));
-                for (int i = league.FreeAgents.Count - 1; i >= 300; i--) { Retire(league, league.FreeAgents[i]); league.FreeAgents.RemoveAt(i); }
+                for (int i = league.FreeAgents.Count - 1; i >= 500; i--) { Retire(league, league.FreeAgents[i]); league.FreeAgents.RemoveAt(i); }
             }
 
             // ---- 7. coaching staff
-            for (int t = 0; t < league.Teams.Count; t++) EvolveStaff(league.Teams[t], rng);
+            for (int t = 0; t < league.Teams.Count; t++) EvolveStaff(league.Teams[t], rng, usedNames);
 
             // ---- 8. roll the year
             league.DraftClass = new List<Prospect>();
@@ -228,15 +244,37 @@ namespace PixFootball.League
         {
             p.Retired = true;
             p.TeamId = -1;
+            // QA-610: a young undrafted player who never took a snap just leaves the pool, he is not kept as a "retired player" in the history
+            if (p.DraftRound == 0 && p.Experience <= 3 && p.Career.Count == 0) return;
             league.RetiredPlayers.Add(p);
             if (league.RetiredPlayers.Count > 1500) league.RetiredPlayers.RemoveRange(0, league.RetiredPlayers.Count - 1500);
         }
 
-        private static void Release(ProLeague league, Player p)
+        private static void Release(ProLeague league, Player p, Team from = null)
         {
+            if (from != null) AddDeadCap(from, p.Contract);
             p.TeamId = -1;
             p.Contract = new Contract();
             league.FreeAgents.Add(p);
+        }
+
+        /// <summary>Cap money that stays on the books when a contract with years left is cut: the unamortised signing bonus or the remaining guarantees, whichever is more (QA-561).</summary>
+        public static long DeadMoneyOf(Contract c)
+        {
+            if (c == null || c.YearsLeft <= 0 || c.Years <= 0) return 0L;
+            long bonusLeft = c.SigningBonus / c.Years * c.YearsLeft;
+            long guaranteedLeft = c.Guaranteed * c.YearsLeft / c.Years;
+            return Math.Max(bonusLeft, guaranteedLeft);
+        }
+
+        /// <summary>Charges the dead money of a released contract to the team: half this season and half next when the deal had more than a year left.</summary>
+        public static void AddDeadCap(Team team, Contract c)
+        {
+            long dead = DeadMoneyOf(c);
+            if (dead <= 0L) return;
+            long now = c.YearsLeft > 1 ? dead / 2 : dead;
+            team.DeadCap += now;
+            team.DeadCapNext += dead - now;
         }
 
         private static bool IsStarter(Team team, Player p)
@@ -349,9 +387,7 @@ namespace PixFootball.League
                     c = Contract.Create(years, room, 0.05f, 0.1f, league.Year + 1);
                 p.Contract = c;
             }
-            var jerseys = new HashSet<int>();
-            for (int i = 0; i < team.Roster.Count; i++) jerseys.Add(team.Roster[i].Bio.JerseyNumber);
-            if (jerseys.Contains(p.Bio.JerseyNumber)) p.Bio.JerseyNumber = LeagueFactory.PickJersey(p.Position, rng, jerseys);
+            AssignJersey(team, p, rng);
             team.AddPlayer(p);
         }
 
@@ -374,7 +410,7 @@ namespace PixFootball.League
                     Player p = team.Roster[i];
                     if (team.CountAt(p.Position) <= LeagueRules.ProSlots(p.Position)) continue; // at or under its target
                     if (IsStarter(team, p)) continue;
-                    float v = KeepValue(p);
+                    float v = KeepValue(p) + DeadMoneyOf(p.Contract) / 1000000f * 1.5f;   // QA-561: a cut that would leave dead cap is less attractive
                     if (v < worstV) { worstV = v; worst = p; }
                 }
                 if (worst == null)
@@ -383,19 +419,20 @@ namespace PixFootball.League
                     {
                         Player p = team.Roster[i];
                         if (IsStarter(team, p)) continue;
-                        float v = KeepValue(p);
+                        float v = KeepValue(p) + DeadMoneyOf(p.Contract) / 1000000f * 1.5f;
                         if (v < worstV) { worstV = v; worst = p; }
                     }
                 }
                 if (worst == null) break;
                 team.RemovePlayer(worst);
-                Release(league, worst);
+                Release(league, worst, team);   // QA-561: cutting a guaranteed deal costs dead cap
                 rep.Cuts++;
             }
         }
 
-        private static void FillDeficits(ProLeague league, Team team, Rng rng, OffseasonReport rep)
+        private static void FillDeficits(ProLeague league, Team team, Rng rng, OffseasonReport rep, HashSet<string> usedNames = null)
         {
+            if (usedNames == null) usedNames = LeagueUsedNames(league);
             for (int i = 0; i < LeagueRules.RosterOrder.Length; i++)
             {
                 Position pos = LeagueRules.RosterOrder[i];
@@ -415,16 +452,17 @@ namespace PixFootball.League
                         league.FreeAgents.Remove(best);
                         best.Contract = ContractModel.VeteranContract(best.Position, best.Ratings.Overall(pos), best.Bio.Age, 1, league.Year + 1, rng);
                         if (best.Contract.Aav > Contract.MinSalary * 3) best.Contract = Contract.Create(1, Contract.MinSalary * 2, 0f, 0f, league.Year + 1);
+                        AssignJersey(team, best, rng);
                         team.AddPlayer(best);
                     }
                     else
                     {
-                        var used = new HashSet<string>();
                         int peak = (int)Math.Round(rng.Gaussian(60f, 5f));
-                        Player p = PlayerFactory.Create(rng, league, used, pos, peak, rng.Range(23, 30));
+                        Player p = PlayerFactory.Create(rng, league, usedNames, pos, peak, rng.Range(23, 30));
                         LeagueFactory.FinishProPlayer(p, rng, league.Year, new HashSet<int>(), null);
                         p.Contract = Contract.Create(1, Contract.MinSalary, 0f, 0f, league.Year + 1);
                         p.Contract.Rookie = false;
+                        AssignJersey(team, p, rng);
                         team.AddPlayer(p);
                         rep.EmergencySignings++;
                     }
@@ -434,38 +472,120 @@ namespace PixFootball.League
             if (team.Roster.Count > LeagueRules.RosterSize) CutDown(league, team, rep);
         }
 
-        /// <summary>Gets a team under the cap by restructuring big contracts (and, as a last resort, cutting expensive backups).</summary>
-        public static void EnforceCap(Team team, OffseasonReport rep = null)
+        /// <summary>Gives the player a jersey number nobody else on the team wears (QA-560): keeps his own number when it is free.</summary>
+        public static void AssignJersey(Team team, Player p, Rng rng)
         {
-            int guard = 0;
-            while (team.CapUsed > team.SalaryCap && guard++ < 80)
+            var taken = new HashSet<int>();
+            for (int i = 0; i < team.Roster.Count; i++) if (team.Roster[i] != p) taken.Add(team.Roster[i].Bio.JerseyNumber);
+            if (taken.Contains(p.Bio.JerseyNumber)) p.Bio.JerseyNumber = LeagueFactory.PickJersey(p.Position, rng, taken);
+        }
+
+        /// <summary>Every "First Last" name in use on rosters, in the pool and on the coaching staffs (QA-612).</summary>
+        internal static HashSet<string> LeagueUsedNames(ProLeague league)
+        {
+            var used = new HashSet<string>();
+            for (int t = 0; t < league.Teams.Count; t++)
             {
-                bool changed = false;
+                Team team = league.Teams[t];
+                for (int i = 0; i < team.Roster.Count; i++) used.Add(team.Roster[i].Name);
+                for (int i = 0; i < team.Staff.Count; i++) used.Add(team.Staff[i].Name);
+            }
+            for (int i = 0; i < league.FreeAgents.Count; i++) used.Add(league.FreeAgents[i].Name);
+            for (int i = 0; i < league.DraftClass.Count; i++) if (league.DraftClass[i].Player != null) used.Add(league.DraftClass[i].Player.Name);
+            return used;
+        }
+
+        /// <summary>
+        /// Gets a team under the cap: first restructures the biggest contracts that have years left to spread over (half of the base salary becomes
+        /// prorated bonus), then releases the priciest backup (dead cap applies), and only as a last resort trims the single largest deal (QA-562).
+        /// </summary>
+        public static void EnforceCap(Team team, OffseasonReport rep = null, ProLeague league = null, bool allowCuts = true)
+        {
+            if (team.CapUsed <= team.SalaryCap) return;
+            DepthChartBuilder.Build(team);
+            int guard = 0;
+            while (team.CapUsed > team.SalaryCap && guard++ < 150)
+            {
+                // 1. restructure the single biggest deal that can still be restructured
+                Player big = null; long bigHit = 3000000L;
                 for (int i = 0; i < team.Roster.Count; i++)
                 {
                     Player p = team.Roster[i];
-                    if (p.Contract.Aav > 3000000L && p.Contract.CapHit > 0)
-                    {
-                        p.Contract = ContractModel.Scale(p.Contract, 0.94);
-                        changed = true;
-                        if (rep != null) rep.Restructures++;
-                    }
+                    long hit = p.Contract.CapHit;
+                    if (hit > bigHit && RestructureRoom(p.Contract) > 0L) { bigHit = hit; big = p; }
                 }
-                if (!changed) break;
+                if (big != null)
+                {
+                    Restructure(big.Contract);
+                    if (rep != null) rep.Restructures++;
+                    continue;
+                }
+                // 2. release the backup whose departure frees the most cap
+                Player cut = null; long cutSave = Contract.MinSalary;
+                for (int i = 0; allowCuts && i < team.Roster.Count; i++)
+                {
+                    Player p = team.Roster[i];
+                    if (IsStarter(team, p)) continue;
+                    long dead = DeadMoneyOf(p.Contract);
+                    long now = p.Contract.YearsLeft > 1 ? dead / 2 : dead;
+                    long save = p.Contract.CapHit - now - Contract.MinSalary;   // net of the minimum-salary body that has to replace him
+                    if (save > cutSave) { cutSave = save; cut = p; }
+                }
+                if (cut != null)
+                {
+                    team.RemovePlayer(cut);
+                    if (league != null) Release(league, cut, team);
+                    else { AddDeadCap(team, cut.Contract); cut.TeamId = -1; cut.Contract = new Contract(); }
+                    if (rep != null) rep.Cuts++;
+                    continue;
+                }
+                // 3. nothing else left: trim the largest deal
+                Player top = null; long topHit = 0L;
+                for (int i = 0; i < team.Roster.Count; i++)
+                    if (team.Roster[i].Contract.Aav > Contract.MinSalary && team.Roster[i].Contract.CapHit > topHit) { topHit = team.Roster[i].Contract.CapHit; top = team.Roster[i]; }
+                if (top == null) break;
+                top.Contract = ContractModel.Scale(top.Contract, 0.94);
+                if (rep != null) rep.Restructures++;
             }
         }
 
-        // -------------------------------------------------------------- coaching staff
-        private static void EvolveStaff(Team team, Rng rng)
+        /// <summary>The part of this year's cap hit that a restructure could convert (half the base salary above the prorated bonus), 0 when the deal cannot be restructured.</summary>
+        private static long RestructureRoom(Contract c)
         {
-            var used = new HashSet<string>();
+            if (c.Years <= 0 || c.CapHits.Count == 0 || c.YearsLeft < 2) return 0L;
+            if (CapHitsLeft(c) < 2) return 0L;
+            long baseNow = c.CapHits[c.YearIndex] - c.SigningBonus / c.Years;
+            return baseNow > 2000000L ? baseNow / 2 : 0L;
+        }
+
+        private static int CapHitsLeft(Contract c) { return c.CapHits.Count - c.YearIndex; }
+
+        /// <summary>Converts half of this year's base salary into a bonus prorated over the remaining years (lowers this year's hit, raises the later ones).</summary>
+        public static void Restructure(Contract c)
+        {
+            long convert = RestructureRoom(c);
+            if (convert <= 0L) return;
+            int idx = c.YearIndex;
+            int left = CapHitsLeft(c);
+            long prorate = convert / left;
+            c.CapHits[idx] = c.CapHits[idx] - convert + prorate;
+            for (int k = idx + 1; k < c.CapHits.Count; k++) c.CapHits[k] += prorate;
+            c.SigningBonus += convert;
+            c.Guaranteed += convert;
+        }
+
+        // -------------------------------------------------------------- coaching staff
+        private static void EvolveStaff(Team team, Rng rng, HashSet<string> usedNames = null)
+        {
+            if (usedNames == null) usedNames = new HashSet<string>();
             for (int i = 0; i < team.Staff.Count; i++)
             {
                 Coach c = team.Staff[i];
                 c.Age++;
                 if (c.Age >= 68 && rng.Chance(0.5f))
                 {
-                    team.Staff[i] = LeagueFactory.CreateCoach(rng, used, c.Role, c.Id, 0f);
+                    // QA-615: the replacement hire is drawn around the program's quality, a strong team does not fall back to an average staff
+                    team.Staff[i] = LeagueFactory.CreateCoach(rng, usedNames, c.Role, c.Id, (team.Prestige - 3) * 3f);
                     continue;
                 }
                 c.OffenseRating = Ratings.Clamp(c.OffenseRating + rng.Range(-2, 3));

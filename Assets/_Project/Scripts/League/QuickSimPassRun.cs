@@ -78,6 +78,7 @@ namespace PixFootball.League
             else if (_gs.Distance <= 3) { tp[3] -= 0.07f; tp[2] -= 0.08f; tp[1] += 0.11f; tp[0] += 0.04f; }
             if (ytg < 25) { tp[3] = 0f; tp[2] *= 0.5f; }
             if (ytg < 12) { tp[2] = 0f; tp[0] *= 0.6f; }
+            for (int ti2 = 0; ti2 < tp.Length; ti2++) if (tp[ti2] < 0f) tp[ti2] = 0f;   // QA-602: weak receivers or a short-yardage tilt can push a weight below zero
             int type = Pick(tp, 4);
 
             // ---- target selection
@@ -113,6 +114,7 @@ namespace PixFootball.League
                        + m2 * SimTuning.MatchK + (target.Catch - 70f) * SimTuning.CatchK;
             if (type == 3) pc += (qb.R.ThrowPower - 74f) * 0.0025f;
             if (pressure) pc -= SimTuning.PressureCompPenalty * (type == 0 ? 0.6f : 1f);
+            if (ytg < 20) pc -= Clamp((20 - ytg) * 0.0045f, 0f, 0.09f);   // QA-603: the field shrinks in the red zone, completions get harder
             pc = Clamp(pc, 0.08f, 0.95f);
 
             o.Defender = covDef;

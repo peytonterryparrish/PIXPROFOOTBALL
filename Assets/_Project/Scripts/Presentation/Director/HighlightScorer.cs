@@ -47,7 +47,7 @@ namespace PixFootball.Presentation
                 case Headline.Interception: s = 62f + f.ReturnYards * 0.35f; break;
                 case Headline.FumbleLost: s = 60f + f.ReturnYards * 0.3f; break;
                 case Headline.TwoPointGood: s = 55f; break;
-                case Headline.FieldGoal: s = 28f + (f.Yards >= 50 ? 16f : f.Yards >= 42 ? 7f : 0f); break;
+                case Headline.FieldGoal: s = 28f + (f.Yards >= 50 ? 18f : f.Yards >= 42 ? 7f : 0f); break;   // a 50+ yard kick clears FullThreshold (45) and gets its replay (QA-873)
                 case Headline.FieldGoalMissed: s = 26f; break;
                 case Headline.TurnoverOnDowns: s = 46f; break;
                 case Headline.Sack: s = 48f + f.Impact * 8f; break;
@@ -84,6 +84,7 @@ namespace PixFootball.Presentation
                 case Headline.Touchdown:
                     if (f.Type == PlayType.Interception) return "PICK SIX";
                     if (f.Type == PlayType.Kickoff || f.Type == PlayType.Punt) return "RETURN TOUCHDOWN";
+                    if (f.Turnover && f.ReturnYards >= 2) return f.ReturnYards + "-YARD RETURN TOUCHDOWN";   // a fumble return counts the return, not the lost carry
                     return f.Yards >= 2 ? f.Yards + "-YARD TOUCHDOWN" : "TOUCHDOWN";
                 case Headline.Interception: return "INTERCEPTION";
                 case Headline.FumbleLost: return "FUMBLE - TURNOVER";

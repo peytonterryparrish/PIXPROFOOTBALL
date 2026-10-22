@@ -15,6 +15,8 @@ namespace PixFootball.UI
         public GameObject Accent;
         public event Action<int> Changed;
         public bool Wrap = true;
+        /// <summary>Glass theme: the value is shown as plain text (the chevrons are drawn as icons beside it).</summary>
+        public bool PlainValue;
 
         public void SetOptions(string[] options, int index) { Options = options; Index = Mathf.Clamp(index, 0, Mathf.Max(0, options.Length - 1)); RefreshLabel(); }
 
@@ -24,11 +26,39 @@ namespace PixFootball.UI
             int n = Index + dir;
             if (Wrap) n = ((n % Options.Length) + Options.Length) % Options.Length; else n = Mathf.Clamp(n, 0, Options.Length - 1);
             if (n == Index) return;
-            Index = n; RefreshLabel();
+            Index = n; RefreshLabel(); UiAudio.Move();
             if (Changed != null) Changed(Index);
         }
 
-        public void RefreshLabel() { if (ValueLabel != null) ValueLabel.text = Options != null && Options.Length > 0 ? "<   " + Options[Mathf.Clamp(Index, 0, Options.Length - 1)] + "   >" : ""; }
+        string PlayerValue(string v) { return PlainValue ? v : "<   " + v + "   >"; }
+
+        public void RefreshLabel() { if (ValueLabel != null) ValueLabel.text = Options != null && Options.Length > 0 ? (PlayerValue(Options[Mathf.Clamp(Index, 0, Options.Length - 1)])) : ""; }
+
+        // hover moves the selection too (one highlighted row at a time), and on long lists (32 teams) LB / RB page by 8 so the player never needs 31 presses (QA-764 / QA-768)
+        public override void OnPointerEnter(PointerEventData e)
+        {
+            base.OnPointerEnter(e);
+            if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != gameObject) EventSystem.current.SetSelectedGameObject(gameObject);
+        }
+
+        public override void OnSelect(BaseEventData e) { base.OnSelect(e); UiAudio.Move(); }
+
+        void Update()
+        {
+            if (Options == null || Options.Length < 12 || EventSystem.current == null || EventSystem.current.currentSelectedGameObject != gameObject) return;
+            var pad = UnityEngine.InputSystem.Gamepad.current;
+            if (pad != null)
+            {
+                if (pad.leftShoulder.wasPressedThisFrame) Step(-8);
+                else if (pad.rightShoulder.wasPressedThisFrame) Step(8);
+            }
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null)
+            {
+                if (kb.pageUpKey.wasPressedThisFrame) Step(-8);
+                else if (kb.pageDownKey.wasPressedThisFrame) Step(8);
+            }
+        }
 
         public override void OnMove(AxisEventData e)
         {
@@ -50,7 +80,8 @@ namespace PixFootball.UI
         {
             base.DoStateTransition(state, instant);
             bool on = state == SelectionState.Selected || state == SelectionState.Highlighted || state == SelectionState.Pressed;
-            if (targetGraphic != null) ((Image)targetGraphic).color = on ? UiColors.AccentBlue : UiColors.Row;
+            var img = targetGraphic as Image;
+            if (img != null) img.color = on ? UiColors.AccentBlue : UiColors.Row;
             if (Accent != null) Accent.SetActive(on);
         }
     }
@@ -59,6 +90,7 @@ namespace PixFootball.UI
     {
         public static OptionSelector Selector(Transform parent, string name, string[] options, int index, Action<int> onChanged, float width = 760f, float height = 50f)
         {
+            if (UiTheme.IsGlass) return PixFootball.UI.Glass.GlassKit.Stepper(parent, name, options, index, onChanged, width, Mathf.Max(height, 56f));
             var r = UiKit.Rect(parent, "Opt_" + name);
             r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
@@ -76,6 +108,7 @@ namespace PixFootball.UI
 
         public static Slider SliderRow(Transform parent, string name, float value, Action<float> onChanged, float width = 760f, float height = 50f)
         {
+            if (UiTheme.IsGlass) return PixFootball.UI.Glass.GlassKit.SliderRow(parent, name, value, onChanged, width, Mathf.Max(height, 56f));
             var r = UiKit.Rect(parent, "Slider_" + name);
             r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
@@ -93,7 +126,7 @@ namespace PixFootball.UI
             slider.direction = Slider.Direction.LeftToRight; slider.minValue = 0f; slider.maxValue = 1f; slider.wholeNumbers = false; slider.value = value;
             slider.transition = Selectable.Transition.None;
             slider.onValueChanged.AddListener(x => { val.text = Mathf.RoundToInt(x * 100) + "%"; if (onChanged != null) onChanged(x); });
-            var vis = r.gameObject.AddComponent<RowHighlight>(); vis.Background = bg;
+            var vis = r.gameObject.AddComponent<RowHighlight>(); vis.Background = bg; vis.Target = slider;
             return slider;
         }
     }
@@ -102,10 +135,16 @@ namespace PixFootball.UI
     public class RowHighlight : MonoBehaviour, ISelectHandler, IDeselectHandler, IPointerEnterHandler, IPointerExitHandler
     {
         public Image Background;
+        /// <summary>The control this row belongs to; hovering the row selects it.</summary>
+        public Selectable Target;
         bool _s, _h;
         public void OnSelect(BaseEventData e) { _s = true; R(); }
         public void OnDeselect(BaseEventData e) { _s = false; R(); }
-        public void OnPointerEnter(PointerEventData e) { _h = true; R(); }
+        public void OnPointerEnter(PointerEventData e)
+        {
+            _h = true; R();
+            if (Target != null && EventSystem.current != null && EventSystem.current.currentSelectedGameObject != Target.gameObject) EventSystem.current.SetSelectedGameObject(Target.gameObject);
+        }
         public void OnPointerExit(PointerEventData e) { _h = false; R(); }
         void R() { if (Background != null) Background.color = (_s || _h) ? UiColors.AccentBlue : UiColors.Row; }
     }

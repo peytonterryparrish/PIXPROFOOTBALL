@@ -37,6 +37,8 @@ namespace PixFootball.Presentation
             _canvas.enabled = false;
         }
 
+        void OnDestroy() { if (_tex != null) Destroy(_tex); }   // QA-856: the mask texture is not left behind when the match scene unloads
+
         void Update()
         {
             bool want = _dir != null && _dir.Cams != null && _dir.Cams.Mode == CameraMode.FirstPerson && !_dir.Cams.Overridden && PixSettings.FirstPersonMask && !_dir.Config.CpuVsCpu

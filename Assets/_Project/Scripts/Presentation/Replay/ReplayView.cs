@@ -64,13 +64,13 @@ namespace PixFootball.Presentation
                     pos = new Vector3(fp.x * 0.35f, 8.5f, -down * 60f); fov = 15f; ap = 3.5f;
                     break;
                 case ReplayAngle.High:
-                    pos = new Vector3(fp.x + 4f, 27f, fp.z - down * 17f); fov = 32f; ap = 5f; look = fp + Vector3.down * 0.5f;
+                    pos = new Vector3(fp.x + 3f, 24f, fp.z - down * 27f); fov = 32f; ap = 5f; look = fp + Vector3.down * 0.5f;   // ~42 degrees down, yard lines straight across the frame (QA-205)
                     break;
                 case ReplayAngle.BehindQb:
                 {
                     Vector3 qb = clip.AgentPos(0, t);
-                    pos = qb + new Vector3(0f, 2.15f, -down * 5.4f);
-                    look = qb + new Vector3(0f, 1.2f, down * 14f); fov = 42f; ap = 4f;
+                    pos = qb + new Vector3(0f, 7.4f, -down * 12.5f);   // the Classic user-camera framing: elevated behind the quarterback (QA-124)
+                    look = qb + new Vector3(0f, 0.6f, down * 9f); fov = 44f; ap = 6f;
                     break;
                 }
                 case ReplayAngle.FollowBall:

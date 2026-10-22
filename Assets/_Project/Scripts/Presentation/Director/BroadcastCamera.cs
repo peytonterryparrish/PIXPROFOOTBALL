@@ -69,7 +69,7 @@ namespace PixFootball.Presentation
             if (!Active) return;
             Active = false;
             _dofTarget = 0f; _dofWeight = 0f; if (_vol != null) _vol.weight = 0f;
-            _cam.usePhysicalProperties = false;
+            _cam.usePhysicalProperties = false; _cam.fieldOfView = _savedFov;   // QA-867: hand the lens back as we found it
             _rig.SetOverride(false);
             ResetHistory();
         }

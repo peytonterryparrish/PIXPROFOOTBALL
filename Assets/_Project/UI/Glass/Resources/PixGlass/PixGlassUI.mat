@@ -1,0 +1,56 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: PixGlassUI
+  m_Shader: {fileID: 4800000, guid: b662ac7bfad258f438b4b34e0452f996, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _ColorMask: 15
+    - _Desat: 0.35
+    - _Dim: 0.5
+    - _EdgeAlpha: 0.9
+    - _Refraction: 0.012
+    - _Stencil: 0
+    - _StencilComp: 8
+    - _StencilOp: 0
+    - _StencilReadMask: 255
+    - _StencilWriteMask: 255
+    - _UseUIAlphaClip: 0
+    m_Colors:
+    - _Accent: {r: 0.95686275, g: 0.6039216, b: 0.32156864, a: 1}
+    - _ActionA: {r: 0.9529412, g: 0.9529412, b: 0.9529412, a: 1}
+    - _ActionB: {r: 0.78039217, g: 0.7882353, b: 0.8, a: 1}
+    - _EdgeA: {r: 0.85882354, g: 0.85882354, b: 0.87058824, a: 1}
+    - _EdgeB: {r: 0.46666667, g: 0.46666667, b: 0.48235294, a: 1}
+    - _EdgeC: {r: 0.8784314, g: 0.8784314, b: 0.8901961, a: 1}
+    - _FrostHigh: {r: 0.2, g: 0.20392157, b: 0.22352941, a: 1}
+    - _FrostLow: {r: 0.08627451, g: 0.09019608, b: 0.09803922, a: 1}
+    - _SurfBot: {r: 0.33333334, g: 0.33333334, b: 0.34509805, a: 0.38}
+    - _SurfMid: {r: 0.14117648, g: 0.14117648, b: 0.14901961, a: 0.4}
+    - _SurfTop: {r: 0.4, g: 0.4, b: 0.41568628, a: 0.48}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

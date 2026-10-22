@@ -85,7 +85,7 @@ namespace PixFootball.Presentation
         {
             float ang = Mathf.Lerp(-35f, 28f, u) * Mathf.Deg2Rad;
             float r = Mathf.Lerp(88f, 74f, u);
-            Vector3 pos = new Vector3(Mathf.Sin(ang) * r * 0.55f - 20f * c.Variant, Mathf.Lerp(46f, 30f, Ease(u)), -Mathf.Cos(ang) * r);
+            Vector3 pos = new Vector3(Mathf.Sin(ang) * r * 0.55f - 20f * (c.Variant % 3), Mathf.Lerp(46f, 30f, Ease(u)), -Mathf.Cos(ang) * r);
             return new ShotPose { Pos = pos, Look = new Vector3(0f, 1f, 0f), Fov = Mathf.Lerp(40f, 34f, u), Focus = -1f };
         }
 

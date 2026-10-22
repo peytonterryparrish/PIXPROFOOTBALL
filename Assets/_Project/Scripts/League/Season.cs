@@ -197,13 +197,14 @@ namespace PixFootball.League
             LastWeekResults = new List<GameResult>();
             var games = GamesOfWeek(Week);
             Rng rng = GetRng();
-            HealWeekly();
+            var hurt = InjuredNow();   // QA-563: only players already hurt at kickoff heal after this week's games, so a fresh injury always costs at least one game
             for (int i = 0; i < games.Count; i++)
             {
                 ScheduledGame g = games[i];
                 if (g.Played) continue;
                 SimGameInternal(g, rng.Fork());
             }
+            HealPlayers(hurt);
             SaveRng(rng);
             AfterWeek();
             return true;
@@ -222,13 +223,20 @@ namespace PixFootball.League
             while (Phase == SeasonPhase.Regular && guard++ < 40) SimWeek();
         }
 
-        private void HealWeekly()
+        private List<Player> InjuredNow()
         {
+            var hurt = new List<Player>();
             foreach (var kv in _teams)
             {
                 var roster = kv.Value.Roster;
-                for (int i = 0; i < roster.Count; i++) if (roster[i].Injury.WeeksOut > 0) roster[i].Injury.Heal(1);
+                for (int i = 0; i < roster.Count; i++) if (roster[i].Injury.WeeksOut > 0) hurt.Add(roster[i]);
             }
+            return hurt;
+        }
+
+        private static void HealPlayers(List<Player> hurt)
+        {
+            for (int i = 0; i < hurt.Count; i++) hurt[i].Injury.Heal(1);
         }
 
         private void SimGameInternal(ScheduledGame g, Rng rng)
@@ -260,6 +268,40 @@ namespace PixFootball.League
         private static readonly string[] InjuryTypes =
             { "Sprained ankle", "Hamstring strain", "Concussion", "Knee sprain", "Shoulder", "Bruised ribs", "Groin", "Calf strain", "Torn ACL", "Broken hand" };
 
+        // weeks out per injury type: {min, max} (QA-564). The type is rolled first and decides the duration, so a sprained ankle is never a ten-week injury and a torn ACL never a one-week one.
+        private static readonly int[][] InjuryWeekRanges =
+        {
+            new[] { 1, 3 },   // Sprained ankle
+            new[] { 2, 5 },   // Hamstring strain
+            new[] { 1, 3 },   // Concussion
+            new[] { 3, 6 },   // Knee sprain
+            new[] { 2, 6 },   // Shoulder
+            new[] { 1, 3 },   // Bruised ribs
+            new[] { 2, 4 },   // Groin
+            new[] { 1, 4 },   // Calf strain
+            new[] { 28, 40 }, // Torn ACL (rest of the season and the offseason)
+            new[] { 4, 8 }    // Broken hand
+        };
+
+        /// <summary>All injury types the season can roll.</summary>
+        public static IReadOnlyList<string> InjuryTypeNames { get { return InjuryTypes; } }
+
+        /// <summary>The {min, max} weeks out for an injury type (a copy), or null for an unknown type.</summary>
+        public static int[] InjuryWeekRange(string type)
+        {
+            int i = Array.IndexOf(InjuryTypes, type);
+            return i < 0 ? null : new[] { InjuryWeekRanges[i][0], InjuryWeekRanges[i][1] };
+        }
+
+        /// <summary>Rolls how many weeks the given injury keeps a player out: inside the type's range, with a 5 percent setback of up to half the range extra (never past 40 weeks).</summary>
+        public static int RollInjuryWeeks(string type, Rng rng)
+        {
+            int[] range = InjuryWeekRange(type) ?? new[] { 1, 4 };
+            int weeks = range[0] + (int)Math.Round(rng.NextFloat() * (range[1] - range[0]));
+            if (rng.Chance(0.05f) && range[1] < 20) weeks += 1 + (range[1] - range[0]) / 2;
+            return Math.Max(1, Math.Min(weeks, 40));
+        }
+
         private void RollInjuries(GameResult r, Team home, Team away, Rng rng)
         {
             for (int i = 0; i < r.PlayerLines.Count; i++)
@@ -271,10 +313,10 @@ namespace PixFootball.League
                 if (p == null || p.Injury.IsInjured) continue;
                 float prob = 0.0085f * (1f + (75f - p.Ratings.Injury) / 70f);
                 if (rng.NextFloat() >= prob) continue;
-                int weeks = 1 + (int)(-Math.Log(1.0 - rng.NextDouble()) * 2.6);
-                if (rng.Chance(0.05f)) weeks += 14;
-                p.Injury.WeeksOut = Math.Min(weeks, 40);
-                p.Injury.Type = InjuryTypes[rng.Range(0, InjuryTypes.Length)];
+                string type = InjuryTypes[rng.Range(0, InjuryTypes.Length)];
+                int weeks = RollInjuryWeeks(type, rng);
+                p.Injury.WeeksOut = weeks;
+                p.Injury.Type = type;
                 if (weeks >= 6) p.Injury.Wear++;
             }
         }
@@ -302,21 +344,22 @@ namespace PixFootball.League
         public List<int> DraftOrder()
         {
             var rows = StandingsCalculator.Compute(this);
+            // QA-573: rank playoff teams by the last round they reached (the week of their final playoff game), so a bye team that lost its first game
+            // is not level with a wild-card loser; teams that never reached the playoffs stay below all of them
             var made = new Dictionary<int, int>();
             for (int i = 0; i < Games.Count; i++)
             {
                 ScheduledGame g = Games[i];
                 if (!g.Played || g.Kind == GameKind.Regular) continue;
-                if (!made.ContainsKey(g.HomeId)) made[g.HomeId] = 0;
-                if (!made.ContainsKey(g.AwayId)) made[g.AwayId] = 0;
-                made[g.WinnerId < 0 ? g.HomeId : g.WinnerId]++;
+                if (!made.ContainsKey(g.HomeId) || made[g.HomeId] < g.Week) made[g.HomeId] = g.Week;
+                if (!made.ContainsKey(g.AwayId) || made[g.AwayId] < g.Week) made[g.AwayId] = g.Week;
             }
-            for (int i = 0; i < Seeds.Count; i++) if (!made.ContainsKey(Seeds[i].TeamId)) made[Seeds[i].TeamId] = 0;
+            for (int i = 0; i < Seeds.Count; i++) if (!made.ContainsKey(Seeds[i].TeamId)) made[Seeds[i].TeamId] = 1;
             var list = new List<StandingsRow>(rows);
             list.Sort((a, b) =>
             {
-                int ma = made.ContainsKey(a.TeamId) ? made[a.TeamId] + 1 : 0;
-                int mb = made.ContainsKey(b.TeamId) ? made[b.TeamId] + 1 : 0;
+                int ma = made.ContainsKey(a.TeamId) ? made[a.TeamId] : 0;
+                int mb = made.ContainsKey(b.TeamId) ? made[b.TeamId] : 0;
                 if (ChampionTeamId == a.TeamId) ma = 99;
                 if (ChampionTeamId == b.TeamId) mb = 99;
                 if (ma != mb) return ma.CompareTo(mb);

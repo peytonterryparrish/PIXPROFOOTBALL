@@ -176,8 +176,16 @@ namespace PixFootball.Presentation
         int _fpDone;
         IEnumerator FirstPerson(string name)
         {
+            // the setting is restored even when the probe is aborted (QA-894: a test run must not leave the developer's Settings changed on disk)
+            int cine = PixSettings.Cinematics;
+            try { yield return FirstPersonInner(name); }
+            finally { PixSettings.Cinematics = cine; }
+        }
+
+        IEnumerator FirstPersonInner(string name)
+        {
             _probeBusy = true;
-            int cine = PixSettings.Cinematics; PixSettings.Cinematics = 2;   // no director cuts while the first-person camera is being checked
+            PixSettings.Cinematics = 2;   // no director cuts while the first-person camera is being checked
             // first person on the line (pre-snap), then again when the snap has happened and the play is live
             var mode = _dir.Cams.Mode;
             _dir.Cams.SetMode(CameraMode.FirstPerson, false);
@@ -191,7 +199,6 @@ namespace PixFootball.Presentation
             yield return _t.Capture(name + "_live");
             t0 = Time.unscaledTime; while (Time.unscaledTime - t0 < 0.8f) yield return null;
             yield return _t.Capture(name + "_live2");
-            PixSettings.Cinematics = cine;
             _dir.Cams.SetMode(mode, false);
             _fpDone++;
             _probeBusy = false;

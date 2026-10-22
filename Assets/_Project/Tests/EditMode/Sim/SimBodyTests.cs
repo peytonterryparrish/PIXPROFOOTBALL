@@ -51,9 +51,10 @@ namespace PixFootball.Tests
             float t70 = TimeTo(Body(70, 70, 70), 40f);
             float t40 = TimeTo(Body(40, 40, 70), 40f);
             TestContext.WriteLine("40 times: 99=" + t99 + " 70=" + t70 + " 40=" + t40);
-            Assert.That(t99, Is.InRange(4.2f, 4.45f), "99 speed");
-            Assert.That(t70, Is.InRange(4.75f, 5.2f), "70 speed");
-            Assert.That(t40, Is.InRange(5.3f, 5.9f), "40 speed");
+            // in pads on turf (Physique.PadsFactor): about 0.15 s slower than the combine-in-shorts table
+            Assert.That(t99, Is.InRange(4.35f, 4.65f), "99 speed");
+            Assert.That(t70, Is.InRange(4.9f, 5.35f), "70 speed");
+            Assert.That(t40, Is.InRange(5.45f, 6.05f), "40 speed");
             Assert.Less(t99, t70);
             Assert.Less(t70, t40);
         }
@@ -64,8 +65,8 @@ namespace PixFootball.Tests
             // 99 -> ~4.3 s, 40 -> ~5.0-5.3 s once acceleration is held at an elite level
             float t99 = TimeTo(Body(99, 99, 70), 40f);
             float t40 = TimeTo(Body(40, 99, 70), 40f);
-            Assert.That(t99, Is.InRange(4.25f, 4.4f));
-            Assert.That(t40, Is.InRange(4.9f, 5.35f));
+            Assert.That(t99, Is.InRange(4.35f, 4.6f));
+            Assert.That(t40, Is.InRange(5.05f, 5.5f));
         }
 
         [Test]

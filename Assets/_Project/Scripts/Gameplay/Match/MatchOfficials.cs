@@ -14,7 +14,7 @@ namespace PixFootball.Gameplay
     /// <summary>Cross-fading clip player for the officials and coaches (no controller: two clips in a mixer, time driven by hand).</summary>
     public sealed class MiniAnim
     {
-        PlayableGraph _g; AnimationMixerPlayable _mix;
+        PlayableGraph _g; AnimationMixerPlayable _mix; Animator _animator; string _name; bool _wasOff;
         readonly AnimationClipPlayable[] _p = new AnimationClipPlayable[2];
         readonly AnimationClip[] _clip = new AnimationClip[2];
         readonly float[] _t = new float[2];
@@ -27,6 +27,7 @@ namespace PixFootball.Gameplay
         public MiniAnim(Animator animator, string name)
         {
             if (animator == null) return;
+            _animator = animator; _name = name;
             animator.runtimeAnimatorController = null;
             animator.applyRootMotion = false;
             _g = PlayableGraph.Create(name);
@@ -54,9 +55,33 @@ namespace PixFootball.Gameplay
             _cur = next;
         }
 
+        /// <summary>QA-728: Unity drops the Animator binding of a deactivated object; the graph is rebuilt (same clips, times and weights) when he is switched back on.</summary>
+        void Rebuild()
+        {
+            if (_g.IsValid()) _g.Destroy();
+            _g = PlayableGraph.Create(_name);
+            _g.SetTimeUpdateMode(DirectorUpdateMode.Manual);
+            var output = AnimationPlayableOutput.Create(_g, "Anim", _animator);
+            _mix = AnimationMixerPlayable.Create(_g, 2);
+            output.SetSourcePlayable(_mix);
+            for (int i = 0; i < 2; i++)
+            {
+                _mix.SetInputWeight(i, 0f);
+                if (_clip[i] == null) continue;
+                _p[i] = AnimationClipPlayable.Create(_g, _clip[i]);
+                _p[i].SetApplyFootIK(false); _p[i].SetSpeed(0.0); _p[i].SetTime(_t[i]);
+                _g.Connect(_p[i], 0, _mix, i);
+            }
+        }
+
         public void Update(float dt, float speed = 1f)
         {
             if (!_valid || _cur < 0) return;
+            if (_animator != null)
+            {
+                if (!_animator.isActiveAndEnabled) { _wasOff = true; return; }
+                if (_wasOff) { _wasOff = false; Rebuild(); }
+            }
             for (int i = 0; i < 2; i++)
             {
                 if (!_p[i].IsValid() || _clip[i] == null) continue;
@@ -153,16 +178,35 @@ namespace PixFootball.Gameplay
 
         void OnDestroy() { foreach (var p in _crew) p.Anim?.Destroy(); foreach (var p in _coaches) p.Anim?.Destroy(); }
 
+        // ================================================================================================ v0.6 coin toss
+        Person _toss;
+        /// <summary>The referee stands at midfield for the coin toss (before the first play); returns false without the referee prefab.</summary>
+        public bool PlaceForToss(Vector3 pos, float yaw)
+        {
+            Person r = null;
+            foreach (var p in _crew) if (p.Role == "R") { r = p; break; }
+            if (r == null) return false;
+            r.Yaw = yaw; r.Tr.position = pos; r.Tr.rotation = Quaternion.Euler(0f, yaw, 0f); r.Tr.gameObject.SetActive(true);
+            r.Anim.Play(_idle, true, 0f); _toss = r;
+            return true;
+        }
+
+        public void TossTick(float dt) { if (_toss != null) _toss.Anim.Update(dt); }
+
+        public void EndToss() { if (_toss != null) { _toss.Tr.gameObject.SetActive(false); _toss = null; } }
+
         // ================================================================================================ per play
         /// <summary>Places the crew for a new snap (sim frame: X lateral, Y downfield from the offense's goal line).</summary>
         public void BeginPlay(PlayFrame frame, PlaySimulation sim)
         {
+            // QA-674: when the offense changes direction the crew re-spots instantly (they used to sprint across the field during the call screen)
+            bool flipped = _hasFrame && _frame.TowardsPlusZ != frame.TowardsPlusZ;
             _frame = frame; _hasFrame = true; _live = false;
             for (int i = 0; i < _crew.Count; i++)
             {
                 Vec2 t = CrewTarget(_crew[i].Role, sim.BallX0, sim.LosY, sim.LosY);
                 Vector3 w = frame.ToUnity(t);
-                if (!_crew[i].Tr.gameObject.activeSelf || (_crew[i].Tr.position - w).magnitude > 40f) { _crew[i].Tr.position = w; _crew[i].Tr.gameObject.SetActive(true); }
+                if (!_crew[i].Tr.gameObject.activeSelf || flipped || (_crew[i].Tr.position - w).magnitude > 40f) { _crew[i].Tr.position = w; _crew[i].Tr.gameObject.SetActive(true); }
                 _crew[i].Target = w;
             }
             PlaceCoaches(frame, sim.LosY);
@@ -275,6 +319,7 @@ namespace PixFootball.Gameplay
             float d = to.magnitude;
             float want = Mathf.Min(maxSpeed, d * 2.4f);
             if (d < 0.35f) want = 0f;
+            if (p.SignalT > 0f && !p.Coach) want = 0f;     // QA-729: an official plants his feet while he signals (no gliding with the arms up)
             p.Speed = Mathf.MoveTowards(p.Speed, want, dt * 9f);
             if (d > 0.001f) pos += to / d * Mathf.Min(d, p.Speed * dt);
             pos.y = 0f; p.Tr.position = pos;
@@ -285,7 +330,7 @@ namespace PixFootball.Gameplay
             if (p.SignalT > 0f) { p.SignalT -= dt; if (p.SignalT <= 0f) { p.Signal = null; } }
             else if (p.Signal == null)
             {
-                if (p.Coach) { p.Anim.Play(p.Role == "C1" ? (_clipboard ?? _headset) : (_headset ?? _idle), true, 0.25f); }
+                if (p.Coach) { var cc = p.Role == "C1" ? (_clipboard ?? _headset) : (_headset ?? _idle); p.Anim.Play(cc, true, 0.25f, cc != null ? ((p.Team * 31 + (p.Role != null ? p.Role.Length : 0) * 17 + Mathf.RoundToInt(Mathf.Abs(p.Bias) * 10f)) % 97) / 97f * cc.length : 0f); }     // QA-101: coaches start at different phases (no clones)
                 else
                 {
                     bool backwards = p.Speed > 1.5f && Vector3.Dot(to.normalized, p.Tr.forward) < -0.3f;

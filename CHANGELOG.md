@@ -1,6 +1,65 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to PIX Football. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [SemVer](https://semver.org/).
+
+## [Unreleased]
+
+Nothing yet. Next: the graphics release (shoulder pads, 15 body shapes, glass UI, Draft House stage / studio / jumbotrons / tunnel, PIX Bowl trophy, stadium upgrade), then v0.7.0 "League".
+
+## [0.6.0] - 2026-10-21 - "Photoreal"
+
+The playtest-fix release. The ten notes from the v0.5.0 playtest (`Docs/QA/README.md`) were turned into a QA pass with five parallel tracks (stances and cameras, animation, models, engine, graphics) plus UI / flow and the photoreal player; every row is logged and cross-referenced in `Docs/QA/CHECKLIST.md` (3,540 distinct issues logged, 2,908 fixed). Style target: All-Pro Football 2K8 (`Docs/QA/REFERENCE_AllPro2K8.md`). Verified in the shipped Windows build: screenshots in `D:\PIXFootball\Renders\v060_release\`, per-note evidence in the checklist.
+
+### Added
+- **Photoreal players are the default body** (`PIX_PhotoPlayer_Small / Medium / Large`, `PhotoPlayer`, `PlayerAppearance`): a hero-quality body with 4 levels of detail, per-player face / skin tone / brows / gloves / sleeves / wristbands / visor chosen deterministically from the player id (the same man always looks the same, also in replays), body size by position and weight (a 255 lb tight end uses the large body, a 215 lb receiver the medium one). The stylised Draft Fever bodies stay as a fallback (Settings > Gameplay > Player models, or `-pixLegacyPlayers`).
+- **Stances by rule, not by clip pool** (`StanceRules`, `StanceClips`): the pre-snap body position of a player is chosen from his position, alignment and the formation (3-point / 4-point / 2-point, under center, shotgun, press and off corners, kicker, holder, snapper, returners, gunners); mirrored stance clips for left / right hands.
+- **Clip facing table** (`ClipFacingTable`, `ClipFacingAudit`, `BodyHeading`): the measured direction of every mocap clip plus a closed hips-heading loop, so linemen and corners no longer face backwards. Formation Gallery (`StanceGallery`): 9,914 numeric checks over every formation in both directions, 99.9 % pass with the photoreal bodies.
+- **2K8-style user camera** (`UserCameraView`, `UserCameraMath`, `MatchCameraRig`): behind the quarterback (Classic / Madden / Wide presets), pulls back and up at the snap, follows the carrier and the ball, defense and kick framing, both directions. The broadcast camera is for simulated games and an option.
+- **Bottom-bar scorebug** (`MatchHud.BottomBar`) with a slim player stat table, gold receiver stars and the user ring before the snap.
+- **Coin toss on the field** (`MatchDirector.Toss`, `MatchHud.Toss`): referee at midfield, two captains per team, close camera, caption strip.
+- **Kick meter and wind** (`KickHud`, `KickMeter`, `MatchConditions`): timing and aim gauge, wind compass with mph, wind per quarter shared by the simulation and the HUD.
+- **PIX/Lit shader and the v6 look**: team-colour uniforms with numbers (front, back, sleeve caps), name on the back and team wordmark on the chest drawn from atlases, per-player dirt (`DirtModel`), clear-coat helmets with stripe and crest, procedural turf with mowing stripes and wear (`FieldWear`), 15 weather and time-of-day presets (`WeatherPresets`, `WeatherSystem`), floodlight rig, per-preset colour grade and a drama grade for replays and shows, home crest at midfield, wet ball.
+- **Engine realism**: game-long fatigue (`FatigueTracker`), coverage-specific pre-snap alignment (`DefenseAlignment`), speed in pads, turn rate, pocket (kick-slide), routes, throw speed, kickoff wall, onside kicks, punt returns, penalties (16 fouls), wind on kicks, college overtime.
+- **Mocap cleanup and audit tooling** (editor): `ClipCleaner` / `CleanBatch` (cleaned clips in `Animations/Clean`), `AnimAudit`, `AnimRig`, `AnimTools`, `PoseSeq`, `StanceGallery`, `StickSheet`, `BatchWatchdog`, `ReleasePreflight` (one-session preflight: ArtLibrary, tables, controller, clip facing, mesh LODs, v6 art, scenes), `Tools/MakeChecklist.ps1`.
+
+### Changed
+- Default match camera is the Classic 2K8 camera behind the quarterback; the scorebug is the bottom bar. The pause menu and Settings have the camera and scorebug options.
+- Graphics tiers scale the new features (rain and snow amount, splashes, breath, floodlight shadows, SSGI on Ultra). The High tier no longer casts shadows from the floodlight rim lamps (about 3 ms at night); Ultra keeps them.
+- Shadow casters on a photoreal player are limited to jersey, pants, socks, arms, and the helmet shell.
+- Lettering on jerseys (name and wordmark) uses the number colour with an outline ring in the trim colour, and the number / lettering colours are chosen by contrast ratio, so navy and black kits are legible.
+- Replays dress their actors with the same numbers, dirt, kit, wordmark, crest and (photoreal) face as the live view.
+- Pooled player views prefer the body that last wore the same player (no re-dressing between plays).
+- The autotest's penalty tour no longer waits for a decision on dead-ball flags (nothing to decide).
+
+### Fixed
+- **Note 1 / 2 (mocap, missing animations):** heavy clip cleanup (despike, foot lock, root and facing re-basing), missing keys added (walk, kick, field goal, gang tackle, celebrations, mirrored stances); every cleaned clip faces +Z.
+- **Note 3 (camera):** see Added.
+- **Notes 5 / 6 (stances, facing):** root cause was one fixed model yaw for clips authored facing other ways (only 60 of 1,232 pre-snap bodies faced the right way); fixed by the facing table and the heading loop (100 % in the Formation Gallery); distinct stances per position.
+- **Note 7 (engine):** top speed 28.7 mph to 23.6 mph (hard cap), 40-yard dash 4.30 s to about 4.50 s in pads, pass speed 57 / 62 mph to 39 / 46 mph, 180-degree turn 0.25-0.50 s to 0.33-0.63 s, kick-slide pocket (line depth +0.26 yd to -1.23 yd), off-man corners no longer charge the line, onside recoveries 84 % to 34 %, mean sack time about 2 s. Run game recalibrated (every run concept averages 3.0 yd or more, overall 3.9 yd per carry).
+- **Note 8 (patch on the helmet back):** the white logo plates and the mask hole of the licensed helmet map are no longer drawn; clean shell, stripe and crest.
+- **Note 9 (thin waists / legs):** LOD meshes were looked up by `meshName#vertexCount`, which collided across the three body sizes (Large LOD1-3 had a waist 18 % thinner than LOD0); rewritten `PlayerMeshLodTable`; the photoreal bodies are built with padded proportions at every level of detail.
+- **Note 10 (atmosphere):** weather, floodlights, colour grade and drama grade (see Added).
+- Offseason: a standalone offseason could leave rosters at 48-52 players after a cap-forced release; the last roster fill is never followed by a cut now.
+- Calibration: `TextAtlas.Clean` turned digits into word gaps; run blocking in the leverage contest was too weak after the realism pass (concept averages 2.6-3.1 yd), so Jet Sweep and Read Option were below the football band.
+- PHR-022: `PlayerAvatar` no longer overwrites the photoreal materials by name prefix.
+- Shader: the `PIX/Lit` alpha-tested + emissive variants exceeded the 16-sampler limit (two variants failed to compile in the build); the jersey / helmet textures share one inline sampler.
+- Jersey number placeholder ("10" on every shirt), helmet crest plates, magenta tertiary colours (stale subsurface flag), black frame with weather normals (NaN through bloom), undefined `smoothstep` arguments, plus the rest of the `Docs/QA/CHECKLIST.md`.
+
+### Removed
+- `Assets/Resources/BillingMode.json`: a leftover `{"androidStore":"GooglePlay"}` file from the removed purchasing package.
+- Beard and stubble shells of the photoreal heads are off (they read as speckle at close range, PHR-018): clean-shaven until proper hair cards exist.
+
+### Known Issues
+- The kick meter and the wind are display-only for the user's kicks: the simulation reads them (`KickMeter`), the live match does not feed the user's button timing into it yet; the CPU kicks for the user.
+- Live play at 2560x1440 High on an RTX 5090 laptop: 108 FPS average, 61 FPS 1%-low (target 70), 45 FPS minimum; broadcast camera and cinematics 100 average, 74 1%-low; replays and shows 120 average. The 1%-low target is missed: heavy frames are close-ups of LOD0 photoreal players under the night / weather lighting. Settings > Gameplay > Player models (Classic) and the graphics tier help on weaker machines.
+- The photoreal heads are game-grade sculpts, not photographic scans (PHR-019); scalp hair is a shell without hair cards (PHR-018).
+- The home crest at midfield is a low-resolution sprite and looks blocky up close; dirt on white away jerseys can look like camouflage late in a game.
+- Distinct OL / DL stance takes (3-point vs 4-point, wide-9, press corner) are partly reused clips (open ANI rows); the formation gallery reports 5 of 9,914 checks failing (two 3-point head heights a few centimetres over the limit, three body-versus-root angles during a block and a handoff take).
+- 374 audit and track rows are still open (`Docs/QA/CHECKLIST.md`), mostly polish and the long tail of data / UI items.
+- The glass UI redesign is in the tree but off: the default theme is Classic.
+- Ray-traced shadows / reflections are not enabled; grass blade cards near the camera are not implemented.
+- The release flow still bakes the git-ignored licensed art into the build zip (see `Docs/RELEASING.md`, owner confirmed redistribution on 2026-10-21).
+- The build still ships two large scenes (`Stadium_Pro`, `Match_Pro`) that each carry a full copy of the stadium.
 
 ## [0.5.0] - 2026-10-21 - "Broadcast"
 
@@ -55,7 +114,7 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 
 ### Changed
 - **Performance**: the match player was an 80,000-vertex model (26,000-vertex helmet, 11,000 vertices of hands and shoes) drawn 22 times into every shadow cascade. The gear now uses its authored LODs and the body meshes simplified LODs by camera distance (`PlayerLod`, `PlayerMeshLodTable`), skinning is capped at four bones, coaches and officials are not posed off screen and coaches cast no shadows. Live play at 2560x1440 on the RTX 5090 laptop: 61 avg / 42 min / 50 1%-low FPS (v0.3) -> 107 avg / 79 min / 90 1%-low (Ultra, a full autotest game; GPU 15.8 -> 9.4 ms). Static 22-player formation at 2560x1440: Low 124, Medium 106, High 102, Ultra 89 FPS; Ultra at 67 percent render scale 110 FPS.
-- Tackles no longer play the carrier's clip on the tackler and vice versa: in the Draft Fever pairs `_A` is the offense and `_B` the defender (v0.2 and v0.3 had them swapped).
+- Tackles no longer play the carrier's clip on the tackler and vice versa: in the authored two-actor pairs (`contact_*` keys, `ContactTable`) `_A` is the offense and `_B` the defender (v0.2 and v0.3 had them swapped). The older single-actor keys (`tackle_wrap`, `be_tackled`, `be_trucked`) are picked by the `Dmo` / `Omo` (defender / offense motion) part of the clip name instead.
 - Hit sounds scale with impact energy; the settings screen has a graphics tier selector instead of the six Unity quality levels and rows are tighter to fit the new options.
 
 ### Fixed
@@ -98,6 +157,7 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - The stadium is painted with pro hash marks; in college games the college ticks are drawn on top, so both sets are visible.
 - Audibles cannot be edited in a menu yet (the data supports it).
 - A hot route moves the quarterback's first read but the quarterback still throws to whoever is open first.
+
 ## [0.2.0] - 2026-10-21 - "Kickoff"
 
 ### Added
@@ -126,24 +186,24 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Jersey numbers are not on the uniform shader.
 - Crowd is static.
 
-## [0.1.0] - 2026-10-21 â€” "First Steps"
+## [0.1.0] - 2026-10-20 - "First Steps"
 
 ### Added
 - Unity 6 HDRP project (D3D12, linear color, 1440p default), Input System, Cinemachine 3.
 - **Main menu** built from the PIX UI kit: PIX PRO FOOTBALL LEAGUE shield, Free Roam / Settings / Quit, Xbox glyph footer, full gamepad navigation, the composer's own soundtrack rotating in the background.
 - **Settings**: resolution, display mode, quality, invert look, default camera, lighting, master/music/crowd volume (saved).
-- **Stadium_Pro** scene: full pro stadium with regulation field (120 Ã— 53â…“ yd), NFL-height goal posts, pylons, yard markers, benches, hydration stands, chain crew.
+- **Stadium_Pro** scene: full pro stadium with regulation field (120 x 53 1/3 yd), NFL-height goal posts, pylons, yard markers, benches, hydration stands, chain crew.
 - **Night game** (16 floodlights, volumetric fog) and **day game** lighting presets with broadcast-style color grading (ACES, bloom, SSAO, SSR, contact shadows, light motion blur, film grain).
 - **25,817-fan crowd** (billboard fans baked from the crowd characters, 8 clothing palettes).
-- **Free Roam**: one controllable player driven by the PIX momentum engine â€” ratings-based acceleration, speed-dependent turning, plant-and-cut speed loss, stamina-limited sprint.
-- **Ball-carrier moves**: juke L/R, spin, stiff-arm L/R, truck, hurdle, dive, protect ball, celebrate â€” mocap animation layer over a locomotion blend tree.
+- **Free Roam**: one controllable player driven by the PIX momentum engine - ratings-based acceleration, speed-dependent turning, plant-and-cut speed loss, stamina-limited sprint.
+- **Ball-carrier moves**: juke L/R, spin, stiff-arm L/R, truck, hurdle, dive, protect ball, celebrate - mocap animation layer over a locomotion blend tree.
 - **Cameras**: broadcast sideline (2K-style), behind-the-player, and first-person helmet cam; cycle with View.
 - **Uniforms** in all 32 team color sets; cycle teams from the pause menu.
 - HUD: team crest, speed (mph), stamina bar, controls legend that switches between Xbox and keyboard glyphs.
 - Pause menu: Resume, Camera, Lighting, Uniform, Quit to Menu.
 - Football rules engine (pro + college rule sets, downs, clock, scoring, overtime, 16 penalties), playbook with ~195 offensive / ~70 defensive plays + special teams.
 - League layer: official 32 pro teams (Liberty & Frontier Conferences), 138-school college world with 10 conferences and 41 bowls, regen player generator, scouting, draft, offseason, quick-sim box scores, seasons, awards.
-- 22-player on-field simulation (blocking, routes, coverage, pursuit, catching, tackling) â€” wired into full games in v0.2.0.
+- 22-player on-field simulation (blocking, routes, coverage, pursuit, catching, tackling) - wired into full games in v0.2.0.
 - 357 automated EditMode tests; `-pixAutotest` smoke-test mode in the player build.
 
 ### Changed
@@ -155,5 +215,13 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Crowd is static (no animation or team-color sections yet); soft up close.
 - No walk or spin mocap exists in the source set: walk is a slowed jog, spin is procedural.
 - Ball is not yet carried in the player's hands; no goal-post/wall collision.
-- Some head models and logo source files still carry real-person / real-school names internally; to be replaced before Steam.
+- Some head models and logo source files still carry real-person / real-school names internally; to be replaced before any public release.
 
+
+[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/releases/tag/v0.1.0

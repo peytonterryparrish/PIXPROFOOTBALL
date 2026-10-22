@@ -177,7 +177,7 @@ namespace PixFootball.Tests
                 if (sim.EndReason == EndReason.OutOfBounds) oob++;
             }
             TestContext.WriteLine("out of bounds on sideline contact: " + oob + "/" + n);
-            Assert.Greater(oob, n / 10);
+            Assert.Greater(oob, n / 16);   // with real missed tackles (clean-stop constant 7.5 -> 2.0) fewer contacts end in a clean shove
         }
 
         [Test]
@@ -198,7 +198,8 @@ namespace PixFootball.Tests
             PlayResult r = sim.RunToCompletion();
             if (sim.Log.Has(SimEventType.Tackle))
             {
-                PlayEvent? e = sim.Log.First(SimEventType.Tackle);
+                PlayEvent? e = null;   // the result names the tackler who brought the carrier down (the last tackle event: earlier ones are drags and gang pieces)
+                foreach (var ev in sim.Log.Events) if (ev.Type == SimEventType.Tackle) e = ev;
                 Assert.IsTrue(e.HasValue);
                 Assert.GreaterOrEqual(e.Value.AgentA, 11, "a defender makes the tackle");
                 Assert.LessOrEqual(e.Value.AgentA, 21);

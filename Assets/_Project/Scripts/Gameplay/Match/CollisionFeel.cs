@@ -24,7 +24,6 @@ namespace PixFootball.Gameplay
         public static CollisionFeel Instance { get; private set; }
         public float Trauma { get; private set; }
         float _lowRumble, _highRumble, _rumbleLeft;
-        Vector3 _appliedPos; Quaternion _appliedRot; bool _applied;
         Camera _cam;
         float _seed;
         public const float MaxShiftMetres = 0.06f, MaxShakeDegrees = 0.45f;
@@ -52,7 +51,7 @@ namespace PixFootball.Gameplay
         {
             if (!PixSettings.Rumble) return;
             if (Gamepad.current == null) return;
-            _lowRumble = Mathf.Max(low * (_rumbleLeft > 0f ? 1f : 1f), _rumbleLeft > 0f ? _lowRumble * 0.6f : 0f);
+            _lowRumble = Mathf.Max(low, _rumbleLeft > 0f ? _lowRumble * 0.6f : 0f);
             _highRumble = Mathf.Max(high, _rumbleLeft > 0f ? _highRumble * 0.6f : 0f);
             _rumbleLeft = Mathf.Max(_rumbleLeft, seconds);
             _rumbleTotal = Mathf.Max(seconds, 0.05f);
@@ -101,14 +100,12 @@ namespace PixFootball.Gameplay
         void LateUpdate()
         {
             if (_cam == null) return;
-            _applied = false;
             if (Trauma <= 0.001f) { Trauma = 0f; return; }
             float dt = Time.unscaledDeltaTime;
             float s = Trauma * Trauma;
             float t = Time.unscaledTime * 38f + _seed;
             float nx = Mathf.PerlinNoise(t, 0.1f) * 2f - 1f, ny = Mathf.PerlinNoise(0.3f, t) * 2f - 1f, nr = Mathf.PerlinNoise(t, 7.7f) * 2f - 1f;
             var tr = _cam.transform;
-            _appliedPos = tr.localPosition; _appliedRot = tr.localRotation; _applied = true;
             tr.localPosition += tr.right * (nx * MaxShiftMetres * s) + tr.up * (ny * MaxShiftMetres * s);
             tr.localRotation *= Quaternion.Euler(ny * MaxShakeDegrees * s, nx * MaxShakeDegrees * s, nr * MaxShakeDegrees * s * 1.5f);
             Trauma = Mathf.Max(0f, Trauma - dt * 1.6f);

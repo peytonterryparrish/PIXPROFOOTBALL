@@ -80,6 +80,10 @@ namespace PixFootball.Presentation
         public string Position;
         public string Name;
         public int Number;
+        /// <summary>v0.6: id of the player (seeds his photoreal face and kit options, so a replay shows the same man), -1 when unknown.</summary>
+        public int PlayerId;
+        /// <summary>v0.6: the kit dirt this player had when the play began (replays show the same stains).</summary>
+        public PixFootball.Core.DirtState Dirt;
     }
 
     /// <summary>One recorded sample (30 Hz) of the 22 players and the ball.</summary>
@@ -88,6 +92,8 @@ namespace PixFootball.Presentation
         public float T;
         public Vector3[] Pos = new Vector3[22];
         public float[] Yaw = new float[22];
+        /// <summary>v0.6: the body yaw of the avatar root (model yaw + facing correction, degrees) and its pull-back along the facing (m): the bones are recorded relative to that root.</summary>
+        public float[] BodyYaw = new float[22], Setback = new float[22];
         public uint[] Rot;
         public Vector3[] BonePos;
         public Vector3 BallPos;
@@ -120,6 +126,8 @@ namespace PixFootball.Presentation
         public ReplayAgent[] Agents = new ReplayAgent[22];
         public Color[] OffenseKit = new Color[6];   // uniform primary / secondary / tertiary, helmet primary / secondary / tertiary
         public Color[] DefenseKit = new Color[6];
+        public bool OffenseHome;
+        public string OffenseWord, DefenseWord, OffenseCrest, DefenseCrest;
         public ReplayLayout[] Layouts = new ReplayLayout[3];
         public int[] RotOffset = new int[23];
         public int[] PosOffset = new int[23];
@@ -216,6 +224,8 @@ namespace PixFootball.Presentation
         public long MaxBytes = 90L * 1024 * 1024;
         readonly List<ReplayClip> _all = new List<ReplayClip>();
         int _nextId = 1;
+        /// <summary>Raised for every clip the budget drops, so its frames can go back to the recorder's pool instead of becoming garbage (QA-858).</summary>
+        public System.Action<ReplayClip> Dropped;
 
         public IReadOnlyList<ReplayClip> Clips { get { return _all; } }
         public int Count { get { return _all.Count; } }
@@ -239,7 +249,9 @@ namespace PixFootball.Presentation
                 int worst = -1; float ws = float.MaxValue;
                 for (int i = 0; i < _all.Count - KeepRecent; i++) if (_all[i].Excitement < ws) { ws = _all[i].Excitement; worst = i; }
                 if (worst < 0) break;
+                var dropped = _all[worst];
                 _all.RemoveAt(worst);
+                if (Dropped != null) Dropped(dropped);
             }
         }
 

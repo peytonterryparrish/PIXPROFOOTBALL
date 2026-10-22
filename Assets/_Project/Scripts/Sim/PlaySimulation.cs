@@ -28,6 +28,19 @@ namespace PixFootball.Sim
         public TackleType? ForceTackle;
         /// <summary>Test hook: defenders only attempt tackles once the carrier is this many yards past the line of scrimmage (clean open-field contact).</summary>
         public float ForceTackleAfter;
+        /// <summary>v0.6 weather: 0 = dry ball (the calibrated simulation), up to 1 = soaked. Lowers catch probability a little and raises fumble chances; zero leaves the simulation unchanged.</summary>
+        public float BallSlickness;
+        /// <summary>Wind acting on the ball in flight, in the simulation frame (X lateral, Y downfield for the offense), yards per second. Default (0,0) = still air; build it with <see cref="SetWind"/>.</summary>
+        public Vec2 Wind;
+        /// <summary>Game-long fatigue (null = every player starts every play fresh). Pass the same tracker to every play of a game and call <see cref="FatigueTracker.AfterPlay"/> after each one.</summary>
+        public FatigueTracker Fatigue;
+
+        /// <summary>Sets the wind from the game's conditions for a play in which the offense (or kicking team) drives toward the given end zone.</summary>
+        public PlaySimOptions SetWind(MatchConditions conditions, bool offenseAttacksPositiveZ)
+        {
+            Wind = conditions != null ? conditions.ToSimFrame(offenseAttacksPositiveZ) : Vec2.Zero;
+            return this;
+        }
     }
 
     /// <summary>
@@ -38,6 +51,12 @@ namespace PixFootball.Sim
     {
         public const float Dt = 1f / 60f;
         public const float MaxPlaySeconds = 22f;
+        /// <summary>Longest span of time one Tick call will simulate (a frame hitch is not caught up).</summary>
+        public const float MaxTickSeconds = 0.1f;
+        /// <summary>Kicks and returns may run longer than a scrimmage play before the whistle.</summary>
+        public const float MaxKickPlaySeconds = 40f;
+        /// <summary>Largest change of an agent's velocity in one tick (yd/s): 1.25 = 75 yd/s squared.</summary>
+        public const float MaxVelocityStep = 1.25f;
 
         private static Playbook _defaultPlaybook;
 
@@ -89,12 +108,11 @@ namespace PixFootball.Sim
         private float _accum;
         private bool _setup;
         private ControlInput _pendingInput;
-        private bool _pendingValid;
 
         // ---- outcome facts ----
         internal bool PassThrown, PassCompleted, PassTipped;
         internal int PasserId = -1, TargetId = -1, CatcherId = -1;
-        internal float PassCatchY, PassThrowY;
+        internal float PassCatchY, PassThrowY, PassReleaseTime = -10f;
         internal bool Turnover, TurnoverInterception, TurnoverFumble;
         internal float TurnoverSpotY;
         internal bool Fumbled;
@@ -106,6 +124,15 @@ namespace PixFootball.Sim
         internal bool QbSack;
         internal bool IsSackCandidate;
         internal PenaltyCall PendingPenalty;
+        internal PenaltyCall OffsettingPenalty;
+
+        /// <summary>True when a foul by this side can still be flagged: nothing is pending, or the pending foul is the other team's and the offset slot is free.</summary>
+        internal bool FoulOpen(SimSide offender)
+        {
+            if (PendingPenalty == null) return true;
+            Team by = offender == SimSide.Offense ? State.Possession : State.Possession.Opponent();
+            return OffsettingPenalty == null && by != PendingPenalty.CommittedBy;
+        }
         internal float PenaltyYardsPast;
         internal bool Touchdown, SafetyScored;
         internal bool DefensiveTd;
@@ -188,7 +215,9 @@ namespace PixFootball.Sim
             PlaceBallPreSnap();
             OffAI.Prepare();
             DefAI.Prepare();
+            DefenseAlignment.Apply(this);
             Specials.Prepare();
+            PreSnapStances.Refresh(this);
             for (int i = 0; i < 22; i++) Agents[i].ClearHistory(Agents[i].Pos);
             _setup = true;
         }
@@ -202,7 +231,7 @@ namespace PixFootball.Sim
             OutOfBounds = false;
             TacklerId = RusherId = SackerId = -1;
             QbSack = false; IsSackCandidate = false;
-            PendingPenalty = null;
+            PendingPenalty = null; OffsettingPenalty = null;
             Touchdown = SafetyScored = DefensiveTd = false;
             LastTackleType = TackleType.None;
             QbHasCrossedLos = false;
@@ -233,10 +262,9 @@ namespace PixFootball.Sim
             int wt = player.Bio != null && player.Bio.WeightLb > 100 ? player.Bio.WeightLb : 215;
             int ht = player.Bio != null && player.Bio.HeightIn > 55 ? player.Bio.HeightIn : 72;
             a.Body = new AgentBody(a.R, wt, ht);
+            if (Options != null && Options.Fatigue != null) a.Body.Energy = Options.Fatigue.EnergyOf(player.Id);
             a.Body.Facing = facing;
             a.IsReceiverEligible = side == SimSide.Offense && PositionGroup.IsEligibleReceiver(spec.Position);
-            Vec2 pos = new Vec2(0f, 0f);
-            a.Body.Pos = new Vec2(0f, 0f);
             a.Intent = AgentAction.Stance;
             a.Action = AgentAction.Stance;
             return a;
@@ -265,7 +293,8 @@ namespace PixFootball.Sim
 
         private static Vec2 ClampInField(Vec2 p)
         {
-            return new Vec2(SimMath.Clamp(p.X, 0.6f, FieldGeometry.Width - 0.6f), SimMath.Clamp(p.Y, -9f, 109f));
+            // QA-241: a receiver split wide of a hash mark lines up inside the boundary (2 yd), not on the sideline stripe
+            return new Vec2(SimMath.Clamp(p.X, 2.0f, FieldGeometry.Width - 2.0f), SimMath.Clamp(p.Y, -9f, 109f));
         }
 
         // ===================================================================================================
@@ -287,12 +316,19 @@ namespace PixFootball.Sim
         /// <summary>Absolute field position of a point given relative to the ball at the snap.</summary>
         public Vec2 Rel(Vec2 rel) { return new Vec2(BallX0 + rel.X, LosY + rel.Y); }
 
+        /// <summary>A route point relative to the ball, kept on the field and inside the end zone: a corner route no longer runs 6 yards out of bounds and a go route from the 10 stops at the back line.</summary>
+        public Vec2 RouteRel(Vec2 rel)
+        {
+            float x = SimMath.Clamp(BallX0 + rel.X, 1.4f, FieldGeometry.Width - 1.4f);
+            float y = Math.Min(LosY + rel.Y, 107f);
+            return new Vec2(x, y);
+        }
+
         public bool OnOffenseSide(SimAgent a) { return a.Side == SimSide.Offense; }
 
         /// <summary>True when agent belongs to the team currently in possession.</summary>
         public bool HasPossession(SimAgent a) { return a.Side == BallSide; }
 
-        public float AttackDir(SimSide possessionSide) { return 1f; }
 
         // ===================================================================================================
         // Tick
@@ -306,7 +342,7 @@ namespace PixFootball.Sim
         {
             if (!_setup) throw new InvalidOperationException("Call Setup first.");
             SetUser(userControlledAgent);
-            _accum += dt;
+            _accum += Math.Min(dt, MaxTickSeconds);   // a long frame hitch must not fast-forward the play
             ControlInput inp = userInput;
             while (_accum >= Dt - 1e-6f)
             {
@@ -315,6 +351,7 @@ namespace PixFootball.Sim
                 inp.JukeLeft = inp.JukeRight = inp.Spin = inp.StiffArm = inp.Truck = inp.Hurdle = inp.Dive = inp.Jump = false;
                 inp.Tackle = inp.SwitchPlayer = inp.Snap = inp.Throwaway = false;
                 inp.ThrowToSlot = 0;
+                inp.KickPress = false;
             }
         }
 
@@ -340,6 +377,21 @@ namespace PixFootball.Sim
         /// <summary>One fixed 1/60 s step.</summary>
         public void Step(ControlInput input)
         {
+            Vec2 prevWind = BallPhysics.Wind; float prevScale = BallPhysics.WindScale;
+            BallPhysics.Wind = Options != null ? Options.Wind : Vec2.Zero;
+            BallPhysics.WindScale = 1f;
+            try { StepCore(input); }
+            finally { BallPhysics.Wind = prevWind; BallPhysics.WindScale = prevScale; }
+        }
+
+        /// <summary>The wind acting on this play's ball (simulation frame, yards per second).</summary>
+        public Vec2 Wind { get { return Options != null ? Options.Wind : Vec2.Zero; } }
+
+        /// <summary>True while a user-controlled kicker is waiting for the kick button (the HUD runs the kick meter now); <see cref="ControlInput.KickPress"/> with the meter readings strikes the ball.</summary>
+        public bool AwaitingUserKick { get { return Specials != null && Specials.AwaitingUserKick; } }
+
+        private void StepCore(ControlInput input)
+        {
             _pendingInput = input;
             if (Phase == PlayPhase.PreSnap)
             {
@@ -348,15 +400,17 @@ namespace PixFootball.Sim
                 {
                     SimAgent a = Agents[i];
                     a.Want = Vec2.Zero; a.HasFace = false; a.Exertion = 0f;
-                    Vec2 preWant = i == MotionSlot ? PreSnapWant(i) : Vec2.Zero;
-                    a.Body.Step(Dt, preWant, false, Vec2.Zero, 0f);
+                    Vec2 preWant = i == MotionSlot ? PreSnapWant(i) : (i >= 11 ? DefenseMotionResponse(i) : Vec2.Zero);
+                    a.Body.Step(Dt, preWant, i == MotionSlot, new Vec2(0f, 1f), 0f);   // v0.6: the man in motion shuffles across the formation square to the line (QA-308 / QA-672)
                     bool inMotion = i == MotionSlot && a.Speed > 0.6f;
                     a.Intent = inMotion ? AgentAction.Run : AgentAction.Stance;
                     a.SetAction(inMotion ? AgentAction.Run : AgentAction.Stance);
                     a.ActionTime += Dt;
                     a.RecordHistory();
                 }
-                if (input.Snap || (Options.AutoSnap && PreSnapTime >= Options.AutoSnapDelay)) DoSnap();
+                // a man in motion gets a few strides first and is never snapped while coming forward
+                bool motionSettled = MotionSlot < 0 || (PreSnapTime >= Options.AutoSnapDelay + 0.8f && Agents[MotionSlot].Vel.Y < 0.4f);   // moving laterally at the snap is legal; coming toward the line is not (and he must have had a few steps)
+                if (input.Snap || (Options.AutoSnap && PreSnapTime >= Options.AutoSnapDelay && motionSettled)) DoSnap();
                 return;
             }
             if (Phase == PlayPhase.Dead)
@@ -393,7 +447,7 @@ namespace PixFootball.Sim
             if (Options.Penalties && TryPreSnapPenalty()) return;
             Phase = PlayPhase.Live;
             Time = 0f;
-            Log.Add(0f, SimEventType.Snap, Kind == PlayKind.Kickoff ? 0 : (Kind == PlayKind.Punt ? 1 : 4), -1, Ball.Pos);
+            Log.Add(0f, SimEventType.Snap, (Kind == PlayKind.Scrimmage || Kind == PlayKind.Kneel || Kind == PlayKind.Spike) ? Snapper.Id : Specials.SnapAgentId, -1, Ball.Pos);
             OffAI.OnSnap();
             DefAI.OnSnap();
             Specials.OnSnap();
@@ -401,15 +455,33 @@ namespace PixFootball.Sim
 
         private void LiveStep(ControlInput input)
         {
+            LiveStepCore(input);
+            // contact impulses (hits, juke kicks, collisions, the tackle itself) are spread over a few ticks: at most 1.25 yd/s per tick (75 yd/s squared),
+            // also on the tick that ends the play (the early returns of LiveStepCore used to skip the limiter, so a tackle popped both players' velocity)
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent ag = Agents[i];
+                ag.Body.LimitSpeed();
+                if (ag.Move == CarrierMove.Dive && ag.MoveTime > 0f) { ag.PrevTickVel = ag.Body.Vel; continue; }   // the dive is a deliberate lunge: spreading it over ticks left sneaks and goal-line dives short
+                Vec2 dv = ag.Body.Vel - ag.PrevTickVel; float m = dv.Length;
+                if (m > MaxVelocityStep && Time > Dt * 2f) ag.Body.Vel = ag.PrevTickVel + dv * (MaxVelocityStep / m);
+                ag.PrevTickVel = ag.Body.Vel;
+            }
+        }
+
+        private void LiveStepCore(ControlInput input)
+        {
             Time += Dt;
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = Agents[i];
                 a.Want = Vec2.Zero; a.HasFace = false; a.Exertion = 0f;
                 a.ActionTime += Dt; a.StateTime += Dt;
+                if (a.State == AgentState.Engaged) a.EngagedSeconds += Dt;
                 if (a.TackleCooldown > 0f) a.TackleCooldown -= Dt;
                 if (a.MoveCooldown > 0f) a.MoveCooldown -= Dt;
                 if (a.BeatenTime > 0f) a.BeatenTime -= Dt;
+                if (a.JamTime > 0f) a.JamTime -= Dt;   // (it was never counted down: a won jam froze the receiver at 35% speed for the whole play)
                 if (a.JumpTime > 0f) a.JumpTime -= Dt;
                 if (a.OverrideLeft > 0f) a.OverrideLeft -= Dt;
             }
@@ -429,6 +501,7 @@ namespace PixFootball.Sim
                 a.Body.Step(Dt, want, a.HasFace, a.FaceDir, a.Exertion);
             }
             SeparateBodies();
+            ConfineToSurroundings();
             for (int i = 0; i < 22; i++) Agents[i].RecordHistory();
 
             UpdateBall();
@@ -441,12 +514,14 @@ namespace PixFootball.Sim
 
             for (int i = 0; i < 22; i++) ResolveAction(Agents[i]);
 
-            if (Time >= MaxPlaySeconds) ForceEnd();
+            if (Time >= (Kind == PlayKind.Scrimmage ? MaxPlaySeconds : MaxKickPlaySeconds)) ForceEnd();
         }
 
         private void ForceEnd()
         {
-            // pathological play: whistle it dead where the ball is
+            // a pathological play is whistled dead: the carrier is ruled down where he stands (no mid-field freeze without a tackle)
+            SimAgent c = Carrier;
+            if (c != null) { c.State = AgentState.Down; c.Body.Fall(0.9f); }
             Ball.Kill();
             EndPlay(EndReason.TimeLimit);
         }
@@ -456,22 +531,32 @@ namespace PixFootball.Sim
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = Agents[i];
-                if (a.Body.FallenTime > 0f && a.State == AgentState.Down) continue;
+                if (a.State == AgentState.Down && a.Body.FallenTime <= 0f) continue;
                 for (int j = i + 1; j < 22; j++)
                 {
                     SimAgent b = Agents[j];
-                    if (b.Body.FallenTime > 0f && b.State == AgentState.Down) continue;
-                    if (a.Body.FallenTime > 0f || b.Body.FallenTime > 0f) continue;
+                    if (b.State == AgentState.Down && b.Body.FallenTime <= 0f) continue;
+                    if (a.Body.FallenTime > 0f || b.Body.FallenTime > 0f)
+                    {
+                        // QA-315: a downed player is an obstacle for the standing ones (a lying body is narrower than a standing one)
+                        bool aLying = a.Body.FallenTime > 0f, bLying = b.Body.FallenTime > 0f;
+                        if (aLying && bLying) continue;
+                        SimAgent st = aLying ? b : a, ly = aLying ? a : b;
+                        if (st.State == AgentState.Engaged || st.State == AgentState.Down || Tackles.InTackleLock(a, b)) continue;
+                        BodyCollision.ResolveAroundFallen(st.Body, ly.Body, 0.75f);
+                        continue;
+                    }
                     if (a.Engagement != null && a.Engagement == b.Engagement) continue;
                     // the back runs past the quarterback who just handed him the ball
-                    if (a.Side == b.Side && Kind == PlayKind.Scrimmage && ((a.HasBall && b.Slot == 0) || (b.HasBall && a.Slot == 0))) continue;
+                    if (a.Side == b.Side && Kind == PlayKind.Scrimmage && Time < 1.8f && ((a.HasBall && b.Slot == 0) || (b.HasBall && a.Slot == 0))) continue;   // only while the exchange is happening
                     if (Tackles.InTackleLock(a, b)) continue;
                     if (a.IgnoreAgent == b.Id && Time < a.IgnoreUntil) continue;
                     if (b.IgnoreAgent == a.Id && Time < b.IgnoreUntil) continue;
                     float dx = a.Body.Pos.X - b.Body.Pos.X;
-                    if (dx > 1.1f || dx < -1.1f) continue;
+                    float cull = a.Body.Radius + b.Body.Radius + 0.15f;
+                    if (dx > cull || dx < -cull) continue;
                     float dy = a.Body.Pos.Y - b.Body.Pos.Y;
-                    if (dy > 1.1f || dy < -1.1f) continue;
+                    if (dy > cull || dy < -cull) continue;
                     // teammates ghost through each other only while one is handing off
                     BodyCollision.Resolve(a.Body, b.Body, 0.05f);
                 }
@@ -540,6 +625,7 @@ namespace PixFootball.Sim
         private void ApplyUserControl(ControlInput input)
         {
             if (UserAgent < 0) return;
+            if (Kind != PlayKind.Scrimmage && Specials.IsKicker(Agents[UserAgent])) { Specials.UserKick(input); return; }
             SimAgent a = Agents[UserAgent];
             if (input.SwitchPlayer) SwitchUserPlayer();
             a = Agents[UserAgent];
@@ -575,6 +661,8 @@ namespace PixFootball.Sim
                 SimAgent c = Agents[i];
                 if (c.Side != want || i == UserAgent || c.State == AgentState.Down || c.Body.FallenTime > 0f) continue;
                 float d = SimMath.DistSq(c.Pos, focus);
+                // QA-467: the offense switches to a back or receiver, not a lineman or the quarterback who just threw
+                if (want == SimSide.Offense && Kind == PlayKind.Scrimmage && !c.IsReceiverEligible && !c.HasBall) d += 10000f;
                 if (d < bd) { bd = d; best = i; }
             }
             if (best >= 0) SetUser(best);
@@ -599,8 +687,17 @@ namespace PixFootball.Sim
         /// <summary>Raises a penalty flag; the first flag of the play wins. foulYards = yards past the LOS (negative = behind).</summary>
         internal void Flag(PenaltyType type, SimAgent culprit, float yardsPastLos)
         {
-            if (PendingPenalty != null) return;
             Team by = culprit.Side == SimSide.Offense ? State.Possession : State.Possession.Opponent();
+            if (PendingPenalty != null)
+            {
+                // a foul by the other team on the same play offsets the first (QA-489); a second foul by the same team is ignored
+                if (OffsettingPenalty == null && by != PendingPenalty.CommittedBy)
+                {
+                    OffsettingPenalty = new PenaltyCall(type, by, yardsPastLos, culprit.PlayerId);
+                    LogEvent(SimEventType.Penalty, culprit.Id, -1, TackleType.None, (float)type, type.ToString() + " (offsetting)");
+                }
+                return;
+            }
             PendingPenalty = new PenaltyCall(type, by, yardsPastLos, culprit.PlayerId);
             PenaltyYardsPast = yardsPastLos;
             LogEvent(SimEventType.Penalty, culprit.Id, -1, TackleType.None, (float)type, type.ToString());
@@ -613,6 +710,7 @@ namespace PixFootball.Sim
             Phase = PlayPhase.Dead;
             Result = BuildResult(reason);
             if (PendingPenalty != null && Result.Penalty == null) Result.WithPenalty(PendingPenalty);
+            if (OffsettingPenalty != null && PendingPenalty != null) Result.OffsettingPenalty = OffsettingPenalty;
             LogEvent(SimEventType.PlayEnd, -1, -1, TackleType.None, Result.Yards, Result.Type.ToString());
             for (int i = 0; i < 22; i++)
             {
@@ -621,41 +719,78 @@ namespace PixFootball.Sim
             }
         }
 
+        /// <summary>Picks one agent of a group, more likely the lower his awareness (the careless player draws the flag, not always the same one).</summary>
+        private int PickCareless(System.Collections.Generic.List<int> ids)
+        {
+            if (ids.Count == 0) return -1;
+            float total = 0f;
+            for (int i = 0; i < ids.Count; i++) total += 1.6f - Agents[ids[i]].R.Awareness / 99f;
+            float r = Rng.NextFloat() * total;
+            for (int i = 0; i < ids.Count; i++) { r -= 1.6f - Agents[ids[i]].R.Awareness / 99f; if (r <= 0f) return ids[i]; }
+            return ids[ids.Count - 1];
+        }
+
+        /// <summary>Number of offensive players standing on the line of scrimmage (within 1.1 yd of the ball), the legality test behind IllegalFormation.</summary>
+        public int OffensePlayersOnLine()
+        {
+            int n = 0;
+            for (int i = 0; i < 11; i++) if (Agents[i].Pos.Y >= LosY - 1.1f) n++;
+            return n;
+        }
+
         private bool TryPreSnapPenalty()
         {
             if (Kind == PlayKind.Kickoff || Kind == PlayKind.Kneel || Kind == PlayKind.Spike || IsExtraPoint) return false;
-            // false start: offensive linemen with low awareness
-            float awSum = 0f;
-            for (int i = 2; i <= 6; i++) awSum += Agents[i].R.Awareness;
-            float awOl = awSum / 5f / 99f;
-            float dlAw = 0f;
-            for (int i = 0; i < 4; i++) dlAw += Agents[11 + i].R.Awareness;
-            dlAw = dlAw / 4f / 99f;
+            bool scrimmage = Kind == PlayKind.Scrimmage;
+            // who is actually on the line: the culprits come from the real alignment, not from fixed slot numbers
+            var offLine = new System.Collections.Generic.List<int>(); var offLinemen = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < 11; i++)
+            {
+                if (Agents[i].Pos.Y < LosY - 1.1f) continue;
+                offLine.Add(i);
+                if (PositionGroup.IsOffensiveLine(Agents[i].PlayPos)) offLinemen.Add(i);
+            }
+            var defLine = new System.Collections.Generic.List<int>();
+            for (int i = 11; i < 22; i++) if (Agents[i].Pos.Y - LosY < 2.6f && !(Agents[i].Assign is ReturnerAssignment)) defLine.Add(i);
+            if (offLinemen.Count == 0) offLinemen = offLine;
+            float awOl = 0.7f, dlAw = 0.7f;
+            if (offLinemen.Count > 0) { awOl = 0f; foreach (int i in offLinemen) awOl += Agents[i].R.Awareness; awOl = awOl / offLinemen.Count / 99f; }
+            if (defLine.Count > 0) { dlAw = 0f; foreach (int i in defLine) dlAw += Agents[i].R.Awareness; dlAw = dlAw / defLine.Count / 99f; }
             float qbAw = Agents[0].R.Awareness / 99f;
             float u = Rng.NextFloat();
             float acc = 0f;
-            bool scrimmage = Kind == PlayKind.Scrimmage;
-            if (u < (acc += 0.0185f * (1.55f - awOl)))
+            // a formation with fewer than seven men on the line is illegal whatever the dice say
+            if (scrimmage && OffensePlayersOnLine() < 7)
             {
-                // the guilty lineman is the one with the worst awareness
-                int worst = 2;
-                for (int i = 2; i <= 6; i++) if (Agents[i].R.Awareness < Agents[worst].R.Awareness) worst = i;
+                var culprits = new System.Collections.Generic.List<int>();
+                for (int i = 1; i < 11; i++) if (!offLine.Contains(i) && Agents[i].IsReceiverEligible) culprits.Add(i);
+                int cg = PickCareless(culprits);
+                var fcall = new PenaltyCall(PenaltyType.IllegalFormation, State.Possession, 0f, Agents[cg >= 0 ? cg : 10].PlayerId);
+                LogEvent(SimEventType.Penalty, cg >= 0 ? cg : 10, -1, TackleType.None, (float)PenaltyType.IllegalFormation, "IllegalFormation");
+                FinishPreSnap(PlayResult.PenaltyOnly(fcall));
+                return true;
+            }
+            if (offLinemen.Count > 0 && u < (acc += 0.0185f * (1.55f - awOl)))
+            {
+                int worst = PickCareless(offLinemen);
                 var call = new PenaltyCall(PenaltyType.FalseStart, State.Possession, 0f, Agents[worst].PlayerId);
                 LogEvent(SimEventType.Penalty, worst, -1, TackleType.None, (float)PenaltyType.FalseStart, "FalseStart");
                 FinishPreSnap(PlayResult.PenaltyOnly(call));
                 return true;
             }
-            if (u < (acc += 0.0075f * (1.55f - dlAw)))
+            if (defLine.Count > 0 && u < (acc += 0.0075f * (1.55f - dlAw)))
             {
-                var call = new PenaltyCall(PenaltyType.Offside, State.Possession.Opponent(), 0f, Agents[11].PlayerId);
-                LogEvent(SimEventType.Penalty, 11, -1, TackleType.None, (float)PenaltyType.Offside, "Offside");
+                int g = PickCareless(defLine);
+                var call = new PenaltyCall(PenaltyType.Offside, State.Possession.Opponent(), 0f, Agents[g].PlayerId);
+                LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.Offside, "Offside");
                 FinishPreSnap(PlayResult.PenaltyOnly(call));
                 return true;
             }
-            if (u < (acc += 0.0026f * (1.55f - dlAw)))
+            if (defLine.Count > 0 && u < (acc += 0.0026f * (1.55f - dlAw)))
             {
-                var call = new PenaltyCall(PenaltyType.Encroachment, State.Possession.Opponent(), 0f, Agents[12].PlayerId);
-                LogEvent(SimEventType.Penalty, 12, -1, TackleType.None, (float)PenaltyType.Encroachment, "Encroachment");
+                int g = PickCareless(defLine);
+                var call = new PenaltyCall(PenaltyType.Encroachment, State.Possession.Opponent(), 0f, Agents[g].PlayerId);
+                LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.Encroachment, "Encroachment");
                 FinishPreSnap(PlayResult.PenaltyOnly(call));
                 return true;
             }
@@ -668,8 +803,12 @@ namespace PixFootball.Sim
             }
             if (scrimmage && u < (acc += 0.0016f * (1.55f - qbAw)))
             {
-                var call = new PenaltyCall(PenaltyType.IllegalFormation, State.Possession, 0f, Agents[10].PlayerId);
-                LogEvent(SimEventType.Penalty, 10, -1, TackleType.None, (float)PenaltyType.IllegalFormation, "IllegalFormation");
+                // a late shift: a back or receiver is still moving or lined up off the numbers
+                var off = new System.Collections.Generic.List<int>();
+                for (int i = 1; i < 11; i++) if (Agents[i].IsReceiverEligible) off.Add(i);
+                int g = PickCareless(off); if (g < 0) g = 10;
+                var call = new PenaltyCall(PenaltyType.IllegalFormation, State.Possession, 0f, Agents[g].PlayerId);
+                LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.IllegalFormation, "IllegalFormation");
                 FinishPreSnap(PlayResult.PenaltyOnly(call));
                 return true;
             }
@@ -682,6 +821,66 @@ namespace PixFootball.Sim
             EndReason = EndReason.Penalty;
             Result = r;
             LogEvent(SimEventType.PlayEnd, -1, -1, TackleType.None, 0f, "PreSnapPenalty");
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    public sealed partial class PlaySimulation
+    {
+        /// <summary>
+        /// True when another standing player's body lies across the straight line between two agents (a blocker between a lunging tackler
+        /// and the ball carrier): dive tackles do not go through people.
+        /// </summary>
+        internal bool BodyBetween(SimAgent from, SimAgent to)
+        {
+            Vec2 a = from.Pos, b = to.Pos;
+            for (int i = 0; i < 22; i++)
+            {
+                SimAgent o = Agents[i];
+                if (o == from || o == to || o.State == AgentState.Down || o.Body.FallenTime > 0.2f) continue;
+                float t;
+                Vec2 p = SimMath.ClosestOnSegment(a, b, o.Pos, out t);
+                if (t < 0.15f || t > 0.85f) continue;
+                if ((p - o.Pos).Length < o.Body.Radius + 0.2f) return true;
+            }
+            return false;
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    public sealed partial class PlaySimulation
+    {
+        /// <summary>Players may run off the field (past the sideline or end line) but stop at the bench area / wall: nobody leaves the stadium chasing a thrown-away ball.</summary>
+        private void ConfineToSurroundings()
+        {
+            const float side = 3.2f, endBack = 4f;
+            for (int i = 0; i < 22; i++)
+            {
+                AgentBody b = Agents[i].Body;
+                Vec2 p = b.Pos, v = b.Vel; bool hit = false;
+                if (p.X < -side) { p = new Vec2(-side, p.Y); v = new Vec2(Math.Max(0f, v.X), v.Y); hit = true; }
+                else if (p.X > FieldGeometry.Width + side) { p = new Vec2(FieldGeometry.Width + side, p.Y); v = new Vec2(Math.Min(0f, v.X), v.Y); hit = true; }
+                if (p.Y < -10f - endBack) { p = new Vec2(p.X, -10f - endBack); v = new Vec2(v.X, Math.Max(0f, v.Y)); hit = true; }
+                else if (p.Y > 110f + endBack) { p = new Vec2(p.X, 110f + endBack); v = new Vec2(v.X, Math.Min(0f, v.Y)); hit = true; }
+                if (hit) { b.Pos = p; b.Vel = v * 0.5f; }
+            }
+        }
+    }
+}
+namespace PixFootball.Sim
+{
+    public sealed partial class PlaySimulation
+    {
+        /// <summary>The offensive player who snaps the ball: the lineman at center (Position.C), falling back to slot 4.</summary>
+        public SimAgent Snapper
+        {
+            get
+            {
+                for (int i = 0; i < 11; i++) if (Agents[i] != null && Agents[i].PlayPos == Position.C) return Agents[i];
+                return Agents[4];
+            }
         }
     }
 }

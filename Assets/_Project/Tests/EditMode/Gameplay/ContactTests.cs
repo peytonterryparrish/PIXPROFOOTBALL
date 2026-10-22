@@ -339,9 +339,26 @@ namespace PixFootball.Tests
             try
             {
                 PlayerLod.Bias = 1f;
-                Assert.AreEqual(0, PlayerLod.LevelFor(3f)); Assert.AreEqual(1, PlayerLod.LevelFor(15f)); Assert.AreEqual(2, PlayerLod.LevelFor(60f));
+                Assert.AreEqual(0, PlayerLod.LevelFor(3f)); Assert.AreEqual(1, PlayerLod.LevelFor(15f)); Assert.AreEqual(2, PlayerLod.LevelFor(40f)); Assert.AreEqual(3, PlayerLod.LevelFor(100f));
                 PlayerLod.Bias = 0.5f;
                 Assert.AreEqual(1, PlayerLod.LevelFor(6f), "a lower tier drops detail sooner");
+            }
+            finally { PlayerLod.Bias = bias; }
+        }
+        [Test]
+        public void PlayerLodHasHysteresisAroundTheThresholds()
+        {
+            float bias = PlayerLod.Bias;
+            try
+            {
+                PlayerLod.Bias = 1f;
+                float edge = PlayerLod.Near;
+                Assert.AreEqual(0, PlayerLod.LevelFor(edge * 1.05f, 0), "inside the 10 percent band a LOD0 player stays LOD0");
+                Assert.AreEqual(1, PlayerLod.LevelFor(edge * 1.05f, 1), "a LOD1 player does not step back up yet");
+                Assert.AreEqual(1, PlayerLod.LevelFor(edge * 1.2f, 0), "past the band it steps down");
+                Assert.AreEqual(0, PlayerLod.LevelFor(edge * 0.8f, 1), "well inside it steps up");
+                Assert.AreEqual(2, PlayerLod.LevelFor(PlayerLod.Mid * 1.3f, 1));
+                Assert.AreEqual(3, PlayerLod.LevelFor(PlayerLod.Far * 2f, -1), "no level yet: plain thresholds");
             }
             finally { PlayerLod.Bias = bias; }
         }

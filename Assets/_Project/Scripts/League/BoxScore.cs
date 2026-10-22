@@ -26,7 +26,7 @@ namespace PixFootball.League
         public int Plays;
         public int Yards;
         public int Seconds;
-        /// <summary>"Touchdown", "Field Goal", "Missed FG", "Punt", "Interception", "Fumble", "Downs", "Safety", "End of Half", "End of Game".</summary>
+        /// <summary>"Touchdown", "Field Goal", "Missed FG", "Punt", "Interception", "Fumble", "Downs", "Safety", "End of Half", "End of Regulation", "End of Game".</summary>
         public string Result = "";
         public int Points;
     }

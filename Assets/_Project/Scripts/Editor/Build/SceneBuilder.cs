@@ -26,8 +26,8 @@ namespace PixFootball.EditorTools
         // NFL goal post: crossbar 10 ft (3.048 m), uprights reach 35 ft (10.668 m) above the crossbar
         public const float CrossbarHeight = 3.048f, UprightHeight = 10.668f;
 
-        public static readonly string[] ExpectedStadiumObjects = { "Stadium", "Crowd", "Lighting", "Lighting_Night", "Lighting_Day", "Main Camera", "FreeRoam", "FreeRoamUI" };
-        public static readonly string[] ExpectedMatchObjects = { "Stadium", "Crowd", "Lighting", "Lighting_Night", "Lighting_Day", "Main Camera", "Match", "MatchUI" };
+        public static readonly string[] ExpectedStadiumObjects = { "Stadium", "Crowd", "Lighting", "Lighting_Night", "Lighting_Day", "Lighting_Flood", "Main Camera", "FreeRoam", "FreeRoamUI" };
+        public static readonly string[] ExpectedMatchObjects = { "Stadium", "Crowd", "Lighting", "Lighting_Night", "Lighting_Day", "Lighting_Flood", "Main Camera", "Match", "MatchUI" };
         public static readonly string[] ExpectedMenuObjects = { "Main Camera", "MainMenu", "MenuStage" };
 
         // ---------------------------------------------------------------------------------------------- helpers
@@ -50,7 +50,7 @@ namespace PixFootball.EditorTools
             return p;
         }
 
-        static void CommonPost(VolumeProfile p, bool night)
+        internal static void CommonPost(VolumeProfile p, bool night)
         {
             var tm = AddOverride<Tonemapping>(p); tm.mode.Override(TonemappingMode.ACES);
             var bloom = AddOverride<Bloom>(p); bloom.intensity.Override(night ? 0.18f : 0.1f); bloom.threshold.Override(0.9f); bloom.scatter.Override(0.6f);
@@ -79,7 +79,7 @@ namespace PixFootball.EditorTools
         }
 
         // ---------------------------------------------------------------------------------------------- lighting presets
-        static GameObject BuildNight(out Light moon)
+        internal static GameObject BuildNight(out Light moon)
         {
             var root = new GameObject("Lighting_Night");
             var prof = NewProfile("Night_Stadium");
@@ -97,6 +97,13 @@ namespace PixFootball.EditorTools
             // moon / fill: soft blue directional with shadows
             moon = MakeLight(root.transform, "Moon", LightType.Directional, new Vector3(0, 60, 0), Quaternion.Euler(52f, -35f, 0f), LightUnit.Lux, 420f, new Color(0.55f, 0.66f, 1f), true);
 
+            return root;
+        }
+
+        /// <summary>v0.6: the floodlight rig is its own root so dusk, overcast and rain games can switch the lights on under the sun (WeatherSystem owns the intensity and the cookie).</summary>
+        internal static GameObject BuildFlood()
+        {
+            var root = new GameObject("Lighting_Flood");
             // stadium floodlights: spot lights on the roof edges, aimed at the pitch (candela, roughly 1500 lux on the grass)
             var rig = new GameObject("Floodlights").transform; rig.SetParent(root.transform, false);
             Color warm = new Color(1f, 0.95f, 0.88f);
@@ -106,7 +113,7 @@ namespace PixFootball.EditorTools
                 {
                     Vector3 pos = new Vector3(sx * 46f, 46f, z);
                     Vector3 aim = new Vector3(-sx * 4f, 0f, z * 0.45f);
-                    var l = MakeLight(rig, "Flood_" + (sx < 0 ? "W" : "E") + (++n), LightType.Spot, pos, Quaternion.LookRotation(aim - pos), LightUnit.Candela, 9400000f, warm, n == 3);   // one floodlight shadow (player shadows are the single biggest GPU cost)
+                    var l = MakeLight(rig, "Flood_" + (sx < 0 ? "W" : "E") + (++n), LightType.Spot, pos, Quaternion.LookRotation(aim - pos), LightUnit.Candela, 9400000f, warm, false);   // v0.6: WeatherSystem turns shadows on for the rim lamps by graphics tier (player shadows are the biggest GPU cost)
                     l.spotAngle = 74f; l.range = 260f;
                     l.GetComponent<HDAdditionalLightData>().innerSpotPercent = 75f;
                 }
@@ -177,7 +184,7 @@ namespace PixFootball.EditorTools
             }
         }
 
-        static void FixGoalPosts(GameObject stadium)
+        internal static void FixGoalPosts(GameObject stadium)
         {
             foreach (var t in stadium.GetComponentsInChildren<Transform>(true))
             {
@@ -193,7 +200,7 @@ namespace PixFootball.EditorTools
             }
         }
 
-        static void BuildCrowdObjects(Transform parent)
+        internal static void BuildCrowdObjects(Transform parent)
         {
             var root = new GameObject("Crowd"); root.transform.SetParent(parent, false);
             var mat = AssetDatabase.LoadAssetAtPath<Material>(CrowdBuilder.BillboardMaterialPath);
@@ -249,19 +256,22 @@ namespace PixFootball.EditorTools
             int swapped = BrandingCleaner.ApplyCleanMaterials(stadium);
             Debug.Log("[PIX] clean materials applied to stadium: " + swapped);
             FixGoalPosts(stadium);
+            V6Look.UpgradeStadium(stadium);
             if (match) AddGoalPostColliders(stadium);
             // the roof lattice would cast a grid of shadows over the pitch from the sun and the floodlights
             foreach (var r in stadium.GetComponentsInChildren<Renderer>(true)) if (r.name.StartsWith("Skeleton")) r.shadowCastingMode = ShadowCastingMode.Off;
 
             BuildCrowdObjects(null);
+            V6Look.AddReflectionProbes();
 
             Light moon, sun;
             var night = BuildNight(out moon);
             var day = BuildDay(out sun);
+            var flood = BuildFlood();
             var lighting = new GameObject("Lighting");
-            night.transform.SetParent(lighting.transform, false); day.transform.SetParent(lighting.transform, false);
+            night.transform.SetParent(lighting.transform, false); day.transform.SetParent(lighting.transform, false); flood.transform.SetParent(lighting.transform, false);
             var lc = lighting.AddComponent<LightingController>();
-            lc.NightRoot = night; lc.DayRoot = day; lc.NightSun = moon; lc.DaySun = sun;
+            lc.NightRoot = night; lc.DayRoot = day; lc.FloodRoot = flood; lc.NightSun = moon; lc.DaySun = sun;
             day.SetActive(false);
 
             var cam = MakeMainCamera(new Vector3(-50f, 19f, -30f), Quaternion.LookRotation(new Vector3(50f, -17f, 0f)), 26f, false);
@@ -301,7 +311,7 @@ namespace PixFootball.EditorTools
             var prof = NewProfile("Menu_Stage");
             var exp = AddOverride<Exposure>(prof); exp.mode.Override(ExposureMode.Fixed); exp.fixedExposure.Override(8.4f);
             var env = AddOverride<VisualEnvironment>(prof); env.skyType.Override(0);
-            var fog = AddOverride<Fog>(prof); fog.enabled.Override(true); fog.enableVolumetricFog.Override(true); fog.meanFreePath.Override(40f); fog.albedo.Override(new Color(0.3f, 0.4f, 0.6f)); fog.anisotropy.Override(0.6f);
+            var fog = AddOverride<Fog>(prof); fog.enabled.Override(true); fog.enableVolumetricFog.Override(true); fog.meanFreePath.Override(140f); fog.albedo.Override(new Color(0.3f, 0.4f, 0.6f)); fog.anisotropy.Override(0.6f);
             CommonPost(prof, true);
             var volGo = new GameObject("MenuVolume"); var vol = volGo.AddComponent<Volume>(); vol.isGlobal = true; vol.sharedProfile = prof;
 

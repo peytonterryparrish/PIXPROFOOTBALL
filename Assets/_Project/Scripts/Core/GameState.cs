@@ -56,6 +56,14 @@ namespace PixFootball.Core
         // Overtime
         public bool AutoStartOvertime = true;
         public Team OvertimeReceiverDefault = Team.Home;
+        /// <summary>When set, the overtime kickoff is decided by a coin toss drawn from this generator instead of OvertimeReceiverDefault.</summary>
+        public Rng OvertimeCoin;
+        /// <summary>QA-479: the overtime coin toss. The winner receives; call before the overtime starts (the headless CPU game does it automatically, the live match flow should call it when regulation ends tied).</summary>
+        public Team TossForOvertime(Rng rng)
+        {
+            OvertimeReceiverDefault = rng != null && rng.Chance(0.5f) ? Team.Away : Team.Home;
+            return OvertimeReceiverDefault;
+        }
         public Team OvertimeFirstTeam;
         /// <summary>Pro OT: 0 = first team's possession, 1 = second team's possession, 2 = sudden death.</summary>
         public int OvertimeStage;
@@ -74,6 +82,9 @@ namespace PixFootball.Core
             ToKickoff(openingKicker, Rules.KickoffSpot, false);
             PlayClock = Rules.PlayClockDead;
         }
+
+        /// <summary>Wind and other playing conditions (UI wind indicator, kick and pass physics). Calm by default.</summary>
+        public MatchConditions Conditions = MatchConditions.Calm;
 
         public GameState Clone() { return (GameState)MemberwiseClone(); }
 
@@ -146,7 +157,7 @@ namespace PixFootball.Core
         {
             if (r == null) throw new ArgumentNullException("r");
             if (Phase == GamePhase.Final) return false;
-            if (Phase == GamePhase.Overtime) StartOvertime(OvertimeReceiverDefault);
+            if (Phase == GamePhase.Overtime) StartOvertime(OvertimeCoin != null ? TossForOvertime(OvertimeCoin) : OvertimeReceiverDefault);
             if (BurnRunoff()) return false;
             if (Phase == GamePhase.Final) return false;
 
@@ -155,6 +166,15 @@ namespace PixFootball.Core
             UntimedDown = false;
 
             bool penaltyEnforced = false;
+            if (r.Penalty != null && r.OffsettingPenalty != null && r.OffsettingPenalty.CommittedBy != r.Penalty.CommittedBy && r.Type != PlayType.Penalty)
+            {
+                // offsetting fouls (QA-489): the play does not count, the down is replayed from the same spot
+                SpendClock(r.TimeElapsed);
+                PenaltyEnforcer.Offset(this, r.Penalty, r.OffsettingPenalty);
+                StopClock();
+                EndPeriodIfNeeded();
+                return true;
+            }
             if (r.Penalty != null)
             {
                 bool accept;
@@ -179,10 +199,14 @@ namespace PixFootball.Core
 
         internal void ApplyPenaltyCore(PlayResult r)
         {
+            bool clockWasRunning = ClockRunning;
             SpendClock(r.TimeElapsed);
             bool defenseFoul = r.Penalty.CommittedBy != Possession;
             PenaltyEnforcer.Enforce(this, r.Penalty, r);
             StopClock();
+            // the 10-second runoff: an offensive foul in the last minute of a half, with the clock running, takes ten seconds off it
+            if (!defenseFoul && clockWasRunning && (Quarter == 2 || Quarter == 4) && ClockSeconds <= 60f && ClockSeconds > 0f && !IsOvertime)
+                ClockSeconds = Math.Max(0f, ClockSeconds - 10f);
             if (defenseFoul && r.Type != PlayType.Penalty && ClockSeconds <= 0f && !IsCollegeOvertime
                 && Phase != GamePhase.Final)
                 UntimedDown = true;
@@ -311,6 +335,7 @@ namespace PixFootball.Core
             int land = BallSpot + r.Yards;
             if (r.RecoveredByKickingTeam)
             {
+                { int recSpot = land + r.ReturnYards; if (recSpot >= 100) { ScoreTouchdown(kicker); return; } if (recSpot <= 0) { ScoreSafety(); return; } }   // a recovery in an end zone scores
                 BallSpot = Clamp(land + r.ReturnYards, 1, 99);
                 SetFirstDown();
                 ClockAfterLivePlay(false, false, r.RunoffSeconds, false);
@@ -389,7 +414,8 @@ namespace PixFootball.Core
 
             if (r.RecoveredByKickingTeam)
             {
-                Phase = GamePhase.Scrimmage;
+                { int recSpot = land + r.ReturnYards; if (recSpot >= 100) { ScoreTouchdown(kicker); return; } }   // the kicking team recovered it in the end zone
+                BallSpot = Clamp(land + r.ReturnYards, 1, 99);
                 BallSpot = Clamp(land + r.ReturnYards, 1, 99);
                 SetFirstDown();
                 ClockAfterLivePlay(false, false, r.RunoffSeconds, false);
@@ -427,9 +453,13 @@ namespace PixFootball.Core
                 }
                 if (scorer != OvertimePossessionTeam)
                 {
+                    // a defensive touchdown ends the game when it puts the scoring team ahead (it used to hand the other team the ball)
+                    if (ScoreOf(scorer) > ScoreOf(scorer.Opponent())) { Finish(); return; }
                     CollegeOvertimeEnd();
                     return;
                 }
+                // a touchdown on the second possession that already wins the game needs no point after
+                if (OvertimePossession == 2 && ScoreOf(scorer) > ScoreOf(scorer.Opponent())) { Finish(); return; }
                 RequiresTwoPoint = OvertimePeriod >= Rules.TwoPointOnlyFromOvertimePeriod;
                 Phase = GamePhase.PointAfter;
                 BallSpot = RequiresTwoPoint ? Rules.TwoPointSpot : Rules.PatSpot;
@@ -645,7 +675,7 @@ namespace PixFootball.Core
                 ClockSeconds = 0f;
                 if (HomeScore != AwayScore || !Rules.OvertimeEnabled) { Finish(); return; }
                 Phase = GamePhase.Overtime;
-                if (AutoStartOvertime) StartOvertime(OvertimeReceiverDefault);
+                if (AutoStartOvertime) StartOvertime(OvertimeCoin != null ? TossForOvertime(OvertimeCoin) : OvertimeReceiverDefault);
             }
             else
             {

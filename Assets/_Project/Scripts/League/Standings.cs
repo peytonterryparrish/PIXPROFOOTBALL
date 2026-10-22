@@ -99,7 +99,7 @@ namespace PixFootball.League
             }
             foreach (var kv in byGroup)
             {
-                var sorted = Sort(kv.Value, h2h, s.IsCollege);
+                var sorted = Sort(kv.Value, h2h, s.IsCollege, map);
                 for (int i = 0; i < sorted.Count; i++) sorted[i].GroupRank = i + 1;
             }
             var byConf = new Dictionary<int, List<StandingsRow>>();
@@ -111,7 +111,7 @@ namespace PixFootball.League
             }
             foreach (var kv in byConf)
             {
-                var sorted = Sort(kv.Value, h2h, s.IsCollege);
+                var sorted = Sort(kv.Value, h2h, s.IsCollege, map);
                 for (int i = 0; i < sorted.Count; i++) sorted[i].ConferenceRank = i + 1;
             }
             return rows;
@@ -133,7 +133,7 @@ namespace PixFootball.League
         }
 
         /// <summary>Sorts rows best-first applying the tiebreak chain. Returns a new list.</summary>
-        public static List<StandingsRow> Sort(IList<StandingsRow> input, Dictionary<long, float[]> h2h, bool byConference = false)
+        public static List<StandingsRow> Sort(IList<StandingsRow> input, Dictionary<long, float[]> h2h, bool byConference = false, Dictionary<int, StandingsRow> all = null)
         {
             var list = new List<StandingsRow>(input);
             list.Sort((a, b) =>
@@ -148,7 +148,7 @@ namespace PixFootball.League
                 int j = i + 1;
                 while (j < list.Count && Math.Abs(Key(list[j], byConference) - Key(list[i], byConference)) < 1e-6f) j++;
                 if (j - i == 1) result.Add(list[i]);
-                else result.AddRange(BreakTie(list.GetRange(i, j - i), h2h, byConference));
+                else result.AddRange(BreakTie(list.GetRange(i, j - i), h2h, byConference, all));
                 i = j;
             }
             return result;
@@ -156,7 +156,23 @@ namespace PixFootball.League
 
         private static float Key(StandingsRow r, bool byConf) { return byConf ? r.ConfPct : r.Pct; }
 
-        private static List<StandingsRow> BreakTie(List<StandingsRow> group, Dictionary<long, float[]> h2h, bool byConf)
+        /// <summary>Strength of victory (win pct of the teams beaten, per win) and strength of schedule (win pct of all opponents, per game), from the head-to-head table (QA-572).</summary>
+        private static void Strength(Dictionary<long, float[]> h2h, Dictionary<int, StandingsRow> all, int teamId, out float sov, out float sos)
+        {
+            double vSum = 0, vN = 0, sSum = 0, sN = 0;
+            foreach (var kv in h2h)
+            {
+                if ((int)(kv.Key >> 32) != teamId) continue;
+                StandingsRow opp;
+                if (!all.TryGetValue((int)(kv.Key & 0xFFFFFFFFL), out opp)) continue;
+                sSum += opp.Pct * kv.Value[1]; sN += kv.Value[1];
+                vSum += opp.Pct * kv.Value[0]; vN += kv.Value[0];
+            }
+            sov = vN > 0 ? (float)Math.Round(vSum / vN, 4) : 0f;
+            sos = sN > 0 ? (float)Math.Round(sSum / sN, 4) : 0f;
+        }
+
+        private static List<StandingsRow> BreakTie(List<StandingsRow> group, Dictionary<long, float[]> h2h, bool byConf, Dictionary<int, StandingsRow> all = null)
         {
             int n = group.Count;
             // head-to-head among the group, valid only if every pair met at least once
@@ -186,6 +202,12 @@ namespace PixFootball.League
             for (int a = 1; a < n; a++) if (group[a].DivisionId != group[0].DivisionId || group[a].DivisionId < 0) sameDiv = false;
             var idx = new List<int>();
             for (int a = 0; a < n; a++) idx.Add(a);
+            float[] sov = null, sos = null;
+            if (all != null)
+            {
+                sov = new float[n]; sos = new float[n];
+                for (int a = 0; a < n; a++) Strength(h2h, all, group[a].TeamId, out sov[a], out sos[a]);
+            }
             idx.Sort((x, y) =>
             {
                 int c = h2hPct[y].CompareTo(h2hPct[x]);
@@ -193,6 +215,8 @@ namespace PixFootball.League
                 if (sameDiv) { c = group[y].DivPct.CompareTo(group[x].DivPct); if (c != 0) return c; }
                 c = byConf ? group[y].Pct.CompareTo(group[x].Pct) : group[y].ConfPct.CompareTo(group[x].ConfPct);
                 if (c != 0) return c;
+                // QA-572: strength of victory, then strength of schedule, before the point differential
+                if (sov != null) { c = sov[y].CompareTo(sov[x]); if (c != 0) return c; c = sos[y].CompareTo(sos[x]); if (c != 0) return c; }
                 c = (group[y].PF - group[y].PA).CompareTo(group[x].PF - group[x].PA);
                 if (c != 0) return c;
                 return group[x].TeamId.CompareTo(group[y].TeamId);

@@ -124,7 +124,7 @@ namespace PixFootball.League
             {
                 var l = new List<string>();
                 if (_college != null) foreach (ConfBowlDef b in _college.Bowls) if (b.IsPlayoffBowl) l.Add(b.Name);
-                string[] fallback = { "Thorncrest Bowl", "Crystal Cane Bowl", "Citrus Comet Bowl", "Cottoncrest Classic", "Festival Flame Bowl", "Orchard Gold Bowl" };
+                string[] fallback = { "Briarfield Bowl", "Frostcane Bowl", "Tangelo Comet Bowl", "Linenfield Classic", "Emberfair Bowl", "Ridgegold Bowl" };
                 for (int i = l.Count; i < 6; i++) l.Add(fallback[i]);
                 return l.ToArray();
             }
@@ -138,7 +138,7 @@ namespace PixFootball.League
             var champs = new List<int>();
             for (int i = 0; i < Games.Count; i++)
                 if (Games[i].Kind == GameKind.ConferenceChampionship && Games[i].Played) champs.Add(Games[i].WinnerId);
-            champs.Sort((a, b) => ranking.IndexOf(a).CompareTo(ranking.IndexOf(b)));
+            champs.Sort((a, b) => RankOf(ranking, a).CompareTo(RankOf(ranking, b)));   // QA-575: a team missing from the ranking sorts last, not first
             var auto = new List<int>();
             for (int i = 0; i < champs.Count && auto.Count < 5; i++) auto.Add(champs[i]);
             var field = new List<int>(auto);
@@ -148,11 +148,17 @@ namespace PixFootball.League
             for (int i = 0; i < auto.Count && byes.Count < 4; i++) byes.Add(auto[i]);
             var rest = new List<int>();
             for (int i = 0; i < field.Count; i++) if (!byes.Contains(field[i])) rest.Add(field[i]);
-            rest.Sort((a, b) => ranking.IndexOf(a).CompareTo(ranking.IndexOf(b)));
+            rest.Sort((a, b) => RankOf(ranking, a).CompareTo(RankOf(ranking, b)));
             int seed = 1;
             for (int i = 0; i < byes.Count; i++) Seeds.Add(new PlayoffSeed { ConferenceId = -1, Seed = seed++, TeamId = byes[i], ConferenceChampion = true });
             for (int i = 0; i < rest.Count; i++) Seeds.Add(new PlayoffSeed { ConferenceId = -1, Seed = seed++, TeamId = rest[i], ConferenceChampion = auto.Contains(rest[i]) });
             Seeds.Sort((a, b) => a.Seed.CompareTo(b.Seed));
+        }
+
+        private static int RankOf(List<int> ranking, int teamId)
+        {
+            int i = ranking.IndexOf(teamId);
+            return i < 0 ? int.MaxValue : i;
         }
 
         private int TeamOfSeed(int seed)
@@ -228,7 +234,7 @@ namespace PixFootball.League
             // bowl-eligible teams (6+ wins) first, ranked; if the bowl slate is not full, the best 5-win (then 4-win) teams fill in
             int needed = bowlNames.Count * 2;
             var field = new List<int>();
-            for (int minWins = 6; minWins >= 0 && field.Count < needed; minWins--)
+            for (int minWins = 6; minWins >= 5 && field.Count < needed; minWins--)   // QA-574: never below five wins, an unfilled bowl slate stays unfilled
             {
                 for (int i = 0; i < ranking.Count && field.Count < needed; i++)
                 {

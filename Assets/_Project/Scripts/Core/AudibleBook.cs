@@ -26,6 +26,13 @@ namespace PixFootball.Core
 
         public void Set(string formationName, int slot, string playId)
         {
+            // QA-537: ignore a bad slot, and a play that belongs to another formation (it would change the formation mid pre-snap)
+            if (slot < 0 || slot >= SlotCount) return;
+            if (playId != null)
+            {
+                Play target = _book.FindPlay(playId);
+                if (target == null || target.FormationName != formationName) return;
+            }
             string[] ids;
             if (!_custom.TryGetValue(formationName, out ids)) { ids = new string[SlotCount]; _custom[formationName] = ids; }
             ids[slot] = playId;
@@ -39,6 +46,9 @@ namespace PixFootball.Core
             string[] custom; _custom.TryGetValue(fn, out custom);
             List<Play> plays = _book.PlaysFor(fn);
             plays.RemoveAll(p => p.Category == PlayCategory.Kneel || p.Category == PlayCategory.Spike || p.Name == "Hail Mary");
+            // QA-536: the defaults keep the direction of the call (a Left run never audibles to a Right one)
+            if (current.Name.EndsWith(" Left")) plays.RemoveAll(p => p.Name.EndsWith(" Right"));
+            else if (current.Name.EndsWith(" Right")) plays.RemoveAll(p => p.Name.EndsWith(" Left"));
             for (int i = 0; i < SlotCount; i++)
                 if (custom != null && custom[i] != null) result[i] = _book.FindPlay(custom[i]);
             // defaults: inside run, outside run, quick pass, intermediate pass, deep shot
@@ -57,8 +67,10 @@ namespace PixFootball.Core
             {
                 if (result[i] != null) continue;
                 Play pick = null;
-                foreach (string name in favs[i])
+                foreach (string favName in favs[i])
                 {
+                    // QA-536: a Left run audibles to the Left variants (the favourites are written Right)
+                    string name = current.Name.EndsWith(" Left") && favName.EndsWith(" Right") ? favName.Substring(0, favName.Length - 6) + " Left" : favName;
                     foreach (Play p in plays) if (p.Name == name && !used.Contains(p.Id)) { pick = p; break; }
                     if (pick != null) break;
                 }

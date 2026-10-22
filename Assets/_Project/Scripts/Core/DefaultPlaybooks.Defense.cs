@@ -189,7 +189,14 @@ namespace PixFootball.Core
             RunGap[] gaps = GapsFor(rushing.Count);
             for (int i = 0; i < rushing.Count; i++)
                 _a[rushing[i]] = new RushAssignment { Slot = rushing[i], Gap = gaps[i], Contain = i == 0 || i == rushing.Count - 1 };
-            if (c.Stunt != StuntKind.None && rushing.Count >= 2)
+            if (c.Stunt == StuntKind.Pinch && rushing.Count >= 2)
+            {
+                // QA-532: a pinch squeezes the ends inside (B gaps); the old code swapped gaps like a twist
+                ((RushAssignment)_a[rushing[0]]).Gap = RunGap.BLeft;
+                ((RushAssignment)_a[rushing[rushing.Count - 1]]).Gap = RunGap.BRight;
+                if (rushing.Count == 4) { ((RushAssignment)_a[rushing[1]]).Gap = RunGap.ALeft; ((RushAssignment)_a[rushing[2]]).Gap = RunGap.ARight; }
+            }
+            else if (c.Stunt != StuntKind.None && rushing.Count >= 2)
             {
                 int a = rushing.Count >= 3 ? rushing[1] : rushing[0];
                 int b = rushing.Count >= 3 ? rushing[2] : rushing[1];
@@ -217,6 +224,8 @@ namespace PixFootball.Core
             var under = new List<int>();
             foreach (int d in drops) if (Free(d)) under.Add(d);
             float depth = c.Deep ? 20f : 14f;
+            bool goalLine = _f.Unit == "4-4-3";
+            if (goalLine) depth = 6f;   // QA-532: a goal-line safety plays the end zone, not 14 yards behind it
             switch (c.Scheme)
             {
                 case CoverageScheme.Cover0:
@@ -225,7 +234,7 @@ namespace PixFootball.Core
                 case CoverageScheme.Cover1:
                 {
                     int fs = FirstFree(Resolve("FS"), Resolve("SS"));
-                    if (fs >= 0) Zone(fs, ZoneRegion.DeepMiddle());
+                    if (fs >= 0) Zone(fs, goalLine ? ZoneRegion.DeepMiddle(depth) : ZoneRegion.DeepMiddle());
                     AllocMan(FreeInPriority(false), c.Press);
                     break;
                 }
@@ -269,7 +278,7 @@ namespace PixFootball.Core
                     else if (c.Variant == DefVariant.Buzz)
                     {
                         int ss = Resolve("SS");
-                        if (Free(ss)) Zone(ss, ZoneRegion.BuzzRight());
+                        if (Free(ss)) Zone(ss, X(ss) < 0f ? ZoneRegion.BuzzLeft() : ZoneRegion.BuzzRight());   // QA-546: the buzz safety drops to the side he lines up on
                     }
                     foreach (int s in Others()) under.Add(s);
                     AllocUnder(under);
@@ -363,24 +372,24 @@ namespace PixFootball.Core
             Func<Position, float, float, SlotSpec> d = (p, x, y) => new SlotSpec(p, x, y, "");
             var list = new List<Formation>();
             list.Add(new Formation(Base43, PlaySide.Defense, "4-3", new[] {
-                d(Position.LE, -4.5f, 1.2f), d(Position.DT, -1.5f, 1.2f), d(Position.DT, 1.5f, 1.2f), d(Position.RE, 4.5f, 1.2f),
+                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
                 d(Position.LOLB, -6f, 4.5f), d(Position.MLB, 0f, 4.5f), d(Position.ROLB, 6f, 4.5f),
                 d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
             list.Add(new Formation(Base34, PlaySide.Defense, "3-4", new[] {
-                d(Position.LE, -3f, 1.2f), d(Position.DT, 0f, 1.2f), d(Position.RE, 3f, 1.2f),
+                d(Position.LE, -2.5f, 1f), d(Position.DT, 0f, 1f), d(Position.RE, 2.5f, 1f),
                 d(Position.LOLB, -6f, 2f), d(Position.MLB, -2f, 4.5f), d(Position.MLB, 2f, 4.5f), d(Position.ROLB, 6f, 2f),
                 d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
             list.Add(new Formation(Nickel, PlaySide.Defense, "4-2-5", new[] {
-                d(Position.LE, -4.5f, 1.2f), d(Position.DT, -1.5f, 1.2f), d(Position.DT, 1.5f, 1.2f), d(Position.RE, 4.5f, 1.2f),
+                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
                 d(Position.LOLB, -3.5f, 4.5f), d(Position.MLB, 3.5f, 4.5f),
                 d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
             list.Add(new Formation(Dime, PlaySide.Defense, "4-1-6", new[] {
-                d(Position.LE, -4.5f, 1.2f), d(Position.DT, -1.5f, 1.2f), d(Position.DT, 1.5f, 1.2f), d(Position.RE, 4.5f, 1.2f),
+                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
                 d(Position.MLB, 0f, 4.5f),
                 d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 9f, 5f), d(Position.CB, 17f, 7f),
                 d(Position.FS, -5f, 12f), d(Position.SS, 5f, 12f) }));
             list.Add(new Formation(GoalLineD, PlaySide.Defense, "4-4-3", new[] {
-                d(Position.LE, -4.5f, 1f), d(Position.DT, -1.5f, 1f), d(Position.DT, 1.5f, 1f), d(Position.RE, 4.5f, 1f),
+                d(Position.LE, -3.75f, 1f), d(Position.DT, -1.25f, 1f), d(Position.DT, 1.25f, 1f), d(Position.RE, 3.75f, 1f),
                 d(Position.LOLB, -6f, 2.5f), d(Position.MLB, -2f, 3f), d(Position.MLB, 2f, 3f), d(Position.ROLB, 6f, 2.5f),
                 d(Position.CB, -14f, 3f), d(Position.CB, 14f, 3f), d(Position.FS, 0f, 6f) }));
             return list;
@@ -403,7 +412,9 @@ namespace PixFootball.Core
             foreach (Formation f in DefensiveFormations()) if (pb.FindFormation(f.Name) == null) pb.Formations.Add(f);
             var concepts = new List<DefConcept>();
             var Z = PlayCategory.ZoneCoverage; var M = PlayCategory.ManCoverage; var B = PlayCategory.Blitz; var G = PlayCategory.GoalLine;
-            concepts.Add(Def("Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Base43, Nickel }, "MLB LB2", new[] { RunGap.ALeft, RunGap.BRight }));
+            concepts.Add(Def("Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Base43 }, "MLB LB2", new[] { RunGap.ALeft, RunGap.BRight }));
+            concepts.Add(Def("Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Nickel }, "MLB LB0", new[] { RunGap.BRight, RunGap.BLeft }));   // QA-531: the nickel has only two linebackers (there is no LB2)
+            concepts.Add(Def("3-4 Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Base34 }, "LB1 LB2 LB0", new[] { RunGap.ALeft, RunGap.ARight, RunGap.CLeft }));
             concepts.Add(Def("Cover 0 Double A-Gap", B, CoverageScheme.Cover0, new[] { Base43, Nickel }, "MLB LB0", new[] { RunGap.ARight, RunGap.ALeft }));
             concepts.Add(Def("Cover 1 Robber", M, CoverageScheme.Cover1, new[] { Base43, Base34, Nickel }, robber: "MLB"));
             concepts.Add(Def("Cover 1 Man Free", M, CoverageScheme.Cover1, new[] { Base43, Base34, Nickel, Dime }));
@@ -416,23 +427,24 @@ namespace PixFootball.Core
             concepts.Add(Def("Cover 3 Sky", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }));
             concepts.Add(Def("Cover 3 Cloud", Z, CoverageScheme.Cover3, new[] { Base43, Nickel }, variant: DefVariant.Cloud));
             concepts.Add(Def("Cover 3 Buzz", Z, CoverageScheme.Cover3, new[] { Nickel, Base43 }, variant: DefVariant.Buzz));
-            concepts.Add(Def("Cover 4 Quarters", Z, CoverageScheme.Cover4, new[] { Base43, Nickel, Dime }));
+            concepts.Add(Def("Cover 4 Quarters", Z, CoverageScheme.Cover4, new[] { Base43, Base34, Nickel, Dime }));   // QA-504: the 3-4 gets the shells and stunts the 4-3 has
             concepts.Add(Def("Cover 4 Match", Z, CoverageScheme.Cover4, new[] { Nickel }, press: true));
-            concepts.Add(Def("Cover 6", Z, CoverageScheme.Cover6, new[] { Nickel, Base43 }));
-            concepts.Add(Def("Cover 3 Fire Zone", B, CoverageScheme.Cover3, new[] { Base34, Base43 }, "LB0 LB3", drop: "DER"));
-            concepts.Add(Def("Zone Blitz Dog", B, CoverageScheme.Cover3, new[] { Base34 }, "LB0 LB1 LB3", drop: "DT"));
+            concepts.Add(Def("Cover 6", Z, CoverageScheme.Cover6, new[] { Nickel, Base43, Base34 }));
+            concepts.Add(Def("Cover 3 Fire Zone", B, CoverageScheme.Cover3, new[] { Base34 }, "LB0 LB3 LB1", drop: "DER"));   // QA-618: five rush, three deep, the right end drops
+            concepts.Add(Def("Cover 3 Fire Zone", B, CoverageScheme.Cover3, new[] { Base43 }, "LB0 LB2", drop: "DER"));
+            concepts.Add(Def("Zone Blitz Dog", B, CoverageScheme.Cover3, new[] { Base34 }, "LB0 LB1 LB3", new[] { RunGap.CLeft, RunGap.ALeft, RunGap.CRight }, drop: "DT"));   // QA-617: each blitzer has his own gap
             concepts.Add(Def("Corner Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Nickel, Base43 }, "CBR", new[] { RunGap.DRight }));
             concepts.Add(Def("Safety Blitz Cover 0", B, CoverageScheme.Cover0, new[] { Base43, Nickel }, "SS", new[] { RunGap.CRight }));
             concepts.Add(Def("Mike Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Base43 }, "MLB", new[] { RunGap.ARight }));
-            concepts.Add(Def("LB Cross Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Base34 }, "LB1 LB2", new[] { RunGap.ALeft, RunGap.BRight }));
-            concepts.Add(Def("Sam Blitz Cover 3", B, CoverageScheme.Cover3, new[] { Base43 }, "LB0", new[] { RunGap.CLeft }));
-            concepts.Add(Def("Will Blitz Cover 3", B, CoverageScheme.Cover3, new[] { Base43 }, "LB2", new[] { RunGap.CRight }));
-            concepts.Add(Def("Spy QB Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Nickel }, spy: "MLB"));
+            concepts.Add(Def("LB Cross Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Base34 }, "LB1 LB2", new[] { RunGap.ARight, RunGap.BLeft }));   // QA-529: the two inside backers swap sides, so the blitz actually crosses
+            concepts.Add(Def("Sam Blitz Cover 3", B, CoverageScheme.Cover3, new[] { Base43 }, "LB2", new[] { RunGap.CRight }));   // QA-530: Sam is the strong-side (right) backer
+            concepts.Add(Def("Will Blitz Cover 3", B, CoverageScheme.Cover3, new[] { Base43 }, "LB0", new[] { RunGap.CLeft }));
+            concepts.Add(Def("Spy QB Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }, spy: "MLB"));
             concepts.Add(Def("Prevent Shell", PlayCategory.Prevent, CoverageScheme.Prevent, new[] { Dime, Nickel }, deep: true));
             concepts.Add(Def("Dime Cover 1 Blitz", B, CoverageScheme.Cover1, new[] { Dime }, "MLB", new[] { RunGap.ARight }));
             concepts.Add(Def("Dime Quarters Spy", Z, CoverageScheme.Cover4, new[] { Dime }, spy: "MLB"));
             concepts.Add(Def("Nickel Fire Zone", B, CoverageScheme.Cover3, new[] { Nickel }, "NB MLB", new[] { RunGap.DLeft, RunGap.ARight }));
-            concepts.Add(Def("Twist Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Nickel }, stunt: StuntKind.Twist));
+            concepts.Add(Def("Twist Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }, stunt: StuntKind.Twist));
             concepts.Add(Def("Loop Stunt Cover 2", Z, CoverageScheme.Cover2, new[] { Base43, Nickel }, stunt: StuntKind.Loop));
             concepts.Add(Def("Double Edge Blitz Cover 2", B, CoverageScheme.Cover2, new[] { Nickel }, "CBL CBR", new[] { RunGap.DLeft, RunGap.DRight }));
             concepts.Add(Def("Goal Line Cover 0", G, CoverageScheme.Cover0, new[] { GoalLineD }, "LB0"));

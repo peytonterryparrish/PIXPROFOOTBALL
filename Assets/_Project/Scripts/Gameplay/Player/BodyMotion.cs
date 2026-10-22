@@ -50,6 +50,9 @@ namespace PixFootball.Gameplay
             public bool Locked; public Vector3 LockPos; public float Weight; public Vector3 Prev; public bool HavePrev;
         }
 
+        readonly Transform[] _bones = new Transform[56];
+        float _gy;     // ground height under the player (the avatar root), so the foot lock does not assume a pitch at y = 0
+        Transform Bone(HumanBodyBones b) { int i = (int)b; if (i < 0 || i >= _bones.Length) return _animator != null ? _animator.GetBoneTransform(b) : null; var t = _bones[i]; if (t == null && _animator != null) t = _bones[i] = _animator.GetBoneTransform(b); return t; }     // QA-725: bones cached once
         readonly PlayerAvatar _av;
         readonly Animator _animator;
         readonly Foot _left = new Foot(), _right = new Foot();
@@ -73,8 +76,8 @@ namespace PixFootball.Gameplay
             _av = av; _animator = av != null ? av.Animator : null;
             if (_animator != null && _animator.isHuman)
             {
-                _left.Upper = _animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg); _left.Lower = _animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg); _left.End = _animator.GetBoneTransform(HumanBodyBones.LeftFoot);
-                _right.Upper = _animator.GetBoneTransform(HumanBodyBones.RightUpperLeg); _right.Lower = _animator.GetBoneTransform(HumanBodyBones.RightLowerLeg); _right.End = _animator.GetBoneTransform(HumanBodyBones.RightFoot);
+                _left.Upper = Bone(HumanBodyBones.LeftUpperLeg); _left.Lower = Bone(HumanBodyBones.LeftLowerLeg); _left.End = Bone(HumanBodyBones.LeftFoot);
+                _right.Upper = Bone(HumanBodyBones.RightUpperLeg); _right.Lower = Bone(HumanBodyBones.RightLowerLeg); _right.End = Bone(HumanBodyBones.RightFoot);
             }
             _armTime = -1f;
         }
@@ -105,6 +108,7 @@ namespace PixFootball.Gameplay
         {
             if (!Enabled || _animator == null || !_animator.isHuman || dt <= 1e-5f) return;
             float w = Mathf.Clamp01(LocomotionWeight);
+            _gy = _animator.transform.position.y;
             // ---- lean
             float bankT = LeanEnabled ? LeanMath.BankDegrees(_lat, _speed) * w : 0f;
             float pitchT = LeanEnabled ? LeanMath.PitchDegrees(_fwdAcc, _speed) * w : 0f;
@@ -112,13 +116,13 @@ namespace PixFootball.Gameplay
             if (Mathf.Abs(_bank) > 0.15f || Mathf.Abs(_pitch) > 0.15f)
             {
                 Vector3 right = Vector3.Cross(Vector3.up, _fwd);
-                var spine = _animator.GetBoneTransform(HumanBodyBones.Spine); var chest = _animator.GetBoneTransform(HumanBodyBones.Chest); var head = _animator.GetBoneTransform(HumanBodyBones.Head);
+                var spine = Bone(HumanBodyBones.Spine); var chest = Bone(HumanBodyBones.Chest); var head = Bone(HumanBodyBones.Head);
                 // +bank leans to the right: rotate about the forward axis by -bank; +pitch tips the chest forward: rotate about the right axis by +pitch
                 Quaternion q = Quaternion.AngleAxis(-_bank, _fwd) * Quaternion.AngleAxis(_pitch, right);
                 if (spine != null) spine.rotation = Quaternion.Slerp(Quaternion.identity, q, 0.45f) * spine.rotation;
                 if (chest != null) chest.rotation = Quaternion.Slerp(Quaternion.identity, q, 0.55f) * chest.rotation;
                 // the head stays up looking where the runner is going
-                if (head != null) head.rotation = Quaternion.Slerp(Quaternion.identity, Quaternion.Inverse(q), 0.55f) * head.rotation;
+                if (head != null) head.rotation = Quaternion.Inverse(q) * head.rotation;     // QA-721: spine 0.45 + chest 0.55 = the full lean reaches the head, so the head takes all of it back
             }
             // ---- stiff arm
             if (_armTime >= 0f)
@@ -144,10 +148,10 @@ namespace PixFootball.Gameplay
             _protectW = Mathf.MoveTowards(_protectW, _protect ? 1f : 0f, dt / 0.12f);
             float k = _protectW * w;
             if (k <= 0.01f) return;
-            var chest = _animator.GetBoneTransform(HumanBodyBones.Chest);
-            var upper = _animator.GetBoneTransform(_protectSide > 0 ? HumanBodyBones.RightUpperArm : HumanBodyBones.LeftUpperArm);
-            var lower = _animator.GetBoneTransform(_protectSide > 0 ? HumanBodyBones.RightLowerArm : HumanBodyBones.LeftLowerArm);
-            var hand = _animator.GetBoneTransform(_protectSide > 0 ? HumanBodyBones.RightHand : HumanBodyBones.LeftHand);
+            var chest = Bone(HumanBodyBones.Chest);
+            var upper = Bone(_protectSide > 0 ? HumanBodyBones.RightUpperArm : HumanBodyBones.LeftUpperArm);
+            var lower = Bone(_protectSide > 0 ? HumanBodyBones.RightLowerArm : HumanBodyBones.LeftLowerArm);
+            var hand = Bone(_protectSide > 0 ? HumanBodyBones.RightHand : HumanBodyBones.LeftHand);
             if (chest == null || upper == null || lower == null || hand == null) return;
             Vector3 right = Vector3.Cross(Vector3.up, _fwd);
             Vector3 target = chest.position + Vector3.down * 0.12f + _fwd * 0.17f + right * (_protectSide * 0.10f);
@@ -158,13 +162,13 @@ namespace PixFootball.Gameplay
         void ApplyArm(float weight)
         {
             if (weight <= 0.01f) return;
-            var chest = _animator.GetBoneTransform(HumanBodyBones.Chest);
+            var chest = Bone(HumanBodyBones.Chest);
             Vector3 right = Vector3.Cross(Vector3.up, _fwd);
             Vector3 toTarget = _armTarget - (chest != null ? chest.position : _armTarget);
             bool rightArm = Vector3.Dot(right, toTarget) >= 0f;
-            var upper = _animator.GetBoneTransform(rightArm ? HumanBodyBones.RightUpperArm : HumanBodyBones.LeftUpperArm);
-            var lower = _animator.GetBoneTransform(rightArm ? HumanBodyBones.RightLowerArm : HumanBodyBones.LeftLowerArm);
-            var hand = _animator.GetBoneTransform(rightArm ? HumanBodyBones.RightHand : HumanBodyBones.LeftHand);
+            var upper = Bone(rightArm ? HumanBodyBones.RightUpperArm : HumanBodyBones.LeftUpperArm);
+            var lower = Bone(rightArm ? HumanBodyBones.RightLowerArm : HumanBodyBones.LeftLowerArm);
+            var hand = Bone(rightArm ? HumanBodyBones.RightHand : HumanBodyBones.LeftHand);
             if (upper == null || lower == null || hand == null) return;
             // reach for the target but never past the arm's length (the solver clamps); the elbow stays where the animation bends it
             Vector3 pole = lower.position - (upper.position + hand.position) * 0.5f;
@@ -181,12 +185,12 @@ namespace PixFootball.Gameplay
             if (w < 0.5f) { f.Locked = false; f.Weight = Mathf.MoveTowards(f.Weight, 0f, dt / 0.05f); return; }
             if (!f.Locked)
             {
-                if (p.y < 0.115f && speed < 0.65f && f.Weight < 0.05f) { f.Locked = true; f.LockPos = p; }
+                if (p.y - _gy < 0.115f && speed < 0.65f && f.Weight < 0.05f) { f.Locked = true; f.LockPos = p; }
             }
             else
             {
                 float away = new Vector2(p.x - f.LockPos.x, p.z - f.LockPos.z).magnitude;
-                if (p.y > 0.16f || away > 0.30f) f.Locked = false;
+                if (p.y - _gy > 0.16f || away > 0.30f) f.Locked = false;     // QA-724: relative to the ground under the player
             }
             f.Weight = Mathf.MoveTowards(f.Weight, f.Locked ? 1f : 0f, dt / (f.Locked ? 0.06f : 0.05f));
             if (f.Weight <= 0.01f) return;

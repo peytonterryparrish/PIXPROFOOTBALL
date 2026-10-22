@@ -41,7 +41,7 @@ namespace PixFootball.Gameplay
         public Vector3 ToUnity(Vec3 p) { return new Vector3(_s * (p.X - HalfWidthYd) * YardsToMeters, p.Z * YardsToMeters, _s * (p.Y - MidfieldYd) * YardsToMeters); }
         public Vector3 ToUnity(float simX, float simY) { return new Vector3(_s * (simX - HalfWidthYd) * YardsToMeters, 0f, _s * (simY - MidfieldYd) * YardsToMeters); }
         public Vector3 VelToUnity(Vec2 v) { return new Vector3(_s * v.X * YardsToMeters, 0f, _s * v.Y * YardsToMeters); }
-        public Vector3 DirToUnity(Vec2 d) { Vector3 v = new Vector3(_s * d.X, 0f, _s * d.Y); return v.sqrMagnitude < 1e-8f ? Vector3.forward : v.normalized; }
+        public Vector3 DirToUnity(Vec2 d) { Vector3 v = new Vector3(_s * d.X, 0f, _s * d.Y); return v.sqrMagnitude < 1e-8f ? new Vector3(0f, 0f, _s) : v.normalized; }
 
         public Vec2 ToSim(Vector3 u) { return new Vec2(_s * u.x / YardsToMeters + HalfWidthYd, _s * u.z / YardsToMeters + MidfieldYd); }
         /// <summary>World-space XZ direction (x right, y = z forward) to a simulation direction.</summary>

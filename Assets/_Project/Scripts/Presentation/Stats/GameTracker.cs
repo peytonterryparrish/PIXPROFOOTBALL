@@ -42,23 +42,53 @@ namespace PixFootball.Presentation
         // snapshot before the snap
         int _q0, _down0, _dist0, _spot0, _poss0; float _clock0; bool _have0;
         int _driveStartElapsed;
+        // team index (0 home, 1 away) of the open drive, and of every drive in Drives (a mirror match has equal team ids, so the id alone cannot tell them apart)
+        int _curIdx;
+        readonly List<int> _driveIdx = new List<int>();
+        // the drive whose touchdown is waiting for its extra point / two-point try (QA-837)
+        DriveRecord _tdDrive;
+        /// <summary>Length of one overtime period in seconds (QA-841). Defaults to the quarter length (at most 10 minutes); set it from the rule set when it differs.</summary>
+        public int OvertimeSeconds;
 
         public GameTracker(LeagueTeam home, LeagueTeam away, string homeAbbr, string awayAbbr, int quarterMinutes)
         {
             Home = home; Away = away; HomeAbbr = homeAbbr; AwayAbbr = awayAbbr; QuarterSeconds = Math.Max(60, quarterMinutes * 60);
+            OvertimeSeconds = Math.Min(QuarterSeconds, 600);
             HomeBox.TeamId = home.Id; AwayBox.TeamId = away.Id;
         }
 
         public TeamBoxScore BoxOf(int teamIdx) { return teamIdx == 0 ? HomeBox : AwayBox; }
         public LeagueTeam TeamOf(int teamIdx) { return teamIdx == 0 ? Home : Away; }
         public string AbbrOf(int teamIdx) { return teamIdx == 0 ? HomeAbbr : AwayAbbr; }
-        public int TeamIdxOfPlayer(Player p) { return p != null && p.TeamId == Away.Id && Away.Id != Home.Id ? 1 : 0; }
+        /// <summary>0 for the home team, 1 for the away team. In a mirror match (both teams share an id) the rosters decide, never the id (QA-842).</summary>
+        public int TeamIdxOfPlayer(Player p)
+        {
+            if (p == null) return 0;
+            if (Home.Id != Away.Id) return p.TeamId == Away.Id ? 1 : 0;
+            if (!ReferenceEquals(Home, Away))
+            {
+                bool inHome = Home.GetPlayer(p.Id) != null, inAway = Away.GetPlayer(p.Id) != null;
+                if (inAway && !inHome) return 1;
+            }
+            return 0;
+        }
 
-        /// <summary>Seconds of game time elapsed at the given quarter / clock (regulation quarters; overtime counts after the fourth).</summary>
+        /// <summary>Team index (0 home, 1 away) a stat line belongs to.</summary>
+        public int TeamIdxOfLine(PlayerGameLine l)
+        {
+            if (l == null) return 0;
+            if (Home.Id != Away.Id) return l.TeamId == Away.Id ? 1 : 0;
+            Player p;
+            return Players.TryGetValue(l.PlayerId, out p) ? TeamIdxOfPlayer(p) : 0;
+        }
+
+        /// <summary>Seconds of game time elapsed at the given quarter / clock (regulation quarters; each overtime period uses its real length).</summary>
         public int Elapsed(int quarter, float clockSeconds)
         {
             int q = Math.Max(1, quarter);
-            return (int)Math.Round((q - 1) * QuarterSeconds + (QuarterSeconds - Math.Max(0f, Math.Min(QuarterSeconds, clockSeconds))));
+            int len = q > 4 ? Math.Max(1, OvertimeSeconds) : QuarterSeconds;
+            int before = q > 4 ? 4 * QuarterSeconds + (q - 5) * Math.Max(1, OvertimeSeconds) : (q - 1) * QuarterSeconds;
+            return (int)Math.Round(before + (len - Math.Max(0f, Math.Min(len, clockSeconds))));
         }
 
         /// <summary>Call when a play is built (before the snap; may be called more than once).</summary>
@@ -81,6 +111,12 @@ namespace PixFootball.Presentation
         /// <summary>Applies a finished play. <paramref name="lookup"/> maps a player id from the play result to the player on the field.</summary>
         public PlayDigest RecordPlay(PlayOutcome o, PlayKind kind, Func<int, Player> lookup, GameState after)
         {
+            try { return RecordPlayCore(o, kind, lookup, after); }
+            finally { _have0 = false; }   // the next play must bring its own BeginPlay snapshot (QA-841)
+        }
+
+        PlayDigest RecordPlayCore(PlayOutcome o, PlayKind kind, Func<int, Player> lookup, GameState after)
+        {
             var d = new PlayDigest();
             if (o == null || o.Result == null) return d;
             PlayResult r = o.Result;
@@ -88,32 +124,42 @@ namespace PixFootball.Presentation
             var offBox = BoxOf(off); var defBox = BoxOf(def);
             Plays++;
             bool scrim = kind == PlayKind.Scrimmage || kind == PlayKind.Kneel || kind == PlayKind.Spike;
-            bool penaltyOnly = o.PenaltyAccepted && o.Headline == Headline.Penalty;
             Func<int, Player> get = id => { if (id <= 0) return null; var p = lookup != null ? lookup(id) : null; if (p != null) Players[p.Id] = p; return p; };
             Func<int, PlayerGameLine> line = id => { var p = get(id); return p == null ? null : LineOf(p); };
 
-            if (penaltyOnly)
+            if (!_have0)
             {
-                BoxOf(r.Penalty.CommittedBy == CoreTeam.Home ? 0 : 1).Penalties++;
-                BoxOf(r.Penalty.CommittedBy == CoreTeam.Home ? 0 : 1).PenaltyYds += Math.Abs(r.Penalty.Def.ProYards);
-                return d;
+                // BeginPlay was skipped for this play: rebuild what the outcome tells us instead of reusing the snapshot of the previous play
+                _q0 = o.QuarterBefore; _poss0 = off; _down0 = 0; _dist0 = 0;
+                float clk = after != null ? after.ClockSeconds : 0f;
+                _clock0 = o.QuarterAfter == o.QuarterBefore ? Math.Min(QuarterSeconds, clk + Math.Max(0f, r.TimeElapsed)) : 0f;
+                if (after != null && scrim && !o.PossessionChanged) _spot0 = Math.Max(1, Math.Min(99, after.BallSpot - r.Yards));
             }
-            if (o.PenaltyAccepted && r.Penalty != null)
+
+            if (o.PenaltyAccepted)
             {
-                var pb = BoxOf(r.Penalty.CommittedBy == CoreTeam.Home ? 0 : 1);
-                pb.Penalties++; pb.PenaltyYds += Math.Abs(r.Penalty.Def.ProYards);
-                return d;   // the down is replayed: no stats for the nullified play
+                // the down is replayed (or the ball is moved): no stats for the nullified play, only the flag itself (QA-839/840)
+                PenaltyCall pc = r.Penalty ?? o.PenaltyCall;
+                if (pc != null)
+                {
+                    int pi = pc.CommittedBy == CoreTeam.Home ? 0 : 1;
+                    int py = o.PenaltyYards >= 0 ? o.PenaltyYards : Math.Abs(pc.Def.ProYards);
+                    var pb = BoxOf(pi); pb.Penalties++; pb.PenaltyYds += py;
+                    var pl = line(pc.PlayerId); if (pl != null) { pl.Stats.Penalties++; pl.Stats.PenaltyYds += py; }
+                    if (o.FirstDownGained && pi != off) offBox.FirstDowns++;
+                }
+                return d;
             }
 
             // ---------------------------------------------------------------- drive bookkeeping
-            if (scrim && _have0)
+            if (scrim)
             {
-                if (Current != null && Current.TeamId != TeamOf(off).Id) EndDrive(d, "Turnover", after);
+                if (Current != null && _curIdx != off) EndDrive(d, "Turnover", after);
                 if (Current == null)
                 {
                     Current = new DriveRecord { TeamId = TeamOf(off).Id, Quarter = _q0, StartClockSeconds = (int)_clock0, StartSpot = _spot0 };
                     _driveStartElapsed = Elapsed(_q0, _clock0);
-                    Drives.Add(Current); offBox.Drives++;
+                    _curIdx = off; Drives.Add(Current); _driveIdx.Add(off); offBox.Drives++;
                 }
                 Current.Plays++;
             }
@@ -158,7 +204,7 @@ namespace PixFootball.Presentation
                     var p = line(r.PasserId); var s = line(r.TacklerId);
                     offBox.Sacked++; offBox.SackYdsLost += Math.Abs(r.Yards); defBox.SacksMade++;
                     if (p != null) { p.Stats.Sacked++; p.Stats.SackYds += Math.Abs(r.Yards); }
-                    if (s != null) { s.Stats.Sacks++; s.Stats.Tackles++; d.FeaturedPlayerId = s.PlayerId; d.Role = FeatureRole.Sacker; }
+                    if (s != null) { s.Stats.Sacks++; s.Stats.Tackles++; s.Stats.TacklesForLoss++; d.FeaturedPlayerId = s.PlayerId; d.Role = FeatureRole.Sacker; }
                     if (Current != null) Current.Yards += r.Yards;
                     break;
                 }
@@ -172,9 +218,32 @@ namespace PixFootball.Presentation
                 }
                 case PlayType.Fumble:
                 {
-                    var l = line(r.RusherId);
-                    if (l != null) { l.Stats.Fumbles++; if (r.Turnover) l.Stats.FumblesLost++; }
-                    if (r.Turnover) { offBox.FumblesLost++; offBox.Giveaways++; defBox.Takeaways++; }
+                    // the carry / catch is credited BEFORE the fumble is recorded, so the yardage and the attempt are not lost (QA-835)
+                    int carrierId;
+                    FumbleBooking fb = MatchFlow.FumbleBookingOf(r, out carrierId);
+                    var fl = carrierId > 0 ? line(carrierId) : null;
+                    if (fb == FumbleBooking.Pass)
+                    {
+                        var p = line(r.PasserId);
+                        offBox.PassAtt++; offBox.PassCmp++; offBox.PassYds += r.Yards;
+                        if (p != null) { p.Stats.PassAtt++; p.Stats.PassCmp++; p.Stats.PassYds += r.Yards; p.Stats.PassLong = Math.Max(p.Stats.PassLong, r.Yards); }
+                        if (fl != null) { fl.Stats.Targets++; fl.Stats.Rec++; fl.Stats.RecYds += r.Yards; fl.Stats.RecLong = Math.Max(fl.Stats.RecLong, r.Yards); }
+                    }
+                    else if (fb == FumbleBooking.Rush)
+                    {
+                        offBox.RushAtt++; offBox.RushYds += r.Yards;
+                        if (fl != null) { fl.Stats.RushAtt++; fl.Stats.RushYds += r.Yards; fl.Stats.RushLong = Math.Max(fl.Stats.RushLong, r.Yards); }
+                    }
+                    if (fl != null) { fl.Stats.Fumbles++; if (r.Turnover) fl.Stats.FumblesLost++; }
+                    // the defender who made the tackle gets the forced fumble, the one who came up with the ball the recovery (QA-836)
+                    var stripper = line(r.TacklerId); if (stripper != null) stripper.Stats.ForcedFumbles++;
+                    defBox.FumblesForced++;
+                    if (r.Turnover)
+                    {
+                        offBox.FumblesLost++; offBox.Giveaways++; defBox.Takeaways++;
+                        var rcv = line(r.DefenderId);
+                        if (rcv != null) { rcv.Stats.FumbleRecoveries++; if (r.Touchdown) rcv.Stats.RetTd++; }
+                    }
                     if (Current != null) Current.Yards += r.Yards;
                     break;
                 }
@@ -189,13 +258,16 @@ namespace PixFootball.Presentation
                 {
                     offBox.XpAtt++; if (r.Good) offBox.XpMade++;
                     var k = line(r.KickerId);
-                    if (k != null) { k.Stats.XpAtt++; if (r.Good) k.Stats.XpMade++; }
-                    if (r.Good && Drives.Count > 0) Drives[Drives.Count - 1].Points += 1;
+                    if (k != null) { k.Stats.XpAtt++; if (r.Good) k.Stats.XpMade++; d.FeaturedPlayerId = k.PlayerId; d.Role = FeatureRole.Kicker; }
+                    // the extra point belongs to the drive that scored the touchdown, never to whichever drive started last (QA-837)
+                    if (r.Good && !r.DefensiveScore && _tdDrive != null) _tdDrive.Points += 1;
+                    _tdDrive = null;
                     break;
                 }
                 case PlayType.TwoPoint:
                 {
-                    offBox.TwoPointAtt++; if (r.Good) { offBox.TwoPointMade++; if (Drives.Count > 0) Drives[Drives.Count - 1].Points += 2; }
+                    offBox.TwoPointAtt++; if (r.Good) { offBox.TwoPointMade++; if (!r.DefensiveScore && _tdDrive != null) _tdDrive.Points += 2; }
+                    _tdDrive = null;
                     break;
                 }
                 case PlayType.Punt:
@@ -213,10 +285,12 @@ namespace PixFootball.Presentation
                     break;
                 }
             }
-            if (o.Headline == Headline.FirstDown) offBox.FirstDowns++;
+            // a first down: the line to gain was reached (rush, pass, fumble) or a defensive flag gave one. The flow works that out once (FirstDownGained), the headline is the fallback
+            bool fd = o.FirstDownGained || o.Headline == Headline.FirstDown;
+            if (fd) offBox.FirstDowns++;
             if (scrim && (r.Type == PlayType.Run || r.Type == PlayType.Pass || r.Type == PlayType.Sack || r.Type == PlayType.Incomplete || r.Type == PlayType.Interception || r.Type == PlayType.Fumble))
             {
-                bool conv = o.Headline == Headline.FirstDown || (o.Headline == Headline.Touchdown && !o.PossessionChanged);
+                bool conv = fd || (o.Headline == Headline.Touchdown && !o.PossessionChanged);
                 if (_down0 == 3) { offBox.ThirdDownAtt++; if (conv) offBox.ThirdDownConv++; }
                 else if (_down0 == 4) { offBox.FourthDownAtt++; if (conv) offBox.FourthDownConv++; }
             }
@@ -226,14 +300,16 @@ namespace PixFootball.Presentation
             {
                 int sIdx = o.ScoringTeam.Value == CoreTeam.Home ? 0 : 1;
                 int pts = sIdx == 0 ? o.HomePoints : o.AwayPoints;
-                var se = new ScoringEvent { Quarter = o.QuarterBefore, ClockSeconds = (int)after.ClockSeconds, TeamId = TeamOf(sIdx).Id, Points = pts, Description = o.Text, HomeScore = after.HomeScore, AwayScore = after.AwayScore };
+                var se = new ScoringEvent { Quarter = o.QuarterBefore, ClockSeconds = ScoreClock(o, r, after), TeamId = TeamOf(sIdx).Id, Points = pts, Description = o.Text, HomeScore = after.HomeScore, AwayScore = after.AwayScore };
                 Scoring.Add(se); d.Scored = true; d.Score = se;
                 BoxOf(sIdx).Score += pts;
+                bool offenseTd = false;
                 if (Current != null && (scrim || r.Type == PlayType.FieldGoal) && sIdx == off)
                 {
-                    if (r.Touchdown && !o.PossessionChanged) Current.Points += 6;
+                    if (r.Touchdown && !o.PossessionChanged) { Current.Points += 6; offenseTd = scrim; }
                     else if (r.Type == PlayType.FieldGoal) Current.Points += 3;
                 }
+                if (pts >= 6) _tdDrive = offenseTd ? Current : null;
             }
 
             // ---------------------------------------------------------------- drive end
@@ -253,9 +329,19 @@ namespace PixFootball.Presentation
             }
             else if (Current != null && (r.Type == PlayType.Punt)) EndDrive(d, "Punt", after);
             else if (Current != null && r.Type == PlayType.FieldGoal) EndDrive(d, r.Good ? "Field Goal" : "Missed FG", after);
-            if (Current != null && (o.PeriodChanged || o.GameOver) && Current != null) EndDrive(d, o.GameOver ? "End of Game" : (o.QuarterBefore == 2 ? "End of Half" : "End of Quarter"), after);
-            // time of possession from the drives
+            // a quarter break inside a half is not a drive break (QA-834): the open drive only ends at the half, at the end of regulation (overtime follows) or when the game is over
+            if (Current != null && (o.GameOver || (o.PeriodChanged && (o.QuarterBefore == 2 || o.QuarterBefore >= 4))))
+                EndDrive(d, o.GameOver ? "End of Game" : (o.QuarterBefore == 2 ? "End of Half" : (o.QuarterBefore == 4 ? "End of Regulation" : "End of Period")), after);
             return d;
+        }
+
+        /// <summary>The game clock when the score happened (QA-838): the pre-snap clock minus the running time of the play, never the reset clock of the next quarter.</summary>
+        int ScoreClock(PlayOutcome o, PlayResult r, GameState after)
+        {
+            float c;
+            if (_q0 == o.QuarterBefore) c = _clock0 - Math.Max(0f, r.TimeElapsed);
+            else c = after != null && after.Quarter == o.QuarterBefore ? after.ClockSeconds : 0f;
+            return (int)Math.Max(0f, Math.Min(QuarterSeconds, c));
         }
 
         void EndDrive(PlayDigest d, string result, GameState after)
@@ -265,7 +351,7 @@ namespace PixFootball.Presentation
             int end = Elapsed(after.Quarter, after.ClockSeconds);
             if (after.Quarter != _q0 && result.StartsWith("End of")) end = Elapsed(_q0, 0f);
             Current.Seconds = Math.Max(0, end - _driveStartElapsed);
-            int idx = Current.TeamId == Home.Id ? 0 : 1;
+            int idx = _curIdx;
             BoxOf(idx).TimeOfPossessionSeconds += Current.Seconds;
             d.EndedDrive = Current; d.EndedDriveTeamIdx = idx;
             Current = null;
@@ -274,18 +360,20 @@ namespace PixFootball.Presentation
         // ============================================================================================ queries
         public PlayerGameLine Line(int playerId) { PlayerGameLine l; return Lines.TryGetValue(playerId, out l) ? l : null; }
         public Player PlayerById(int id) { Player p; return Players.TryGetValue(id, out p) ? p : null; }
+        /// <summary>Team index (0 home, 1 away) that owned the drive at <paramref name="driveIndex"/> in <see cref="Drives"/>, or -1.</summary>
+        public int DriveTeamIdx(int driveIndex) { return driveIndex >= 0 && driveIndex < _driveIdx.Count ? _driveIdx[driveIndex] : -1; }
 
         /// <summary>The best performers of a team in a category ("pass", "rush", "rec", "def"), best first.</summary>
         public List<PlayerGameLine> Leaders(int teamIdx, string category, int count)
         {
-            int tid = TeamOf(teamIdx).Id;
+            // team membership by index, not by id (QA-842)
             var l = new List<PlayerGameLine>();
             foreach (var kv in Lines)
             {
                 var pl = kv.Value;
-                if (pl.TeamId != tid) continue;
+                if (TeamIdxOfLine(pl) != teamIdx) continue;
                 var s = pl.Stats;
-                bool ok = category == "pass" ? s.PassAtt > 0 : category == "rush" ? s.RushAtt > 0 : category == "rec" ? s.Rec > 0 : (s.Tackles + s.Sacks + s.Interceptions) > 0;
+                bool ok = category == "pass" ? s.PassAtt > 0 : category == "rush" ? s.RushAtt > 0 : category == "rec" ? s.Rec > 0 : (s.Tackles + s.Sacks + s.Interceptions + s.ForcedFumbles + s.FumbleRecoveries) > 0;
                 if (ok) l.Add(pl);
             }
             Comparison<PlayerGameLine> cmp = (a, b) => Metric(b, category).CompareTo(Metric(a, category));
@@ -311,16 +399,16 @@ namespace PixFootball.Presentation
         {
             var s = l.Stats;
             return s.PassYds * 0.045f + s.PassTd * 5f - s.PassInt * 4f + s.RushYds * 0.11f + s.RushTd * 6f + s.RecYds * 0.10f + s.RecTd * 6f + s.Rec * 0.4f
-                   + s.Sacks * 4.5f + s.Interceptions * 6f + s.Tackles * 0.55f + s.TacklesForLoss * 1.2f + s.FgMade * 2.5f + s.IntTd * 6f + s.RetTd * 6f - s.FumblesLost * 4f;
+                   + s.Sacks * 4.5f + s.Interceptions * 6f + s.Tackles * 0.55f + s.TacklesForLoss * 1.2f + s.FgMade * 2.5f + s.IntTd * 6f + s.RetTd * 6f - s.FumblesLost * 4f + s.ForcedFumbles * 2.5f + s.FumbleRecoveries * 2f;
         }
 
         public PlayerGameLine PlayerOfTheGame(int winnerTeamIdx)
         {
             PlayerGameLine best = null; float bs = float.MinValue;
-            int wid = winnerTeamIdx >= 0 ? TeamOf(winnerTeamIdx).Id : -1;
+            // (winner given as a team index, -1 for none)
             foreach (var kv in Lines)
             {
-                float s = Impact(kv.Value) + (kv.Value.TeamId == wid ? 3f : 0f);
+                float s = Impact(kv.Value) + (winnerTeamIdx >= 0 && TeamIdxOfLine(kv.Value) == winnerTeamIdx ? 3f : 0f);
                 if (s > bs) { bs = s; best = kv.Value; }
             }
             return best;

@@ -12,13 +12,18 @@ namespace PixFootball.Gameplay
     public class LocomotionAnimator : MonoBehaviour
     {
         public static readonly int VelX = Animator.StringToHash("VelX"), VelZ = Animator.StringToHash("VelZ"), SpeedP = Animator.StringToHash("Speed"),
-            Celebrating = Animator.StringToHash("Celebrating"), ProtectP = Animator.StringToHash("Protect"), LocoSpeed = Animator.StringToHash("LocoSpeed");
+            Celebrating = Animator.StringToHash("Celebrating"), ProtectP = Animator.StringToHash("Protect"), LocoSpeed = Animator.StringToHash("LocoSpeed"), CycleOffsetP = Animator.StringToHash("CycleOffset");
 
+        static readonly int NoneHash = Animator.StringToHash("None");     // QA-727: no per-frame string hashing
         public Animator Animator;
         public ActionAnimator Rig;
         /// <summary>Natural ground speeds (m/s) of the clips in the blend tree along each axis (set from the baked controller data).</summary>
         public float JogSpeed = 3.2f, RunSpeed = 5.2f, SprintSpeed = 8.2f, BackSpeed = 2.2f, SideSpeed = 2.6f;
 
+        /// <summary>Exponential follow rate (1/s) of the animated velocity.</summary>
+        public float SmoothRate = 9f;
+        float _ratio = 1f;
+        static int _phaseCounter; readonly int _phaseId = ++_phaseCounter;
         Vector2 _smoothed;
         bool _hasController;
         int _actionLayer = -1;
@@ -38,7 +43,7 @@ namespace PixFootball.Gameplay
         {
             Animator = a; Rig = rig;
             _hasController = rig != null && rig.Init(a, controller);
-            _actionLayer = 1;
+            _actionLayer = _hasController && rig.Loco.GetLayerCount() > 1 ? 1 : -1;     // QA-726
             Animator.applyRootMotion = false;
             if (speeds != null && speeds.Length >= 5) { JogSpeed = speeds[0]; RunSpeed = speeds[1]; SprintSpeed = speeds[2]; BackSpeed = speeds[3]; SideSpeed = speeds[4]; }
         }
@@ -60,8 +65,10 @@ namespace PixFootball.Gameplay
             float vx = Vector3.Dot(worldVelocity, right);
             float vz = Vector3.Dot(worldVelocity, fwd);
             var target = new Vector2(vx, vz);
-            _smoothed = Vector2.Lerp(_smoothed, target, 1f - Mathf.Exp(-dt * 22f));
+            // v0.8 smoothness: unhurried weight - the animated velocity follows the simulation with a ~0.11 s time constant (was 0.045 s: twitchy direction changes)
+            _smoothed = Vector2.Lerp(_smoothed, target, 1f - Mathf.Exp(-dt * SmoothRate));
             float speed = _smoothed.magnitude;
+            SetF(CycleOffsetP, (((uint)_phaseId * 2654435761u >> 8) & 0xFFFFu) / 65535f);     // each player starts his cycles at a different phase (no synchronised hops)
             SetF(VelX, _smoothed.x);
             SetF(VelZ, _smoothed.y);
             SetF(SpeedP, speed);
@@ -76,7 +83,8 @@ namespace PixFootball.Gameplay
             }
             else maxAlong = BackSpeed;
             float ratio = speed > 0.5f ? Mathf.Clamp(speed / Mathf.Max(0.1f, maxAlong), 1f, 1.6f) : 1f;
-            SetF(LocoSpeed, ratio);
+            _ratio = Mathf.Lerp(_ratio, ratio, 1f - Mathf.Exp(-dt * 8f));
+            SetF(LocoSpeed, _ratio);
 
             if (_actionLayer >= 0)
             {
@@ -84,12 +92,12 @@ namespace PixFootball.Gameplay
                 {
                     var l = Rig.Loco;
                     var st = l.GetCurrentAnimatorStateInfo(_actionLayer);
-                    InAction = l.IsInTransition(_actionLayer) || !st.IsName("None");
+                    InAction = l.IsInTransition(_actionLayer) || st.shortNameHash != NoneHash;
                 }
                 else
                 {
                     var st = Animator.GetCurrentAnimatorStateInfo(_actionLayer);
-                    InAction = Animator.IsInTransition(_actionLayer) || !st.IsName("None");
+                    InAction = Animator.IsInTransition(_actionLayer) || st.shortNameHash != NoneHash;
                 }
             }
         }

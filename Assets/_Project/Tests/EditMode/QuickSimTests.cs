@@ -55,7 +55,8 @@ namespace PixFootball.Tests
         [Test] public void SacksPerTeam() { var s = Run1000(); double v = s.Sacks / (2.0 * s.Games); Assert.That(v, Is.InRange(2.0, 2.7), "sacks/team " + v); }
         [Test] public void InterceptionsPerTeam() { var s = Run1000(); double v = s.Ints / (2.0 * s.Games); Assert.That(v, Is.InRange(0.65, 1.0), "INT/team " + v); }
         [Test] public void PlaysPerTeam() { var s = Run1000(); double v = s.Plays / (2.0 * s.Games); Assert.That(v, Is.InRange(60.0, 66.0), "plays/team " + v); }
-        [Test] public void HomeWinPercentage() { var s = Run1000(); double v = 100.0 * s.HomeWins / s.Games; Assert.That(v, Is.InRange(52.0, 58.0), "home win% " + v); }
+        // 1000 games carry about +-1.6 points of sampling noise around the true ~56 percent
+        [Test] public void HomeWinPercentage() { var s = Run1000(); double v = 100.0 * s.HomeWins / s.Games; Assert.That(v, Is.InRange(50.0, 60.0), "home win% " + v); }
 
         [Test]
         public void SecondaryRatesLookLikeFootball()
@@ -141,6 +142,7 @@ namespace PixFootball.Tests
         public void BoxScoreTotalsAreInternallyConsistent()
         {
             var rng = new Rng(77);
+            int puntDrives = 0;
             for (int g = 0; g < 60; g++)
             {
                 Team h = Lg.Teams[g % 32], a = Lg.Teams[(g * 5 + 1) % 32 == g % 32 ? (g + 3) % 32 : (g * 5 + 1) % 32];
@@ -171,12 +173,13 @@ namespace PixFootball.Tests
                 Assert.AreEqual(r.AwayScore, r.Scoring.Where(s => s.TeamId == a.Id).Sum(s => s.Points));
                 Assert.GreaterOrEqual(r.Drives.Count, 14);
                 Assert.IsTrue(r.Drives.All(d => !string.IsNullOrEmpty(d.Result)));
-                Assert.IsTrue(r.Drives.Any(d => d.Result == "Punt"));
+                puntDrives += r.Drives.Count(d => d.Result == "Punt");   // a shootout can have no punt at all, so punts are checked over the whole sample
                 int driveSum = r.Drives.Sum(d => d.Points), total = r.HomeScore + r.AwayScore;
                 Assert.LessOrEqual(driveSum, total, "drive points");
                 Assert.GreaterOrEqual(driveSum, total - 24, "points outside drives are rare (returns, safeties)");
                 Assert.Greater(r.Home.TimeOfPossessionSeconds + r.Away.TimeOfPossessionSeconds, 3000);
             }
+            Assert.Greater(puntDrives, 100, "punts over the sample");
         }
 
 

@@ -13,6 +13,8 @@ namespace PixFootball.Core
         public List<Vec2> Points = new List<Vec2>();
         public bool Dashed, Arrow, TEnd, Thick;
         public int Slot = -1;
+        /// <summary>True when <see cref="PlayDiagram.ClampToViewport"/> pulled at least one point back to the card edge (the route really runs further; QA-549).</summary>
+        public bool Clipped;
     }
 
     public sealed class DiagramZone
@@ -54,39 +56,73 @@ namespace PixFootball.Core
         {
             var d = new PlayDiagram { Side = f.Side, Title = f.Name };
             d.ApplyViewport(f.Side);
-            for (int i = 0; i < f.Slots.Length; i++) d.AddPlayer(i, f.Slots[i], f.Side == PlaySide.Defense);
+            for (int i = 0; i < f.Slots.Length; i++) d.AddPlayer(f, i, f.Side == PlaySide.Defense);
+            d.SeparateChips();
             return d;
         }
 
         public static PlayDiagram For(Playbook book, Play play)
         {
+            return For(book, play, null);
+        }
+
+        /// <summary>
+        /// The diagram of <paramref name="play"/>. <paramref name="offense"/> is the offensive formation a defensive play is drawn against (man coverage
+        /// lines point at ghosts of its receivers, QA-548); null uses the playbook's Singleback look.
+        /// </summary>
+        public static PlayDiagram For(Playbook book, Play play, Formation offense)
+        {
             Formation f = PlayEditing.FormationFor(book, play);
-            return For(play, f);
+            if (offense == null && play.Side == PlaySide.Defense) offense = book.FindFormation(DefaultPlaybooks.Singleback);
+            return For(play, f, offense);
         }
 
         public static PlayDiagram For(Play play, Formation f)
         {
+            return For(play, f, null);
+        }
+
+        public static PlayDiagram For(Play play, Formation f, Formation offense)
+        {
             var d = new PlayDiagram { Side = play.Side, Title = play.Name };
             d.ApplyViewport(play.Side);
             if (f == null) return d;
-            for (int i = 0; i < f.Slots.Length; i++) d.AddPlayer(i, f.Slots[i], play.Side == PlaySide.Defense);
+            for (int i = 0; i < f.Slots.Length; i++) d.AddPlayer(f, i, play.Side == PlaySide.Defense);
+            d.SeparateChips();
             if (play.Side == PlaySide.Offense) d.BuildOffense(play, f);
-            else if (play.Side == PlaySide.Defense) d.BuildDefense(play, f);
+            else if (play.Side == PlaySide.Defense) d.BuildDefense(play, f, offense);
             else { d.BuildSpecial(play, f); d.FitToContent(); return d; }
             d.ClampToViewport();
             return d;
         }
 
-        /// <summary>Deep routes run off the top of the card: pull stray points back to the viewport edge.</summary>
+        /// <summary>Number of strokes that <see cref="ClampToViewport"/> had to pull back to the card edge (QA-549: a non-zero count means a route is longer than the card shows).</summary>
+        public int ClippedStrokes { get; private set; }
+
+        /// <summary>Deep routes run off the top of the card: pull stray points back to the viewport edge and flag the strokes that were cut (<see cref="DiagramStroke.Clipped"/>).</summary>
         public void ClampToViewport()
         {
             float top = MaxY - 1.6f, side = MaxX - 1.0f;
+            ClippedStrokes = 0;
             foreach (DiagramStroke s in Strokes)
+            {
                 for (int i = 0; i < s.Points.Count; i++)
                 {
                     Vec2 p = s.Points[i];
-                    s.Points[i] = new Vec2(Math.Max(-side, Math.Min(side, p.X)), Math.Min(top, p.Y));
+                    var q = new Vec2(Math.Max(-side, Math.Min(side, p.X)), Math.Min(top, p.Y));
+                    if (q.X != p.X || q.Y != p.Y) s.Clipped = true;
+                    s.Points[i] = q;
                 }
+                if (s.Clipped) ClippedStrokes++;
+            }
+        }
+
+        /// <summary>One line per clipped stroke ("Slant: slot 8 ..."), for the editor tool and logs.</summary>
+        public List<string> ClipReport()
+        {
+            var l = new List<string>();
+            foreach (DiagramStroke s in Strokes) if (s.Clipped) l.Add(Title + ": " + s.Ink + " stroke of slot " + s.Slot + " is clipped by the card");
+            return l;
         }
 
         /// <summary>Viewport that frames every player and stroke (special teams units sit far apart).</summary>
@@ -112,9 +148,60 @@ namespace PixFootball.Core
             else { MinX = -26f; MaxX = 26f; MinY = -17f; MaxY = 30f; }
         }
 
-        void AddPlayer(int slot, SlotSpec s, bool defense)
+        void AddPlayer(Formation f, int slot, bool defense)
         {
-            Players.Add(new DiagramPlayer { Slot = slot, Position = s.Position, Label = LabelFor(s), X = s.X, Y = s.Y, Defense = defense });
+            SlotSpec s = f.Slots[slot];
+            Players.Add(new DiagramPlayer { Slot = slot, Position = s.Position, Label = LabelFor(f, slot), X = s.X, Y = s.Y, Defense = defense });
+        }
+
+        /// <summary>Chip label of a slot in its formation: like <see cref="LabelFor(SlotSpec)"/>, but the extra cornerbacks of a nickel / dime package read NB / DB instead of CB (QA-167).</summary>
+        public static string LabelFor(Formation f, int slot)
+        {
+            SlotSpec s = f.Slots[slot];
+            string l = LabelFor(s);
+            if (f.Side != PlaySide.Defense || s.Position != Position.CB || !string.IsNullOrEmpty(s.Label)) return l;
+            int count = 0, rank = 0;
+            for (int i = 0; i < f.Slots.Length; i++)
+            {
+                if (f.Slots[i].Position != Position.CB) continue;
+                count++;
+                if (f.Slots[i].X < s.X || (f.Slots[i].X == s.X && i < slot)) rank++;
+            }
+            if (count < 3 || rank == 0 || rank == count - 1) return l;
+            return count == 3 || rank == 1 ? "NB" : "DB";
+        }
+
+        const float OlChipRadius = 0.6f, ChipRadius = 1.05f;
+        static float ChipRadiusOf(DiagramPlayer p) { return !p.Defense && PositionGroup.IsOffensiveLine(p.Position) ? OlChipRadius : ChipRadius; }
+
+        /// <summary>
+        /// Display-only: chips that would overlap (shotgun QB and back stand two yards apart, a tight end next to the tackle) are pushed sideways until they just
+        /// clear each other, so no two bubbles draw on the same spot (QA-159). The formation data is not touched.
+        /// </summary>
+        void SeparateChips()
+        {
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool moved = false;
+                for (int j = 1; j < Players.Count; j++)
+                {
+                    DiagramPlayer b = Players[j];
+                    if (b.Ghost) continue;
+                    bool bLine = !b.Defense && PositionGroup.IsOffensiveLine(b.Position);
+                    for (int i = 0; i < j; i++)
+                    {
+                        DiagramPlayer a = Players[i];
+                        if (a.Ghost) continue;
+                        if (!a.Defense && PositionGroup.IsOffensiveLine(a.Position) && bLine) continue;   // the line is drawn as separate boxes already
+                        if (Math.Abs(a.Y - b.Y) >= 1.6f) continue;
+                        float need = ChipRadiusOf(a) + ChipRadiusOf(b) + 0.1f, dx = b.X - a.X;
+                        if (Math.Abs(dx) >= need - 0.001f) continue;
+                        b.X = a.X + (dx < 0f ? -need : need);
+                        moved = true;
+                    }
+                }
+                if (!moved) break;
+            }
         }
 
         public static string LabelFor(SlotSpec s)
@@ -131,7 +218,12 @@ namespace PixFootball.Core
             return "";
         }
 
-        Vec2 PosOf(Formation f, int slot) { return new Vec2(f.Slots[slot].X, f.Slots[slot].Y); }
+        /// <summary>Where the chip of a slot is drawn (the separated position when two chips were pushed apart), so strokes start at the chip.</summary>
+        Vec2 PosOf(Formation f, int slot)
+        {
+            if (slot >= 0 && slot < Players.Count && Players[slot].Slot == slot && !Players[slot].Ghost) return new Vec2(Players[slot].X, Players[slot].Y);
+            return new Vec2(f.Slots[slot].X, f.Slots[slot].Y);
+        }
 
         DiagramStroke Stroke(InkKind ink, int slot, bool arrow = false, bool dashed = false, bool tEnd = false, bool thick = false)
         {
@@ -202,8 +294,9 @@ namespace PixFootball.Core
                 default:
                     {
                         float dx = 0f;
-                        if (b.Target == BlockTarget.ZoneRight || b.Target == BlockTarget.Playside && play.Gap == RunGap.None) dx = 1.5f;
+                        if (b.Target == BlockTarget.ZoneRight) dx = 1.5f;
                         else if (b.Target == BlockTarget.ZoneLeft) dx = -1.5f;
+                        else if (b.Target == BlockTarget.Playside && play.Gap == RunGap.None) dx = 1.5f * DirOfRun(play);   // QA-547: toward the run, whichever way it goes
                         else if (b.Target == BlockTarget.Backside || b.Target == BlockTarget.Playside)
                             dx = (b.Target == BlockTarget.Playside ? 1f : -1f) * 1.2f * DirOfRun(play);
                         else if (b.Target == BlockTarget.EdgeDefender) dx = side * 1.4f;
@@ -222,6 +315,8 @@ namespace PixFootball.Core
                 if (c == null || c.IsFake || c.Path.Count == 0) continue;
                 return c.Path[c.Path.Count - 1].X >= 0f ? 1 : -1;
             }
+            var qb = play.Assignments.Length > 0 ? play.Assignments[0] as QbAssignment : null;
+            if (qb != null && qb.RunPath.Count > 0) return qb.RunPath[qb.RunPath.Count - 1].X >= 0f ? 1 : -1;
             return 1;
         }
 
@@ -276,16 +371,34 @@ namespace PixFootball.Core
         }
 
         // ================================================================================================ defense
-        void BuildDefense(Play play, Formation f)
+        /// <summary>Position of the offensive player a man defender covers when no offensive formation is known (a standard Singleback look).</summary>
+        static Vec2 FallbackGhost(int slot)
         {
-            // ghost offense: a standard five-eligible look so man coverage lines have something to point at
-            Vec2[] ghosts = { new Vec2(0f, -6f), new Vec2(4.5f, 0f), new Vec2(-17.5f, 0f), new Vec2(17.5f, -1f), new Vec2(-8f, -1f) };
-            int[] ghostSlot = { 1, 7, 8, 9, 10 };
-            bool hasMan = false;
-            foreach (Assignment a in play.Assignments) { var c = a as CoverageAssignment; if (c != null && c.IsMan) hasMan = true; }
-            if (hasMan)
-                for (int g = 0; g < ghosts.Length; g++)
-                    Players.Add(new DiagramPlayer { Slot = ghostSlot[g], Position = Position.WR, Label = "", X = ghosts[g].X, Y = ghosts[g].Y, Defense = false, Ghost = true });
+            switch (slot)
+            {
+                case 1: return new Vec2(0f, -6f); case 7: return new Vec2(4.5f, 0f); case 8: return new Vec2(-17.5f, 0f);
+                case 9: return new Vec2(17.5f, -1f); case 10: return new Vec2(-8f, -1f); default: return new Vec2(0f, -1f);
+            }
+        }
+
+        void BuildDefense(Play play, Formation f, Formation offense)
+        {
+            // ghost offense (QA-548): one faint stand-in per offensive slot that a man defender is assigned to, placed where that slot lines up in the
+            // offensive formation (a Singleback look when none is supplied), so the coverage lines point at the receivers they cover
+            var targets = new List<int>();
+            foreach (Assignment a in play.Assignments)
+            {
+                var c = a as CoverageAssignment;
+                if (c != null && c.IsMan && c.TargetSlot >= 0 && !targets.Contains(c.TargetSlot)) targets.Add(c.TargetSlot);
+            }
+            var ghostAt = new Dictionary<int, Vec2>();
+            foreach (int t in targets)
+            {
+                bool known = offense != null && t < offense.Slots.Length;
+                Vec2 gp = known ? new Vec2(offense.Slots[t].X, offense.Slots[t].Y) : FallbackGhost(t);
+                ghostAt[t] = gp;
+                Players.Add(new DiagramPlayer { Slot = t, Position = known ? offense.Slots[t].Position : Position.WR, Label = "", X = gp.X, Y = gp.Y, Defense = false, Ghost = true });
+            }
 
             for (int i = 0; i < play.Assignments.Length; i++)
             {
@@ -300,8 +413,8 @@ namespace PixFootball.Core
                     }
                     else if (cv.IsMan)
                     {
-                        int gi = Array.IndexOf(ghostSlot, cv.TargetSlot);
-                        Vec2 t = gi >= 0 ? ghosts[gi] : new Vec2(start.X, start.Y - 4f);
+                        Vec2 t;
+                        if (!ghostAt.TryGetValue(cv.TargetSlot, out t)) t = new Vec2(start.X, start.Y - 4f);
                         var s = Stroke(InkKind.Man, i, true, true);
                         s.Points.Add(start); s.Points.Add(new Vec2(t.X, Math.Max(t.Y + 0.9f, 0.9f) * 0.5f + t.Y * 0.5f)); s.Points.Add(new Vec2(t.X, t.Y + 0.8f));
                     }

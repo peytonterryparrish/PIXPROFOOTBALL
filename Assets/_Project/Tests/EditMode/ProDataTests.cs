@@ -126,12 +126,12 @@ namespace PixFootball.Tests
             foreach (Team t in Lg.Teams)
             {
                 Assert.IsTrue(seen.Add(t.Abbreviation), "duplicate " + t.Abbreviation);
-                Assert.That(t.Abbreviation.Length, Is.InRange(2, 3), t.FullName);
+                Assert.AreEqual(3, t.Abbreviation.Length, t.FullName);   // fixed-width codes (UI-FLOW QA-587/997)
                 Assert.IsTrue(Regex.IsMatch(t.Abbreviation, "^[A-Z]+$"), t.Abbreviation);
             }
             Assert.AreEqual("BUF", Lg.Teams.First(t => t.Key == "buffalo_ironhorns").Abbreviation);
             Assert.AreEqual("MIA", Lg.Teams.First(t => t.Key == "miami_reefrunners").Abbreviation);
-            Assert.AreEqual("NE", Lg.Teams.First(t => t.Key == "new_england_sentinels").Abbreviation);
+            Assert.AreEqual("NEW", Lg.Teams.First(t => t.Key == "new_england_sentinels").Abbreviation);
             Assert.AreEqual("NYS", Lg.Teams.First(t => t.Key == "new_york_skybolts").Abbreviation);
             Assert.AreEqual("NYC", Lg.Teams.First(t => t.Key == "new_york_colossi").Abbreviation);
             Assert.AreEqual("LAT", Lg.Teams.First(t => t.Key == "los_angeles_thunderhawks").Abbreviation);
@@ -145,7 +145,7 @@ namespace PixFootball.Tests
             for (int i = 0; i < 40; i++) teams.Add(new ProTeamDef { Id = "x" + i, City = i % 2 == 0 ? "Springfield" : "Spring Valley", Nickname = "Team" + (char)('A' + i % 26) + i });
             string[] a = ProData.DeriveAbbreviations(teams);
             Assert.AreEqual(40, a.Distinct().Count());
-            Assert.IsTrue(a.All(x => x.Length >= 2 && x.Length <= 3));
+            Assert.IsTrue(a.All(x => x.Length == 3));
         }
 
         [Test]

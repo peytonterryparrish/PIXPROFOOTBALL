@@ -84,14 +84,15 @@ namespace PixFootball.Core
             {
                 case PenaltyType.DefensivePassInterference:
                 {
-                    int y = Math.Max(1, (int)Math.Round(foulSpot));
+                    int y = Math.Max(1, (int)Math.Round(foulSpot, MidpointRounding.AwayFromZero));
+                    if (!rules.DpiSpotFoul && rules.DpiMaxYards > 0) return rules.DpiMaxYards;   // college: a flat 15 yards (not a spot foul)
                     if (rules.DpiMaxYards > 0) y = Math.Min(y, rules.DpiMaxYards);
                     return y;
                 }
                 case PenaltyType.OffensivePassInterference: return rules.OffensivePassInterferenceYards;
                 case PenaltyType.DefensiveHolding: return rules.DefensiveHoldingYards;
                 case PenaltyType.IntentionalGrounding:
-                    return foulSpot < -10f ? (int)Math.Round(-foulSpot) : 10;
+                    return foulSpot < -10f ? (int)Math.Round(-foulSpot, MidpointRounding.AwayFromZero) : 10;
                 default:
                     return rules.CollegeStyle ? CollegeYards : ProYards;
             }
@@ -123,6 +124,8 @@ namespace PixFootball.Core
             if (def.Side == PenaltySide.Either)
                 throw new ArgumentException(type + " can be committed by either team; use the constructor.");
             Team by = def.Side == PenaltySide.Offense ? state.Possession : state.Possession.Opponent();
+            // on a kickoff the team in possession is the KICKING team, and it is the kicking team that is offside or encroaches
+            if (state.Phase == GamePhase.Kickoff && (type == PenaltyType.Offside || type == PenaltyType.Encroachment)) by = state.Possession;
             return new PenaltyCall(type, by, foulSpotYards, playerId);
         }
 

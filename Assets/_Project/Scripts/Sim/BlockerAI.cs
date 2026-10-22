@@ -22,6 +22,9 @@ namespace PixFootball.Sim
         {
             AssignPassPro();
             AssignRunBlocks();
+            // the monotone assignment above holds for the first 0.3 s (blockers used to re-pick on the first tick and ignore it)
+            if (S.Kind == PlayKind.Scrimmage)
+                for (int i = 0; i < 22; i++) if (S.Agents[i].Side == BlockerSide && S.Agents[i].Assign is BlockAssignment && S.Agents[i].BlockTargetId >= 0) S.Agents[i].ReactionClock = 0.3f;
         }
 
         /// <summary>
@@ -43,7 +46,7 @@ namespace PixFootball.Sim
             }
             if (blockers.Count == 0) return;
             int rd = RunDir();
-            blockers.Sort((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
+            blockers.SortStable((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
             var front = new List<SimAgent>();
             var second = new List<SimAgent>();
             for (int i = 0; i < 22; i++)
@@ -54,8 +57,8 @@ namespace PixFootball.Sim
                 if (d.IsDefensiveLineman || (rel < 2.3f && PositionGroup.IsLinebacker(d.PlayPos))) front.Add(d);
                 else if ((PositionGroup.IsLinebacker(d.PlayPos) || PositionGroup.IsSafety(d.PlayPos)) && rel < 9.5f) second.Add(d);
             }
-            front.Sort((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
-            second.Sort((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
+            front.SortStable((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
+            second.SortStable((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
             var matched = new HashSet<int>();
             MonotoneMatch(blockers, front, rd, matched);
             var rest = new List<SimAgent>();
@@ -156,7 +159,7 @@ namespace PixFootball.Sim
                 var pairs = new List<Pair>();
                 foreach (SimAgent b in blockers)
                 {
-                    bool ol = PositionGroup.IsOffensiveLine(b.PlayPos) || (b.Side == SimSide.Defense && b.Slot < 4);
+                    bool ol = PositionGroup.IsOffensiveLine(b.PlayPos) || (b.Side == SimSide.Defense && PositionGroup.IsDefensiveLine(b.PlayPos)) || (b.Side == SimSide.Offense && S.Kind != PlayKind.Scrimmage && PositionGroup.IsOffensiveLine(b.PlayPos));
                     if ((pass == 0) != ol) continue;
                     if (b.BlockTargetId >= 0) continue;
                     foreach (SimAgent r in rushers)
@@ -170,7 +173,7 @@ namespace PixFootball.Sim
                         pairs.Add(new Pair { B = b, R = r, Cost = cost });
                     }
                 }
-                pairs.Sort((p, q) => p.Cost.CompareTo(q.Cost));
+                pairs.SortStable((p, q) => p.Cost.CompareTo(q.Cost));
                 var usedB = new HashSet<int>();
                 var usedR = new HashSet<int>();
                 foreach (SimAgent o in blockers) if (o.BlockTargetId >= 0) usedR.Add(o.BlockTargetId);
@@ -306,7 +309,7 @@ namespace PixFootball.Sim
 
         private void PullMove(SimAgent a, BlockAssignment ba, SimAgent t)
         {
-            a.Body.SpeedMultiplier = 1.10f; // pulling linemen are the quickest on the line
+
             float vmax = a.Body.EffectiveVMax;
             if (ba.Path.Count > 0 && a.PullStage < ba.Path.Count)
             {
@@ -343,7 +346,7 @@ namespace PixFootball.Sim
                 Vec2 hp = new Vec2(hole.X, hole.Y);
                 Vec2 to = hp - a.Pos;
                 a.Want = to.Norm() * (vmax * 0.95f);
-                if (t == null) return;
+                return;
             }
             Vec2 toT = t.Pos + t.Vel * 0.25f - a.Pos;
             a.Want = toT.Norm() * (vmax * 0.95f);
@@ -368,16 +371,6 @@ namespace PixFootball.Sim
             }
         }
 
-        private IEnumerable<SimAgent> Opponents(SimAgent a)
-        {
-            for (int i = 0; i < 22; i++)
-            {
-                SimAgent d = S.Agents[i];
-                if (d.Side == a.Side) continue;
-                if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
-                yield return d;
-            }
-        }
 
         private int TargetedByOthers(SimAgent a, SimAgent d)
         {
@@ -393,12 +386,17 @@ namespace PixFootball.Sim
 
         private SimAgent PassProTarget(SimAgent a, BlockAssignment ba, SimAgent current)
         {
-            // stay with the assigned rusher while he remains a threat
-            if (current != null && (current.Pos - a.Pos).Length < 7f) return current;
+            // stay with the assigned rusher while he remains a threat; a rusher who is already beaten behind the blocker, or is locked with a teammate, is released so a free rusher (an unblocked blitzer) gets picked up
+            if (current != null && (current.Pos - a.Pos).Length < 7f)
+            {
+                bool takenByMate = current.Engagement != null && !current.Engagement.Blockers.Contains(a);
+                bool pastMe = a.Side == SimSide.Offense && current.Pos.Y < a.Pos.Y - 0.8f;
+                if (!takenByMate && !pastMe) return current;
+            }
             Vec2 anchor = Anchor;
             SimAgent best = null; float bestScore = float.MaxValue;
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi408 = (a.Side == SimSide.Offense ? 11 : 0), oe408 = oi408 + 11; oi408 < oe408; oi408++)
+            { SimAgent d = S.Agents[oi408]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 if (d.NoEngageId == a.Id && S.Time < d.NoEngageUntil) continue;
                 bool rusher = IsRusher(d) || (d.Pos.Y < S.LosY + 5f && (anchor - d.Pos).Norm().Dot(d.Vel) > 1.5f);
                 if (!rusher) continue;
@@ -414,8 +412,8 @@ namespace PixFootball.Sim
             }
             if (best != null) return best;
             // help a teammate who is losing
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi425 = (a.Side == SimSide.Offense ? 11 : 0), oe425 = oi425 + 11; oi425 < oe425; oi425++)
+            { SimAgent d = S.Agents[oi425]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 if (d.Engagement == null || d.Engagement.Blockers.Count >= 2 || d.Engagement.Lev > 0.15f) continue;
                 if ((d.Pos - a.Pos).Length > 4.2f) continue;
                 return d;
@@ -426,8 +424,8 @@ namespace PixFootball.Sim
         private SimAgent EdgeTarget(SimAgent a, SimAgent current)
         {
             SimAgent best = null; float bd = float.MaxValue;
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi437 = (a.Side == SimSide.Offense ? 11 : 0), oe437 = oi437 + 11; oi437 < oe437; oi437++)
+            { SimAgent d = S.Agents[oi437]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 if (!(d.IsDefensiveLineman || PositionGroup.IsLinebacker(d.PlayPos))) continue;
                 float dist = (d.Pos - a.Pos).Length;
                 if (dist < bd && dist < 6f) { bd = dist; best = d; }
@@ -458,6 +456,13 @@ namespace PixFootball.Sim
                 if (Math.Abs(end.X) > 0.5f) return end.X > 0 ? 1 : -1;
                 return ca.Gap == RunGap.ARight || ca.Gap == RunGap.BRight || ca.Gap == RunGap.CRight || ca.Gap == RunGap.DRight ? 1 : -1;
             }
+            var qa0 = S.OffPlay.Assignments[0] as QbAssignment;
+            if (qa0 != null)
+            {
+                if (qa0.RollDirection != 0) return qa0.RollDirection > 0 ? 1 : -1;
+                if (qa0.RunPath.Count > 0 && Math.Abs(qa0.RunPath[qa0.RunPath.Count - 1].X) > 0.5f) return qa0.RunPath[qa0.RunPath.Count - 1].X > 0 ? 1 : -1;
+            }
+            if (S.Qb != null && S.Qb.Speed > 1f) return S.Qb.Vel.X >= 0f ? 1 : -1;   // a scramble: toward the side the passer is running
             return 1;
         }
 
@@ -467,8 +472,8 @@ namespace PixFootball.Sim
             float aimX = a.StartPos.X + dx * 1.6f;
             SimAgent best = null; float bestScore = float.MinValue;
             bool climb = current != null && current.Engagement != null && !current.Engagement.Blockers.Contains(a) && current.Engagement.Lev > 0.3f;
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi485 = (a.Side == SimSide.Offense ? 11 : 0), oe485 = oi485 + 11; oi485 < oe485; oi485++)
+            { SimAgent d = S.Agents[oi485]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 float rel = d.Pos.Y - S.LosY;
                 if (rel > (climb ? 9f : 7.5f) || rel < -1.5f) continue;
                 if (climb && rel < 2.0f) continue;
@@ -518,8 +523,8 @@ namespace PixFootball.Sim
                     score = d => -(d.Pos - a.Pos).Length - (d.IsDefensiveLineman ? 0f : 1.5f) - Math.Abs(d.Pos.X - a.StartPos.X) * 0.35f;
                     break;
             }
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi536 = (a.Side == SimSide.Offense ? 11 : 0), oe536 = oi536 + 11; oi536 < oe536; oi536++)
+            { SimAgent d = S.Agents[oi536]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 if (d.NoEngageId == a.Id && S.Time < d.NoEngageUntil) continue;
                 if (current != null && d == current) { }
                 if ((d.Pos - a.Pos).Length > 14f) continue;
@@ -538,8 +543,8 @@ namespace PixFootball.Sim
             if (ba.Path.Count > 0) focus = S.Rel(ba.Path[ba.Path.Count - 1]);
             int rd = RunDir();
             SimAgent best = null; float bestScore = float.MinValue;
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi556 = (a.Side == SimSide.Offense ? 11 : 0), oe556 = oi556 + 11; oi556 < oe556; oi556++)
+            { SimAgent d = S.Agents[oi556]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 if (d.NoEngageId == a.Id && S.Time < d.NoEngageUntil) continue;
                 float dist = (d.Pos - focus).Length;
                 if (dist > 7f) continue;
@@ -560,8 +565,8 @@ namespace PixFootball.Sim
             Vec2 hole = new Vec2(S.BallX0, S.LosY + 1.5f);
             if (ca != null && ca.Path.Count > 0) hole = S.Rel(HolePoint(ca));
             SimAgent best = null; float bestScore = float.MinValue;
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi578 = (a.Side == SimSide.Offense ? 11 : 0), oe578 = oi578 + 11; oi578 < oe578; oi578++)
+            { SimAgent d = S.Agents[oi578]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 float dist = (d.Pos - hole).Length;
                 if (dist > 8f) continue;
                 float sc = -dist - 2.0f * TargetedByOthers(a, d) - (d.Engagement != null ? 3.0f : 0f);
@@ -576,8 +581,8 @@ namespace PixFootball.Sim
         private SimAgent StalkTarget(SimAgent a, SimAgent current)
         {
             SimAgent best = null; float bd = float.MaxValue;
-            foreach (SimAgent d in Opponents(a))
-            {
+            for (int oi594 = (a.Side == SimSide.Offense ? 11 : 0), oe594 = oi594 + 11; oi594 < oe594; oi594++)
+            { SimAgent d = S.Agents[oi594]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                 if (d.CoverTarget == a.Id) return d;
                 if (!(PositionGroup.IsDefensiveBack(d.PlayPos))) continue;
                 float dist = (d.Pos - a.Pos).Length + TargetedByOthers(a, d) * 5f;
@@ -595,6 +600,27 @@ namespace PixFootball.Sim
         {
             float vmax = a.Body.EffectiveVMax;
             a.Intent = AgentAction.Block;
+            if (S.Kind == PlayKind.Kickoff && S.Specials.KickAway && a.Side == SimSide.Defense && !S.Specials.CatchMade)
+            {
+                // the wall: hold a row 12-18 yards in front of the returner until the coverage arrives, then take the first man to reach it
+                float row = a.StartPos.Y <= 79f ? 78f : 84f;
+                Vec2 hold = new Vec2(a.StartPos.X + (FieldGeometry.CenterX - a.StartPos.X) * 0.18f, Math.Min(row, 94f));
+                SimAgent near = null; float nd = 99f;
+                for (int oi619 = (a.Side == SimSide.Offense ? 11 : 0), oe619 = oi619 + 11; oi619 < oe619; oi619++)
+                { SimAgent d = S.Agents[oi619]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
+                    if (d.Assign is KickAssignment) continue;
+                    float dd2 = (d.Pos - hold).Length;
+                    if (dd2 < nd) { nd = dd2; near = d; }
+                }
+                if (near == null || nd > 7.5f)
+                {
+                    Vec2 toHold = hold - a.Pos;
+                    a.Want = toHold.Norm() * Math.Min(vmax * 0.8f, toHold.Length * 2.5f);
+                    a.HasFace = true; a.FaceDir = new Vec2(0f, -1f);
+                    a.BlockTargetId = -1;
+                    return;
+                }
+            }
             a.ReactionClock -= PlaySimulation.Dt;
             SimAgent t = a.BlockTargetId >= 0 ? S.Agents[a.BlockTargetId] : null;
             bool valid = t != null && t.Side != a.Side && t.State != AgentState.Down && t.Body.FallenTime < 0.4f
@@ -603,8 +629,8 @@ namespace PixFootball.Sim
             if (!valid || a.ReactionClock <= 0f)
             {
                 SimAgent best = null; float bestScore = float.MinValue;
-                foreach (SimAgent d in Opponents(a))
-                {
+                for (int oi642 = (a.Side == SimSide.Offense ? 11 : 0), oe642 = oi642 + 11; oi642 < oe642; oi642++)
+                { SimAgent d = S.Agents[oi642]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                     if (d.IsDefensiveLineman == false && d.Assign is KickAssignment) continue;
                     float dist = (d.Pos - a.Pos).Length;
                     float sc = -dist - 3.0f * TargetedByOthers(a, d) - (d.Engagement != null ? 2f : 0f) - Math.Abs(d.StartPos.X - a.StartPos.X) * 0.25f;
@@ -640,8 +666,8 @@ namespace PixFootball.Sim
             {
                 float up = c.Side == SimSide.Offense ? 1f : -1f;
                 SimAgent best = null; float bestScore = float.MinValue;
-                foreach (SimAgent d in Opponents(a))
-                {
+                for (int oi679 = (a.Side == SimSide.Offense ? 11 : 0), oe679 = oi679 + 11; oi679 < oe679; oi679++)
+                { SimAgent d = S.Agents[oi679]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                     float threat = -(d.Pos - c.Pos).Length * 0.8f;
                     // opponents ahead of or level with the carrier are the dangerous ones
                     float ahead = (d.Pos.Y - c.Pos.Y) * up;
@@ -674,7 +700,7 @@ namespace PixFootball.Sim
 {
     internal sealed partial class BlockingSystem
     {
-        private static readonly BlockAssignment PickupAssign = new BlockAssignment { Block = BlockKind.PassPro, Target = BlockTarget.BlitzPickup };
+        private readonly BlockAssignment PickupAssign = new BlockAssignment { Block = BlockKind.PassPro, Target = BlockTarget.BlitzPickup };
 
         /// <summary>A play-action fake carrier who has sold the fake turns into a pass-protection back.</summary>
         public void FakeCarrierBlock(SimAgent a)
@@ -721,8 +747,8 @@ namespace PixFootball.Sim
             if (t == null || a.ReactionClock <= 0f || t.State == AgentState.Down || t.NoEngageId == a.Id && S.Time < t.NoEngageUntil)
             {
                 SimAgent best = null; float bs = float.MinValue;
-                foreach (SimAgent d in Opponents(a))
-                {
+                for (int oi760 = (a.Side == SimSide.Offense ? 11 : 0), oe760 = oi760 + 11; oi760 < oe760; oi760++)
+                { SimAgent d = S.Agents[oi760]; if (d.State == AgentState.Down || d.Body.FallenTime > 0.4f || d.HasBall) continue;
                     if (d.IsDefensiveLineman) continue;
                     if (d.NoEngageId == a.Id && S.Time < d.NoEngageUntil) continue;
                     float dist = (d.Pos - focus.Pos).Length;

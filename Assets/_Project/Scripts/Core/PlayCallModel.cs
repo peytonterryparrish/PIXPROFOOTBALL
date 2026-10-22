@@ -12,7 +12,30 @@ namespace PixFootball.Core
     {
         public string Title = "OFFENSE", TeamName = "", DownText = "", SpotText = "", ScoreText = "", ClockText = "", CoachStyle = "";
         public int Timeouts, Quarter;
-        public int PlayClockSeconds = 25;
+        /// <summary>Length of the play clock the screen counts down from (QA-506: follows the rules' live-ball clock until the caller sets the real one).</summary>
+        public int PlayClockSeconds = new RuleSet().PlayClockLive;
+        /// <summary>True when <see cref="ScoreText"/> is written HOME first (the legacy contract). The scorebug lists the AWAY team first, so <see cref="DisplayScore"/> swaps the sides (QA-158).</summary>
+        public bool ScoreIsHomeFirst = true;
+
+        /// <summary>Sets <see cref="ScoreText"/> in scorebug order (away team first).</summary>
+        public void SetScore(string awayAbbr, int awayScore, string homeAbbr, int homeScore)
+        {
+            ScoreText = awayAbbr + " " + awayScore + "  -  " + homeAbbr + " " + homeScore;
+            ScoreIsHomeFirst = false;
+        }
+
+        /// <summary>The score as the call screen prints it: away team first like the scorebug, single spaces around the dash.</summary>
+        public string DisplayScore
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(ScoreText)) return "";
+                string t = ScoreText.Replace("  -  ", " - ");
+                if (!ScoreIsHomeFirst) return t;
+                int i = t.IndexOf(" - ", StringComparison.Ordinal);
+                return i < 0 ? t : t.Substring(i + 3) + " - " + t.Substring(0, i);
+            }
+        }
     }
 
     /// <summary>One row of the second screen: an alignment set of the formation (offense) or a coverage group (defense).</summary>
@@ -100,12 +123,12 @@ namespace PixFootball.Core
                 }
                 else
                 {
+                    // QA-507: one set per category that is present (no category is silently dropped), labelled from the category
                     List<Play> all = FilterNonSpecial(Book.PlaysFor(fam));
-                    AddGroup(entry, baseF, "ZONE COVERAGE", all, PlayCategory.ZoneCoverage);
-                    AddGroup(entry, baseF, "MAN COVERAGE", all, PlayCategory.ManCoverage);
-                    AddGroup(entry, baseF, "BLITZ", all, PlayCategory.Blitz);
-                    var rest = all.FindAll(p => p.Category == PlayCategory.GoalLine || p.Category == PlayCategory.Prevent);
-                    if (rest.Count > 0) entry.Sets.Add(new SetEntry { Label = baseF.Name == DefaultPlaybooks.GoalLineD ? "GOAL LINE" : "PREVENT", Formation = baseF, Plays = rest, Detail = rest.Count + " PLAYS" });
+                    foreach (PlayCategory cat in DefenseSetOrder)
+                        AddGroup(entry, baseF, DefenseSetLabel(cat), all, cat);
+                    foreach (PlayCategory cat in DistinctCategories(all))
+                        if (Array.IndexOf(DefenseSetOrder, cat) < 0) AddGroup(entry, baseF, DefenseSetLabel(cat), all, cat);
                     entry.Detail = baseF.Unit;
                 }
                 if (entry.Sets.Count > 0) Formations.Add(entry);
@@ -116,6 +139,79 @@ namespace PixFootball.Core
         {
             var list = all.FindAll(p => p.Category == cat);
             if (list.Count > 0) entry.Sets.Add(new SetEntry { Label = label, Formation = f, Plays = list, Detail = list.Count + " PLAYS" });
+        }
+
+        /// <summary>Order of the defensive sets on the second screen.</summary>
+        static readonly PlayCategory[] DefenseSetOrder = { PlayCategory.ZoneCoverage, PlayCategory.ManCoverage, PlayCategory.Blitz, PlayCategory.GoalLine, PlayCategory.Prevent };
+
+        static List<PlayCategory> DistinctCategories(List<Play> plays)
+        {
+            var l = new List<PlayCategory>();
+            foreach (Play p in plays) if (!l.Contains(p.Category)) l.Add(p.Category);
+            return l;
+        }
+
+        /// <summary>Label of a defensive set row: the coverage categories read "ZONE COVERAGE" / "MAN COVERAGE", everything else its category name.</summary>
+        public static string DefenseSetLabel(PlayCategory cat)
+        {
+            switch (cat)
+            {
+                case PlayCategory.ZoneCoverage: return "ZONE COVERAGE";
+                case PlayCategory.ManCoverage: return "MAN COVERAGE";
+                default: return CategoryName(cat);
+            }
+        }
+
+        /// <summary>Player-facing name of a play category ("INSIDE RUN", "QUICK PASS", "FIELD GOAL"...). Never a raw enum identifier (QA-508).</summary>
+        public static string CategoryName(PlayCategory c)
+        {
+            switch (c)
+            {
+                case PlayCategory.InsideRun: return "INSIDE RUN"; case PlayCategory.OutsideRun: return "OUTSIDE RUN"; case PlayCategory.Draw: return "DRAW"; case PlayCategory.QbRun: return "QB RUN";
+                case PlayCategory.ShortPass: return "QUICK PASS"; case PlayCategory.MediumPass: return "INTERMEDIATE"; case PlayCategory.DeepPass: return "DEEP PASS"; case PlayCategory.PlayAction: return "PLAY ACTION";
+                case PlayCategory.Screen: return "SCREEN"; case PlayCategory.Kneel: return "KNEEL"; case PlayCategory.Spike: return "SPIKE";
+                case PlayCategory.ZoneCoverage: return "ZONE"; case PlayCategory.ManCoverage: return "MAN"; case PlayCategory.Blitz: return "BLITZ";
+                case PlayCategory.GoalLine: return "GOAL LINE"; case PlayCategory.Prevent: return "PREVENT"; case PlayCategory.Kickoff: return "KICKOFF"; case PlayCategory.Onside: return "ONSIDE KICK";
+                case PlayCategory.Punt: return "PUNT"; case PlayCategory.FieldGoal: return "FIELD GOAL"; case PlayCategory.PointAfter: return "EXTRA POINT"; case PlayCategory.KickReturn: return "KICK RETURN";
+                case PlayCategory.PuntReturn: return "PUNT RETURN"; case PlayCategory.FieldGoalBlock: return "KICK BLOCK";
+                default: return SpacedUpper(c.ToString());
+            }
+        }
+
+        /// <summary>Name of a playbook set ("Offense - Inside Run"): side plus the title-cased category name, for lists that show set names (QA-508).</summary>
+        public static string SetNameFor(PlaySide side, PlayCategory cat)
+        {
+            string name = CategoryName(cat).ToLowerInvariant();
+            var sb = new System.Text.StringBuilder(side.ToString());
+            sb.Append(" - ");
+            bool up = true;
+            for (int i = 0; i < name.Length; i++) { char ch = name[i]; sb.Append(up ? char.ToUpperInvariant(ch) : ch); up = ch == ' '; }
+            return sb.ToString();
+        }
+
+        /// <summary>"InsideZone" -> "INSIDE ZONE", "QbKeep" -> "QB KEEP" (an enum identifier turned into player-facing caps text).</summary>
+        public static string SpacedUpper(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (i > 0 && char.IsUpper(s[i]) && !char.IsUpper(s[i - 1])) sb.Append(' ');
+                sb.Append(char.ToUpperInvariant(s[i]));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>"COVER 3", "COVER 2 MAN", "TAMPA 2"...: the shell name for cards and reasons.</summary>
+        public static string SchemeName(CoverageScheme s)
+        {
+            switch (s)
+            {
+                case CoverageScheme.Cover0: return "COVER 0"; case CoverageScheme.Cover1: return "COVER 1"; case CoverageScheme.Cover2: return "COVER 2";
+                case CoverageScheme.Cover2Man: return "COVER 2 MAN"; case CoverageScheme.Cover3: return "COVER 3"; case CoverageScheme.Cover4: return "COVER 4";
+                case CoverageScheme.Cover6: return "COVER 6"; case CoverageScheme.Tampa2: return "TAMPA 2"; case CoverageScheme.Prevent: return "PREVENT";
+                default: return "";
+            }
         }
 
         static List<Play> FilterNonSpecial(List<Play> plays)
@@ -164,17 +260,39 @@ namespace PixFootball.Core
             {
                 case CallTab.AskCoach: foreach (CoachPick p in CoachPicks) _plays.Add(p.Play); break;
                 case CallTab.Recent: src = RecentPlays; break;
-                case CallTab.Special: src = SpecialPlays; break;
-                default: { var s = CurrentSet; src = s != null ? s.Plays : new List<Play>(); break; }
+                case CallTab.Special: src = InterleaveByCategory(SpecialPlays); break;
+                default: src = SetPlays(); break;
             }
             if (src != null) foreach (Play p in src) if (Matches(p)) _plays.Add(p);
             PlayIndex = Math.Max(0, Math.Min(PlayIndex, _plays.Count - 1));
         }
 
-        bool Matches(Play p)
+        /// <summary>The unfiltered plays of the Playbook-tab set the cursor is in.</summary>
+        IList<Play> SetPlays() { var s = CurrentSet; return s != null ? (IList<Play>)s.Plays : new List<Play>(); }
+
+        /// <summary>
+        /// Special teams plays in round-robin order of their category (punt, field goal, kickoff... each category shows its first play before any category
+        /// shows a second one), so the first page of the Special Teams tab is not nine punt variants (QA-64). Stable inside a category.
+        /// </summary>
+        public static List<Play> InterleaveByCategory(IList<Play> plays)
         {
-            if (Tab == CallTab.Special || Tab == CallTab.AskCoach) return true;
-            switch (Filter)
+            var res = new List<Play>();
+            if (plays == null) return res;
+            var cats = new List<PlayCategory>(); var lists = new List<List<Play>>();
+            foreach (Play p in plays)
+            {
+                int k = cats.IndexOf(p.Category);
+                if (k < 0) { cats.Add(p.Category); lists.Add(new List<Play>()); k = cats.Count - 1; }
+                lists[k].Add(p);
+            }
+            for (int round = 0; res.Count < plays.Count; round++)
+                foreach (List<Play> l in lists) if (round < l.Count) res.Add(l[round]);
+            return res;
+        }
+
+        static bool FilterMatches(CallFilter f, Play p)
+        {
+            switch (f)
             {
                 case CallFilter.All: return true;
                 case CallFilter.Run: return p.IsRun;
@@ -188,10 +306,31 @@ namespace PixFootball.Core
             return true;
         }
 
+        bool Matches(Play p)
+        {
+            if (Tab == CallTab.Special || Tab == CallTab.AskCoach) return true;
+            return FilterMatches(Filter, p);
+        }
+
+        /// <summary>
+        /// The type filters worth offering: ALL plus every filter that matches at least one play of the unfiltered view (QA-616: no filter that opens an empty page).
+        /// The current filter is always included so the row never loses the selection.
+        /// </summary>
         public CallFilter[] FiltersFor()
         {
-            if (Side == PlaySide.Defense) return new[] { CallFilter.All, CallFilter.Zone, CallFilter.Man, CallFilter.Blitz };
-            return new[] { CallFilter.All, CallFilter.Run, CallFilter.Pass, CallFilter.PlayAction, CallFilter.Screen };
+            CallFilter[] candidates = Side == PlaySide.Defense
+                ? new[] { CallFilter.All, CallFilter.Zone, CallFilter.Man, CallFilter.Blitz }
+                : new[] { CallFilter.All, CallFilter.Run, CallFilter.Pass, CallFilter.PlayAction, CallFilter.Screen };
+            IEnumerable<Play> src = Tab == CallTab.Recent ? (IEnumerable<Play>)RecentPlays : (Tab == CallTab.Playbook ? (IEnumerable<Play>)SetPlays() : null);
+            if (src == null) return candidates;
+            var res = new List<CallFilter>();
+            foreach (CallFilter f in candidates)
+            {
+                bool any = f == CallFilter.All || f == Filter;
+                if (!any) foreach (Play p in src) if (FilterMatches(f, p)) { any = true; break; }
+                if (any) res.Add(f);
+            }
+            return res.ToArray();
         }
 
         public static string FilterName(CallFilter f)
@@ -230,8 +369,43 @@ namespace PixFootball.Core
         public string ReasonFor(Play p)
         {
             if (Tab != CallTab.AskCoach) return "";
-            foreach (CoachPick c in CoachPicks) if (c.Play == p) return c.Reason;
-            return "";
+            int shared = 0; string raw = null;
+            foreach (CoachPick c in CoachPicks) if (c.Play == p) { raw = c.Reason; break; }
+            if (raw == null) return "";
+            foreach (CoachPick c in CoachPicks) if (c.Reason == raw) shared++;
+            return RefineReason(p, raw, shared > 1);
+        }
+
+        /// <summary>
+        /// Turns the coach's situational line into one that fits this card (QA-66): a run is never "set up the pass", and when several picks carry the same
+        /// line each gets its own concept in front of it so the three cards read differently.
+        /// </summary>
+        public static string RefineReason(Play p, string reason, bool shared)
+        {
+            if (p == null) return reason ?? "";
+            reason = reason ?? "";
+            if (p.IsRun && (reason == "1ST DOWN: SET UP THE PASS" || reason == "KEEP THE CHAINS MOVING")) reason = "STAY AHEAD OF THE CHAINS";
+            else if (p.IsPass && reason == "MOVE THE CHAINS") reason = "MOVE THE CHAINS THROUGH THE AIR";
+            else if (!shared) return reason;
+            string concept = ConceptLabel(p);
+            if (concept.Length == 0 || reason.StartsWith(concept, StringComparison.Ordinal)) return reason;
+            return concept + ": " + reason;
+        }
+
+        /// <summary>Short play-specific label for a reason line: the carry style of a run, the category of a pass, the shell of a defense.</summary>
+        public static string ConceptLabel(Play p)
+        {
+            if (p == null) return "";
+            if (p.Side == PlaySide.Defense) { string s = SchemeName(p.Scheme); return s.Length > 0 ? s : CategoryName(p.Category); }
+            if (p.IsRun)
+            {
+                foreach (Assignment a in p.Assignments)
+                {
+                    var c = a as CarryAssignment;
+                    if (c != null && !c.IsFake) return SpacedUpper(c.Style.ToString());
+                }
+            }
+            return CategoryName(p.Category);
         }
 
         public string Breadcrumb
@@ -363,10 +537,20 @@ namespace PixFootball.Core
                 if (CoachPicks.Count > 0) p = CoachPicks[0].Play;
                 else if (Formations.Count > 0 && Formations[0].Sets.Count > 0 && Formations[0].Sets[0].Plays.Count > 0) p = Formations[0].Sets[0].Plays[0];
                 else if (SpecialPlays.Count > 0) p = SpecialPlays[0];
+                else p = FirstBookPlay();
             }
             Chosen = Displayed(p);
             Touch();
             return Chosen;
+        }
+
+        /// <summary>The first callable play of the book for this model's side (the last resort when the clock expires on an empty view, QA-505).</summary>
+        Play FirstBookPlay()
+        {
+            foreach (Play q in Book.AllPlays)
+                if (q.Side == Side && q.Category != PlayCategory.Kneel && q.Category != PlayCategory.Spike) return q;
+            foreach (Play q in Book.AllPlays) if (q.Side == Side) return q;
+            return null;
         }
 
         static int Wrap(int v, int n) { return n <= 0 ? 0 : ((v % n) + n) % n; }

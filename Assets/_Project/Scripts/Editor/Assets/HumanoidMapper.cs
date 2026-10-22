@@ -88,6 +88,11 @@ namespace PixFootball.EditorTools
             string[] required = { "Hips", "Spine", "Head", "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot",
                 "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand" };
             foreach (string r in required) if (!map.ContainsKey(r)) return null;
+            // QA-955: the mapped chain must really be a chain (hips -> spine -> head, hips -> thigh -> shin -> foot), otherwise the avatar passes isValid but drives the wrong bones
+            Func<string, string, bool> below = (anc, desc) => { var a = transforms.FirstOrDefault(t => t.name == map[anc]); var d = transforms.FirstOrDefault(t => t.name == map[desc]); return a != null && d != null && d.IsChildOf(a) && a != d; };
+            bool chain = below("Hips", "Spine") && below("Spine", "Head") && below("Hips", "LeftUpperLeg") && below("LeftUpperLeg", "LeftLowerLeg") && below("LeftLowerLeg", "LeftFoot") && below("RightUpperLeg", "RightLowerLeg") && below("Spine", "LeftUpperArm") && below("LeftUpperArm", "LeftLowerArm") && below("LeftLowerArm", "LeftHand");
+            report += " hips=" + map["Hips"] + " spine=" + map["Spine"] + " head=" + map["Head"] + " chain=" + (chain ? "ok" : "BROKEN");
+            if (!chain) Debug.LogWarning("[HumanoidMapper] " + model.name + ": mapped bone chain is not a hierarchy chain (" + report + ")");
             return map;
         }
 

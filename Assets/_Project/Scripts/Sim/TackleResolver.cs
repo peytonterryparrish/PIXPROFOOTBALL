@@ -13,6 +13,7 @@ namespace PixFootball.Sim
     {
         private readonly PlaySimulation S;
         private readonly List<SimAgent> _draggers = new List<SimAgent>();
+        private bool _qbHitLogged;
 
         public TackleResolver(PlaySimulation s) { S = s; }
 
@@ -29,10 +30,30 @@ namespace PixFootball.Sim
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = S.Agents[i];
-                if (a.State == AgentState.Tackling && a.StateTime > 0.75f && a.DragTackler != -2)
+                if (a.State == AgentState.Tackling && a.StateTime > 0.75f && a.Body.FallenTime <= 0f)
                 {
                     SimAgent c = S.Carrier;
                     if (c == null || c.DragMass <= 0f || !IsDragger(a)) a.State = AgentState.Normal;
+                }
+            }
+            // the passer can still be hit for a moment after he lets go: a QbHit event (and, if it is late, roughing the passer)
+            if (S.PassThrown && S.Time - S.PassReleaseTime < 0.8f && S.PasserId >= 0 && !_qbHitLogged)
+            {
+                SimAgent q = S.Agents[S.PasserId];
+                if (!q.HasBall && q.State == AgentState.Normal)
+                {
+                    for (int i = 11; i < 22; i++)
+                    {
+                        SimAgent d = S.Agents[i];
+                        if (d.State == AgentState.Engaged || d.State == AgentState.Down || d.Body.FallenTime > 0f) continue;
+                        if ((d.Pos - q.Pos).Length > d.Body.Radius + q.Body.Radius + 0.55f) continue;
+                        _qbHitLogged = true;
+                        S.LogEvent(SimEventType.QbHit, d.Id, q.Id, new Vec3(q.Pos, 0f), TackleType.None, S.Time - S.PassReleaseTime);
+                        if (S.Options.Penalties && S.FoulOpen(SimSide.Defense) && S.Time - S.PassReleaseTime > 0.25f && S.Rng.NextFloat() < 0.30f * (1.5f - SimMath.Rating01(d.R.Awareness)))
+                            S.Flag(PenaltyType.RoughingThePasser, d, q.Pos.Y - S.LosY);
+                        q.Body.Stumble(0.25f);
+                        break;
+                    }
                 }
             }
             SimAgent carrier = S.Carrier;
@@ -53,7 +74,7 @@ namespace PixFootball.Sim
                 float dist = rel.Length;
                 bool diving = d.Move == CarrierMove.Dive && d.MoveTime > 0f;
                 float reach = d.Body.Radius + carrier.Body.Radius + 0.42f + 0.18f * SimMath.Rating01(d.R.Tackling);
-                if (diving) reach += 1.25f;
+                if (diving) { if (S.BodyBetween(d, carrier)) continue; reach += 1.25f; }
                 if (carrier.Move == CarrierMove.StiffArm && carrier.MoveTime > 0f) reach -= 0.2f;
                 if (dist > reach) continue;
                 Attempt(d, carrier, diving);
@@ -93,6 +114,7 @@ namespace PixFootball.Sim
             mod += category == 0 ? 5f : (category == 2 ? -14f : -3f);
             if (diving) mod -= 14f;
             mod += (d.Body.Mass - c.Body.Mass) / 40f * 5f;
+            { float facing = d.Facing.Dot(toC); if (facing < 0.3f) mod -= 12f * SimMath.Clamp01((0.3f - facing) / 1.3f); }   // a defender running away from the carrier cannot make a full-strength tackle
             mod += (float)Math.Log(ratio) * 7f;
             mod -= 5f * SimMath.Clamp01(c.Speed / Math.Max(1f, c.Body.VMax));
             mod += Math.Min(6f, closing * 0.6f);
@@ -103,7 +125,7 @@ namespace PixFootball.Sim
             if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) mod += 12f; // passers rarely escape an unblocked rusher
             if (c.State == AgentState.Normal && c.Body.FallenTime > 0f) mod += 20f;
 
-            float margin = tackleSkill - carrierSkill + mod + S.Rng.Gaussian(0f, 12f) + 7.5f;
+            float margin = tackleSkill - carrierSkill + mod + S.Rng.Gaussian(0f, 12f) + 2.0f;
 
             // sack bookkeeping
             bool sackCandidate = c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown && c.Pos.Y <= S.LosY + 0.01f && S.BallSide == SimSide.Offense;
@@ -113,7 +135,7 @@ namespace PixFootball.Sim
             if (margin > 0f)
             {
                 // clean stop
-                bool big = margin > 26f && closing > 5.0f && category != 2 && !diving;
+                bool big = margin > 31f && closing > 6.2f && category != 2 && !diving;   // QA-185: a big hit is a highlight, not every routine tackle
                 TackleType type;
                 if (c.DragMass > 0f) type = TackleType.GangTackle;
                 else if (diving) type = TackleType.DiveTackle;
@@ -171,7 +193,7 @@ namespace PixFootball.Sim
             // push out of bounds
             float toLine = FieldGeometry.DistanceToSideline(c.Pos.X);
             float towardX = c.Pos.X < FieldGeometry.CenterX ? -c.Vel.X : c.Vel.X;
-            if (type != TackleType.BigHit && toLine < 1.3f && towardX > 1.0f && c.Side == S.BallSide && d.R.Tackling < 92)
+            if (type != TackleType.BigHit && !sack && toLine < 1.3f && towardX > 1.0f && c.Side == S.BallSide && S.Rng.NextFloat() < 0.45f + 0.5f * SimMath.Rating01(d.R.Tackling))
             {
                 type = TackleType.PushOutOfBounds;
             }
@@ -187,7 +209,7 @@ namespace PixFootball.Sim
             if (c.Protecting) pFum *= 0.45f;
             if (qbPass) pFum = 0.05f * (1.55f - SimMath.Rating01(c.R.Carrying)) * (0.8f + d.R.Strength / 200f);
             if (c.Move == CarrierMove.Spin || c.Move == CarrierMove.Truck) pFum *= 1.6f;
-            pFum *= 0.7f;
+            pFum *= 0.92f;   // QA-351: lost fumbles were 0.35 per team-game against about 0.5 in the NFL
             bool fumble = S.Rng.NextFloat() < pFum && !S.Options.ForceTackle.HasValue;
 
             FinishTackle(d, c, type, sack, fumble, closing);
@@ -202,7 +224,7 @@ namespace PixFootball.Sim
             Vec2 dirv = (c.Pos - d.Pos).Norm();
             // carrier falls forward a little with the contact
             float slide = SimMath.Clamp(0.12f * c.Speed + 0.08f * Math.Max(0f, closing), 0.1f, 1.2f);
-            c.Body.Knock(dirv * -0.0f);
+
             c.Body.Fall(1.1f);
             c.Body.Vel = c.Body.Vel * 0.55f + dirv * (slide * 0.8f);
             S.PlayAction(d, TackleAction(type), 0.8f);
@@ -217,7 +239,7 @@ namespace PixFootball.Sim
             if (type == TackleType.PushOutOfBounds)
             {
                 c.Body.Vel = new Vec2(c.Pos.X < FieldGeometry.CenterX ? -3f : 3f, c.Body.Vel.Y * 0.3f);
-                c.Body.Pos = new Vec2(c.Pos.X < FieldGeometry.CenterX ? -0.15f : FieldGeometry.Width + 0.15f, c.Pos.Y);
+                { float lineX = c.Pos.X < FieldGeometry.CenterX ? -0.15f : FieldGeometry.Width + 0.15f; c.Body.Pos = new Vec2(c.Pos.X + SimMath.Clamp(lineX - c.Pos.X, -0.45f, 0.45f), c.Pos.Y); }   // shoved over the line, never teleported more than a few tenths of a yard
                 S.OutOfBounds = true;
                 S.LogEvent(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), type, closing);
                 S.EndPlay(EndReason.OutOfBounds);
@@ -225,6 +247,12 @@ namespace PixFootball.Sim
             }
             S.LogEvent(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), type, closing);
 
+            if (sack && fumble)
+            {
+                // a strip-sack is a sack first: credit it before the ball comes loose
+                S.QbSack = true; S.SackerId = d.Id;
+                S.LogEvent(SimEventType.Sack, d.Id, c.Id, new Vec3(c.Pos, 0f), type, S.LosY - c.Pos.Y);
+            }
             if (fumble)
             {
                 Vec2 push = dirv * (1.5f + closing * 0.35f);
@@ -243,7 +271,7 @@ namespace PixFootball.Sim
                 if (c.Pos.Y <= 0.2f) { S.SafetyScored = true; }
                 return;
             }
-            if (c.Side == SimSide.Offense && c.Pos.Y <= 0.1f && S.BallSide == SimSide.Offense)
+            if (c.Side == SimSide.Offense && c.Pos.Y + 0.2f <= 0f && S.BallSide == SimSide.Offense)
             {
                 S.SafetyScored = true;
                 S.EndPlay(EndReason.Safety);
@@ -255,14 +283,15 @@ namespace PixFootball.Sim
         /// <summary>Late hits, face masks and roughing: the defender's discipline decides whether a hard tackle draws a flag.</summary>
         private void MaybeFoul(SimAgent d, SimAgent c, TackleType type, bool sack, float closing)
         {
-            if (!S.Options.Penalties || S.PendingPenalty != null || S.Kind != PlayKind.Scrimmage || c.Side != SimSide.Offense || S.BallSide != SimSide.Offense) return;
+            if (!S.Options.Penalties || !S.FoulOpen(SimSide.Defense) || S.Kind != PlayKind.Scrimmage || c.Side != SimSide.Offense || S.BallSide != SimSide.Offense) return;
             float dis = 1.5f - SimMath.Rating01(d.R.Awareness);
             float spot = c.Pos.Y - S.LosY;
             bool qb = c.Slot == 0;
             if (qb && S.PassThrown)
             {
                 // hitting the passer after he let go
-                if (S.Rng.NextFloat() < 0.40f * dis) S.Flag(PenaltyType.RoughingThePasser, d, spot);
+                // only a hit that comes after the ball has left his hand (and before the play is a long way gone) can be roughing
+                if (S.Time - S.PassReleaseTime > 0.25f && S.Time - S.PassReleaseTime < 1.2f && S.Rng.NextFloat() < 0.40f * dis) S.Flag(PenaltyType.RoughingThePasser, d, spot);
                 return;
             }
             if (type == TackleType.PushOutOfBounds && S.Rng.NextFloat() < 0.05f * dis) { S.Flag(PenaltyType.UnnecessaryRoughness, d, spot); return; }
@@ -321,13 +350,14 @@ namespace PixFootball.Sim
             {
                 SimAgent g = _draggers[i];
                 if (g.State != AgentState.Tackling || g.Body.FallenTime > 0f) { _draggers.RemoveAt(i); c.DragMass = Math.Max(0f, c.DragMass - g.Body.Mass); continue; }
-                Vec2 hold = c.Pos - c.Vel.Norm() * (c.Body.Radius + g.Body.Radius - 0.05f);
+                Vec2 holdDir = c.Speed > 0.3f ? c.Vel.Norm() : c.Facing;
+                Vec2 hold = c.Pos - holdDir * (c.Body.Radius + g.Body.Radius - 0.05f);
                 g.Want = (hold - g.Pos) * 8f + c.Vel;
                 g.HasFace = true; g.FaceDir = (c.Pos - g.Pos).Norm();
             }
             if (c.DragMass <= 0f) { c.Body.SpeedMultiplier = 1f; return; }
             // break free?
-            float pFree = (0.0006f * (c.R.BreakTackle + c.R.Strength * 0.5f)) * PlaySimulation.Dt * 60f * 0.1f;
+            float pFree = 0.0006f * (c.R.BreakTackle + c.R.Strength * 0.5f) * 0.1f;   // per tick
             float limit = 0.9f + 0.7f * SimMath.Rating01(c.R.Strength);
             bool stopped = c.Speed < 1.5f;
             if (S.Rng.NextFloat() < pFree)
@@ -366,6 +396,7 @@ namespace PixFootball.Sim
             S.LogEvent(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), TackleType.Shoestring);
             S.LastTackleType = TackleType.Shoestring;
             c.IgnoreAgent = d.Id; c.IgnoreUntil = S.Time + 0.6f;
+            d.TackleCooldown = 1.1f;   // the player who whiffed does not re-attempt on the next tick
             // a stumbling carrier can still go down on the next contact
             S.Blocks.Release(c);
         }
@@ -377,6 +408,7 @@ namespace PixFootball.Sim
             d.StateTime = 0f;
             S.PlayAction(d, diving ? AgentAction.TackleDive : AgentAction.TackleWrapUp, 0.8f);
             c.IgnoreAgent = d.Id; c.IgnoreUntil = S.Time + 0.7f;
+            d.TackleCooldown = 1.3f;
             c.Body.Vel = c.Body.Vel * 0.9f;
             S.LogEvent(SimEventType.BrokenTackle, d.Id, c.Id, new Vec3(c.Pos, 0f), TackleType.BrokenTackle);
             S.LastTackleType = TackleType.BrokenTackle;

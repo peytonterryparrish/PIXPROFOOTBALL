@@ -56,6 +56,7 @@ namespace PixFootball.Gameplay
             go.transform.SetParent(parent, false);
             var pc = go.AddComponent<PlayerController>();
             pc.View = SimAgentView.Create(go.transform, PlayerSize.Medium, colors, "AgentView");
+            pc.View.SetIdentity(5, PixFootball.Core.Position.RB);
             pc.Avatar = pc.View.Avatar; pc.Anim = pc.View.Anim;
             pc.Loco = new AgentBodyLocomotion(AgentBodyLocomotion.DefaultRatings());
             var lib = PixRuntimeAssets.Load();

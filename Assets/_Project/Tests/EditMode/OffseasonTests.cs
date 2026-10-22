@@ -120,7 +120,7 @@ namespace PixFootball.Tests
                 Assert.IsTrue(s.Team.Roster.All(p => !p.Retired));
             }
             double ovr = r.College.Schools.SelectMany(s => s.Team.Roster).Average(p => p.Overall);
-            Assert.That(ovr, Is.InRange(36.0, 52.0));
+            Assert.That(ovr, Is.InRange(46.0, 62.0));   // college rosters rate on the college curve now (UI-FLOW QA-556), the old 36-52 band encoded the pro-age-curve bug
             Assert.AreEqual(138, r.College.Season.Teams.Count);
             Assert.AreEqual(2036, r.College.Season.Year);
             Assert.AreEqual(10, r.College.History.Count);

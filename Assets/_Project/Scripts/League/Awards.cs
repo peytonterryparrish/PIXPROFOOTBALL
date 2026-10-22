@@ -98,8 +98,7 @@ namespace PixFootball.League
                     list.Add(new LeaderEntry { PlayerId = p.Id, Name = p.Name, TeamId = t.Id, Pos = p.Position, Value = v, Games = st.Games });
                 }
             }
-            bool ascending = category == StatCategory.PassInt && false;
-            list.Sort((a, b) => ascending ? a.Value.CompareTo(b.Value) : b.Value.CompareTo(a.Value));
+            list.Sort((a, b) => b.Value.CompareTo(a.Value));   // QA-567: every board is most-first (the dead "ascending" flag is gone)
             if (list.Count > n) list.RemoveRange(n, list.Count - n);
             for (int i = 0; i < list.Count; i++) list[i].Rank = i + 1;
             return list;
@@ -130,8 +129,8 @@ namespace PixFootball.League
         public static void ComputePro(Season s, List<Team> teams)
         {
             s.Awards.Clear();
-            AwardWinner mvp = null, opoy = null, dpoy = null, roy = null;
-            double mvpScore = -1e9, opoyScore = -1e9, dpoyScore = -1e9, royScore = -1e9;
+            AwardWinner mvp = null, mvp2 = null, opoy = null, dpoy = null, roy = null;
+            double mvpScore = -1e9, mvp2Score = -1e9, opoyScore = -1e9, dpoyScore = -1e9, royScore = -1e9;
             foreach (Team t in teams)
             {
                 int wins = s.WinsOf(t.Id);
@@ -141,17 +140,26 @@ namespace PixFootball.League
                     SeasonStats st = p.FindStats(s.Year);
                     if (st == null || st.Games == 0) continue;
                     float off = OffenseValue(st), def = DefenseValue(st);
-                    float mv = off + wins * 4.0f;
-                    if (mv > mvpScore) { mvpScore = mv; mvp = Make("MVP", p, t, mv); }
+                    // QA-566: the MVP weighs team success heavily and lets a dominant defender (defence value is on a smaller scale) compete
+                    float mv = Math.Max(off, def * 3.5f) + wins * 9.0f;
+                    if (mv > mvpScore)
+                    {
+                        mvp2 = mvp; mvp2Score = mvpScore;
+                        mvpScore = mv; mvp = Make("MVP", p, t, mv);
+                    }
+                    else if (mv > mvp2Score) { mvp2Score = mv; mvp2 = Make("MVP", p, t, mv); }
                     if (off > opoyScore) { opoyScore = off; opoy = Make("Offensive Player of the Year", p, t, off); }
                     if (def > dpoyScore) { dpoyScore = def; dpoy = Make("Defensive Player of the Year", p, t, def); }
-                    if (p.Experience == 0 && p.DraftYear == s.Year || (p.IsRookie && p.DraftYear == s.Year))
+                    // QA-565: this year's rookies were drafted in the offseason that ended LAST season (DraftYear == Year - 1); a generated first-season league has DraftYear == Year
+                    if (p.Experience == 0 && p.DraftYear > 0 && p.DraftYear >= s.Year - 1)
                     {
                         float rv = Math.Max(off, def * 0.9f);
                         if (rv > royScore) { royScore = rv; roy = Make("Rookie of the Year", p, t, rv); }
                     }
                 }
             }
+            // the two top awards go to different players unless the runner-up is far behind (QA-566: MVP no longer equals OPOY every year)
+            if (mvp != null && opoy != null && mvp2 != null && mvp.PlayerId == opoy.PlayerId && mvp2.Score >= mvp.Score * 0.9) mvp = mvp2;
             if (mvp != null) { s.Awards.Add(mvp); s.MvpId = mvp.PlayerId; }
             if (opoy != null) { s.Awards.Add(opoy); s.OpoyId = opoy.PlayerId; }
             if (dpoy != null) { s.Awards.Add(dpoy); s.DpoyId = dpoy.PlayerId; }

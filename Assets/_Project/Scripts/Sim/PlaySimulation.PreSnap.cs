@@ -32,7 +32,7 @@ namespace PixFootball.Sim
         {
             for (int i = 0; i < 11; i++) Agents[i].Assign = OffPlay.Assignments[i];
             if (relayout) LayoutOffense();
-            OffAI.Prepare(); DefAI.Prepare(); Specials.Prepare();
+            OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
         }
 
         void LayoutOffense()
@@ -79,7 +79,7 @@ namespace PixFootball.Sim
             if (!CanHotRoute(slot)) return false;
             OffPlay = PlayEditing.WithHotRoute(OffPlay, OffForm, slot, route);
             _hotRoutes[slot] = route;
-            if (Math.Abs(OffForm.Slots[slot].Y) < 0.01f && slot == MotionSlot) { }
+            if (slot == MotionSlot) StopMotion();   // a hot route on the man in motion cancels the motion
             RefreshOffense(false);
             return true;
         }
@@ -168,7 +168,7 @@ namespace PixFootball.Sim
             DefPlay = call;
             for (int i = 0; i < 11; i++) Agents[11 + i].Assign = call.Assignments[i];
             LayoutDefense();
-            OffAI.Prepare(); DefAI.Prepare(); Specials.Prepare();
+            OffAI.Prepare(); DefAI.Prepare(); DefenseAlignment.Apply(this); Specials.Prepare(); PreSnapStances.Refresh(this);
         }
 
         void LayoutDefense()
@@ -188,7 +188,7 @@ namespace PixFootball.Sim
                 }
                 else if (PositionGroup.IsLinebacker(pos))
                 {
-                    if (DefAdjust.Backers == LinebackerShift.In) { x *= 0.75f; y = Math.Max(1.4f, y - 1.3f); }
+                    if (DefAdjust.Backers == LinebackerShift.In) { x *= 0.75f; y = Math.Min(y, Math.Max(1.4f, y - 1.3f)); }   // only ever moves up
                     else if (DefAdjust.Backers == LinebackerShift.Out) { x *= 1.25f; y += 1.1f; }
                 }
                 if (pos == Position.CB)
@@ -200,7 +200,13 @@ namespace PixFootball.Sim
                 {
                     bool blitzer = DefPlay.Assignments[i] is BlitzAssignment;
                     bool decoy = !anyBlitz && (PositionGroup.IsLinebacker(pos) && (i == mike || Math.Abs(s.X) > 4f));
-                    if (blitzer || decoy) y = Math.Min(y, pos == Position.CB || PositionGroup.IsSafety(pos) ? 1.6f : 1.2f);
+                    if (blitzer || decoy)
+                    {
+                        y = Math.Min(y, pos == Position.CB || PositionGroup.IsSafety(pos) ? 1.6f : 1.2f);
+                        // a showing blitzer walks up to the gap he is rushing, not into the center
+                        var bz = DefPlay.Assignments[i] as BlitzAssignment;
+                        if (bz != null && bz.Gap != RunGap.None) x = DefenseAI.GapOffset(bz.Gap) * 0.95f;
+                    }
                 }
                 else if (DefAdjust.Blitz == BlitzShow.BackOff)
                 {
@@ -229,7 +235,11 @@ namespace PixFootball.Sim
         public bool CallPreSnapFoul(PenaltyType type, Team by, int agentId = 0)
         {
             if (Phase != PlayPhase.PreSnap) return false;
-            var call = new PenaltyCall(type, by, 0f, Agents[Math.Max(0, Math.Min(21, agentId))].PlayerId);
+            agentId = Math.Max(0, Math.Min(21, agentId));
+            // the flag must name a player of the offending team (the offense is the team in possession)
+            bool offenseFoul = by == State.Possession;
+            if ((agentId < 11) != offenseFoul) agentId = offenseFoul ? Math.Min(10, Math.Max(0, agentId % 11)) : 11 + (agentId % 11);
+            var call = new PenaltyCall(type, by, 0f, Agents[agentId].PlayerId);
             LogEvent(SimEventType.Penalty, agentId, -1, TackleType.None, (float)type, type.ToString());
             FinishPreSnap(PlayResult.PenaltyOnly(call));
             return true;
@@ -256,3 +266,19 @@ namespace PixFootball.Sim
     }
 }
 
+namespace PixFootball.Sim
+{
+    public sealed partial class PlaySimulation
+    {
+        /// <summary>Motion draws a response: the defender covering the man in motion runs with him (inside the corner / safety, slower than the motion man) and a zone defender may roll a step toward the strong side.</summary>
+        Vec2 DefenseMotionResponse(int agent)
+        {
+            if (MotionSlot < 0 || MotionDir == 0) return Vec2.Zero;
+            SimAgent d = Agents[agent];
+            if (d.CoverTarget != MotionSlot) return Vec2.Zero;
+            SimAgent m = Agents[MotionSlot];
+            float dx = (m.Pos.X - d.Pos.X) * 2.5f;
+            return new Vec2(SimMath.Clamp(dx, -3.0f, 3.0f), 0f);
+        }
+    }
+}

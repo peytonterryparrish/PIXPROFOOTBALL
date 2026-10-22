@@ -29,6 +29,24 @@ namespace PixFootball.League
             }
         }
 
+        /// <summary>Poll region of a school from its two-letter state code (QA-614); <paramref name="fallback"/> when the code is empty or unknown.</summary>
+        public static Region RegionOfState(string state, Region fallback)
+        {
+            if (string.IsNullOrEmpty(state)) return fallback;
+            switch (state.Trim().ToUpperInvariant())
+            {
+                case "ME": case "NH": case "VT": case "MA": case "RI": case "CT": case "NY": case "NJ": case "PA": return Region.Northeast;
+                case "DE": case "MD": case "DC": case "VA": case "WV": case "NC": case "SC": case "GA": case "FL": case "KY": case "TN": case "AL": case "MS": return Region.Southeast;
+                case "OH": case "IN": case "IL": case "MI": case "WI": case "MN": case "IA": case "MO": return Region.Midwest;
+                case "ND": case "SD": case "NE": case "KS": case "OK": return Region.Plains;
+                case "TX": case "AR": case "LA": case "NM": case "AZ": return Region.Southwest;
+                case "MT": case "ID": case "WY": case "CO": case "UT": case "NV": return Region.Mountain;
+                case "CA": return Region.West;
+                case "OR": case "WA": case "AK": case "HI": return Region.Pacific;
+            }
+            return fallback;
+        }
+
         // star tiers by rank: shares of 6,5,4,3,2,1 star programs (8,18,30,38,28,16 of 138)
         private static readonly float[] TierShares = { 8f, 18f, 30f, 38f, 28f, 16f };
 
@@ -139,8 +157,8 @@ namespace PixFootball.League
                     Id = i, Key = def.Id, Logo = def.Logo, Name = def.Name, ShortName = place, Mascot = def.Nickname,
                     Abbreviation = NameGenerator.MakeAbbreviation(place, abbrs, sr),
                     ConferenceId = confOf[i], Prestige = prestige[i], PrestigePoints = prestige[i] * 16f - 8f + sr.Range(0f, 4f),
-                    City = place, State = "",
-                    Region = confOf[i] >= 0 ? (Region)(confOf[i] % 8) : (Region)sr.Range(0, 8)
+                    City = place, State = def.State ?? "",
+                    Region = RegionOfState(def.State, confOf[i] >= 0 ? (Region)(confOf[i] % 8) : (Region)sr.Range(0, 8))   // QA-614: geography from the state column, the old conference-index guess only when the state is unknown
                 };
                 string firstWord = def.Name.Split(' ')[0];
                 school.PrimaryColor = ColorFromWord(firstWord) ?? NameGenerator.RandomColor(sr, 0.3f);
@@ -149,10 +167,10 @@ namespace PixFootball.League
                 school.StadiumCapacity = 28000 + school.Prestige * 9500 + sr.Range(0, 9000);
                 school.Team = new Team
                 {
-                    Id = i, City = school.ShortName, Nickname = school.Mascot, Abbreviation = school.Abbreviation,
+                    Id = i, City = def.NamePrefix, Nickname = school.Mascot, Abbreviation = school.Abbreviation,
                     PrimaryColor = school.PrimaryColor, SecondaryColor = school.SecondaryColor,
                     ConferenceId = school.ConferenceId, DivisionId = -1, IsCollege = true, StadiumName = school.StadiumName,
-                    Prestige = school.Prestige, SalaryCap = 0
+                    Prestige = Math.Min(5, school.Prestige), SalaryCap = 0   // the pro scale is 1-5 stars; School.Prestige keeps the 6th (elite) tier
                 };
                 world.Schools.Add(school);
                 if (school.ConferenceId >= 0) world.Conferences[school.ConferenceId].TeamIds.Add(i);
@@ -194,6 +212,7 @@ namespace PixFootball.League
         /// <summary>Potential-rating mean for the recruits of a given prestige level.</summary>
         public static float RecruitMean(School s)
         {
+            // ceilings are unchanged on purpose: the pro league is balanced against these potentials (the draft pulls its rookies from here)
             return 48.2f + s.Prestige * 3.3f + (s.PrestigePoints - s.Prestige * 16f) * 0.05f;
         }
 
@@ -214,6 +233,42 @@ namespace PixFootball.League
             return 18 + (int)c + (rng.Chance(0.5f) ? 1 : 0);
         }
 
+        /// <summary>
+        /// How far below his ceiling a recruit of this class year still is (QA-556): freshmen about 9 points, sophomores 6, juniors 3.5, seniors 1.5, with a little noise.
+        /// A college senior therefore rates at about his ceiling (see <see cref="RecruitMean"/>: 52 for a one-star program up to 68 for an elite one) instead of 10-17 points under it on the pro age curve.
+        /// </summary>
+        public static int ClassGap(ClassYear cls, Rng rng)
+        {
+            float g;
+            switch (cls)
+            {
+                case ClassYear.Freshman: g = 9f; break;
+                case ClassYear.Sophomore: g = 6f; break;
+                case ClassYear.Junior: g = 3.5f; break;
+                default: g = 1.5f; break;
+            }
+            return Math.Max(0, (int)Math.Round(g + rng.Gaussian(0f, 1.6f)));
+        }
+
+        /// <summary>
+        /// College ratings sit near the player's ceiling (see <see cref="ClassGap"/>) because college competition is softer than the pros. When a prospect turns pro his ratings are
+        /// brought most of the way back to what the pro age curve expects for his age (about 70 percent of the 2.4-points-a-year growth gap, 5 to 12 points), so the pro league keeps
+        /// its balance (rookies enter the league at the same level as before the college fix). Applied once, at the draft / undrafted signing, never to a standalone (non-college) class.
+        /// </summary>
+        public static void ApplyProTransition(Player p)
+        {
+            if (p == null) return;
+            int peak = AgeCurve.PeakStart(p.Position) + (p.Dev == DevTrait.Late ? 2 : 0);
+            int drop = (int)Math.Round(Math.Max(0, peak - p.Bio.Age) * 2.4f * 0.7f);
+            if (drop <= 0) return;
+            int cur = p.Ratings.Overall(p.Position);
+            int target = Math.Max(35, cur - drop);
+            if (target >= cur) return;
+            Ratings r = p.Ratings;
+            PlayerFactory.Retarget(ref r, p.Position, target);
+            p.Ratings = r;
+        }
+
         /// <summary>Creates one recruit for the school at the given class year.</summary>
         public static Player CreatePlayer(School s, Rng rng, IPlayerIdSource ids, HashSet<string> usedNames, Position pos, ClassYear cls, int year)
         {
@@ -221,7 +276,7 @@ namespace PixFootball.League
             int pot = (int)Math.Round(rng.Gaussian(mean, 7.8f));
             pot = Math.Max(42, Math.Min(97, pot));
             int age = AgeFor(cls, rng);
-            Player p = PlayerFactory.Create(rng, ids, usedNames, pos, pot, age);
+            Player p = PlayerFactory.Create(rng, ids, usedNames, pos, pot, age, Archetype.None, null, true, ClassGap(cls, rng));
             p.Class = cls;
             p.Experience = (int)cls;
             p.Stars = StarsFromPotential(pot, rng);
@@ -233,19 +288,47 @@ namespace PixFootball.League
             return p;
         }
 
+        /// <summary>
+        /// The class years for the <paramref name="slots"/> players of one position (QA-557): every full set of four slots holds one player per class, the remainder goes to the
+        /// classes that are shortest on the roster so far (random tie-break), so single-slot positions such as K and P are no longer always the same class and the whole roster ends up even.
+        /// <paramref name="counts"/> is the running count per class (Freshman..Senior) and is updated.
+        /// </summary>
+        public static ClassYear[] ClassesForSlots(int slots, int[] counts, Rng rng)
+        {
+            var result = new List<ClassYear>();
+            for (int full = 0; full < slots / 4; full++)
+                for (int c = 0; c < 4; c++) { result.Add(Classes[c]); counts[c]++; }
+            for (int r = 0; r < slots % 4; r++)
+            {
+                int best = -1; float bestScore = float.MaxValue;
+                for (int c = 0; c < 4; c++)
+                {
+                    bool taken = false;
+                    for (int k = result.Count - (r); k < result.Count && k >= 0; k++) if (result[k] == Classes[c]) taken = true;
+                    if (taken) continue;
+                    float score = counts[c] + rng.NextFloat() * 0.9f;   // lowest running count wins, ties are random
+                    if (score < bestScore) { bestScore = score; best = c; }
+                }
+                if (best < 0) best = rng.Range(0, 4);
+                result.Add(Classes[best]); counts[best]++;
+            }
+            // shuffle so the class years do not line up with the depth-chart slot order
+            for (int i = result.Count - 1; i > 0; i--) { int j = rng.Range(0, i + 1); ClassYear t = result[i]; result[i] = result[j]; result[j] = t; }
+            return result.ToArray();
+        }
+
         internal static void FillRoster(School s, Rng rng, CollegeWorld world, HashSet<string> usedNames, int year, bool fullClasses)
         {
             var jerseys = new HashSet<int>();
+            var classCounts = new int[4];
             for (int pi = 0; pi < LeagueRules.RosterOrder.Length; pi++)
             {
                 Position pos = LeagueRules.RosterOrder[pi];
                 int slots = LeagueRules.CollegeSlots(pos);
+                ClassYear[] classes = ClassesForSlots(slots, classCounts, rng);
                 for (int i = 0; i < slots; i++)
                 {
-                    ClassYear cls = Classes[i % 4];
-                    // keep each position's classes balanced; shift the starting class so roster totals are even
-                    cls = Classes[(i + pi) % 4];
-                    Player p = CreatePlayer(s, rng, world, usedNames, pos, cls, year);
+                    Player p = CreatePlayer(s, rng, world, usedNames, pos, classes[i], year);
                     p.Bio.JerseyNumber = LeagueFactory.PickJersey(pos, rng, jerseys);
                     MaybeRedshirt(p, rng);
                     s.Team.AddPlayer(p);
@@ -343,7 +426,7 @@ namespace PixFootball.League
             int pos = 0;
             int[] tc = TierCountsFor(tiers.Count);
             for (int t = 0; t < tc.Length; t++)
-                for (int k = 0; k < tc[t]; k++) { tiers[pos].Prestige = 6 - t; tiers[pos].Team.Prestige = 6 - t; pos++; }
+                for (int k = 0; k < tc[t]; k++) { tiers[pos].Prestige = 6 - t; tiers[pos].Team.Prestige = Math.Min(5, 6 - t); pos++; }
         }
     }
 }

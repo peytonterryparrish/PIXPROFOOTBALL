@@ -43,18 +43,46 @@ namespace PixFootball.League
 
         public static string Hometown(Rng rng) { return NameData.Hometowns[rng.Range(0, NameData.Hometowns.Length)]; }
 
-        /// <summary>Unique "First Last" (unique within <paramref name="used"/>, which is updated).</summary>
+        private static HashSet<string> _blocked;
+        private static HashSet<string> Blocked
+        {
+            get
+            {
+                if (_blocked == null) _blocked = new HashSet<string>(NameData.RealNameBlocklist, StringComparer.OrdinalIgnoreCase);
+                return _blocked;
+            }
+        }
+
+        /// <summary>True when "first last" is a real, well-known player or coach (hand-written blocklist, case-insensitive). The generator never returns such a name.</summary>
+        public static bool IsRealPersonName(string first, string last)
+        {
+            if (string.IsNullOrEmpty(first) || string.IsNullOrEmpty(last)) return false;
+            return Blocked.Contains(first + " " + last);
+        }
+
+        /// <summary>The blocklist itself (lower case "first last"), for tests and tools.</summary>
+        public static IReadOnlyList<string> RealNameBlocklist { get { return NameData.RealNameBlocklist; } }
+
+        /// <summary>Unique "First Last" (unique within <paramref name="used"/>, which is updated; never a name on the real-name blocklist).</summary>
         public static void PersonName(Rng rng, HashSet<string> used, out string first, out string last)
         {
             for (int attempt = 0; attempt < 40; attempt++)
             {
                 first = FirstName(rng);
                 last = LastName(rng);
+                if (IsRealPersonName(first, last)) continue;
                 string key = first + " " + last;
                 if (used == null || used.Add(key)) return;
             }
+            for (int attempt = 0; attempt < 40; attempt++)
+            {
+                first = FirstName(rng);
+                last = LastName(rng);
+                if (!IsRealPersonName(first, last)) break;
+            }
             first = FirstName(rng);
             last = LastName(rng);
+            while (IsRealPersonName(first, last)) last = LastName(rng);
             if (used != null) used.Add(first + " " + last);
         }
 

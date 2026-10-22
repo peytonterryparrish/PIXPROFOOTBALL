@@ -144,7 +144,7 @@ namespace PixFootball.Gameplay
             return PenaltyEnforcer.Describe(State, sim.Result);
         }
 
-        public bool UserDecides(PenaltyChoice c) { return c != null && !Config.CpuVsCpu && IsUser(c.OfferedTo); }
+        public bool UserDecides(PenaltyChoice c) { return c != null && !c.Offsetting && !c.DeadBall && !Config.CpuVsCpu && IsUser(c.OfferedTo); }   // offsetting fouls: nothing to choose (QA-489)
 
         /// <summary>Jersey number of the player the flag is on (0 when unknown).</summary>
         public int PenaltyNumber(PenaltyCall call)

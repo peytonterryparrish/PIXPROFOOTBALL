@@ -39,7 +39,7 @@ namespace PixFootball.Presentation
         void Note(string s) { PhaseName = s; if (Milestone != null) Milestone(s); }
 
         // ============================================================================================ stage hand-over
-        void Begin(ReplayClip clip, bool manual, string title)
+        void Begin(ReplayClip clip, bool manual, string title, bool reel = false)
         {
             Active = true; Manual = manual; CurrentClip = clip;
             _dir.Ui?.SetReplayMode(true);
@@ -48,7 +48,7 @@ namespace PixFootball.Presentation
             if (_dir.Markers != null) _dir.Markers.HideAll();
             _player.Load(clip);
             _cam.Begin();
-            _hud.Show(manual, title, clip.Situation);
+            _hud.Show(manual, title, clip.Situation, reel);
             if (_overlays != null) _overlays.Enabled = !manual;
         }
 
@@ -84,6 +84,13 @@ namespace PixFootball.Presentation
         /// <summary>Two angles with slow motion around the key moment and the key player in focus. <paramref name="skippable"/> lets A cut it short.</summary>
         public IEnumerator PlayAuto(ReplayClip clip, string title, bool skippable, float speedScale = 1f)
         {
+            // an exception inside the replay must never leave the stage hidden and the replay HUD up (QA-864)
+            try { yield return PlayAutoInner(clip, title, skippable, speedScale); }
+            finally { if (Active) End(); }
+        }
+
+        IEnumerator PlayAutoInner(ReplayClip clip, string title, bool skippable, float speedScale)
+        {
             if (clip == null || clip.Frames.Count < 4) yield break;
             Begin(clip, false, title);
             Note("auto replay A");
@@ -110,7 +117,7 @@ namespace PixFootball.Presentation
             End();
         }
 
-        IEnumerator RunSegment(float t0, float t1, Func<float, float> speedAt, bool skippable, Action<bool> skipped, float speedScale)
+        IEnumerator RunSegment(float t0, float t1, Func<float, float> speedAt, bool skippable, Action<bool> skipped, float speedScale, Func<bool> extraSkip = null)
         {
             float t = t0;
             _player.Time = t; Speed = 1f;
@@ -129,6 +136,7 @@ namespace PixFootball.Presentation
                 ApplyCamera(clip, t, dt);
                 _hud.SetSlow(Speed, Speed < 0.95f);
                 if (skippable && !_dir.Autopilot && SkipPressed(ReadInput())) { skipped(true); yield break; }
+                if (extraSkip != null && extraSkip()) { skipped(true); yield break; }   // a highlight reel polls its skip every frame, not only between clips (QA-863)
                 yield return null;
             }
         }
@@ -143,13 +151,19 @@ namespace PixFootball.Presentation
         /// <summary>Plays each clip once (one angle, slow motion at the key moment) with a title strip; <paramref name="skip"/> is polled to cut the reel short.</summary>
         public IEnumerator PlayReel(List<ReplayClip> clips, Func<bool> skip, Action<ReplayClip, int> onClip)
         {
+            try { yield return PlayReelInner(clips, skip, onClip); }
+            finally { if (Active) End(); }
+        }
+
+        IEnumerator PlayReelInner(List<ReplayClip> clips, Func<bool> skip, Action<ReplayClip, int> onClip)
+        {
             if (clips == null || clips.Count == 0) yield break;
             bool first = true; int n = 0;
             foreach (var clip in clips)
             {
                 if (clip.Frames.Count < 4) continue;
                 string title = TitleOf != null ? TitleOf(clip) : clip.Title;
-                if (first) { Begin(clip, false, title); first = false; } else { SwapClip(clip, title); _hud.Flash(); }
+                if (first) { Begin(clip, false, title, true); first = false; } else { SwapClip(clip, title); _hud.Flash(); }
                 _hud.SetTitle(title);
                 if (onClip != null) onClip(clip, n);
                 Note("reel " + n);
@@ -160,8 +174,7 @@ namespace PixFootball.Presentation
                 _view.Reset(clip, target, angles[(n - 1) % angles.Length]); _view.Dof = angles[(n - 1) % angles.Length] != ReplayAngle.High;
                 float t0 = Mathf.Max(clip.StartTime + 0.1f, key - 2.6f), t1 = Mathf.Min(clip.EndTime, key + 1.3f);
                 bool skipped = false;
-                yield return RunSegment(t0, t1, t => (t > key - 0.8f && t < key + 0.8f) ? 0.4f : 1f, false, v => { }, 1f);
-                if (skip != null && skip()) skipped = true;
+                yield return RunSegment(t0, t1, t => (t > key - 0.8f && t < key + 0.8f) ? 0.4f : 1f, false, v => skipped = v, 1f, skip);
                 if (skipped) break;
             }
             if (!first) End();
@@ -170,6 +183,12 @@ namespace PixFootball.Presentation
         // ============================================================================================ manual instant replay with the free camera
         /// <summary>The interactive replay: scrub, pause, slow motion, rewind, preset angles, free orbit / pan / zoom, target switching, depth of field and ground level.</summary>
         public IEnumerator PlayManual(ReplayClip clip, string title)
+        {
+            try { yield return PlayManualInner(clip, title); }
+            finally { if (Active) { _dir.InputLocked = false; End(); } }
+        }
+
+        IEnumerator PlayManualInner(ReplayClip clip, string title)
         {
             if (clip == null || clip.Frames.Count < 4) yield break;
             Begin(clip, true, title);
@@ -191,6 +210,7 @@ namespace PixFootball.Presentation
             {
                 float dt = Mathf.Min(UnityEngine.Time.unscaledDeltaTime, 0.05f);
                 var inp = ReadInput();
+                if (inp.AnyDown || inp.DPadLeftHeld || inp.DPadRightHeld || inp.DPadUp || inp.DPadDown || inp.Move.sqrMagnitude > 0.04f || inp.Look.sqrMagnitude > 0.04f || inp.Sprint || inp.LT) _hud.NoteActivity();
                 if (inp.Down[(int)Btn.B] || inp.Menu || inp.Cancel) { exit = true; break; }
                 if (inp.Down[(int)Btn.A]) Paused = !Paused;
                 if (inp.Down[(int)Btn.X]) { speedIdx = (speedIdx + 1) % speeds.Length; Speed = speeds[speedIdx]; Note("speed " + Speed); }
@@ -211,7 +231,8 @@ namespace PixFootball.Presentation
                 if (mv.sqrMagnitude > 0.04f || lk.sqrMagnitude > 0.04f || Mathf.Abs(zoom) > 0.1f) _view.ToFree();
                 if (_view.Angle == ReplayAngle.Free)
                 {
-                    _view.Yaw += lk.x * 120f * dt; _view.Pitch = Mathf.Clamp(_view.Pitch - lk.y * 75f * dt, 2f, 82f);
+                    float sens = PixSettings.LookSensitivity, inv = PixSettings.InvertLookY ? -1f : 1f;   // the same sensitivity and invert-Y options as free roam (QA-824)
+                    _view.Yaw += lk.x * 120f * dt * sens; _view.Pitch = Mathf.Clamp(_view.Pitch - lk.y * inv * 75f * dt * sens, 2f, 82f);
                     _view.Dist = Mathf.Clamp(_view.Dist - zoom * 11f * dt, 3.5f, 55f);
                     float yr = _view.Yaw * Mathf.Deg2Rad;
                     Vector3 fwd = new Vector3(-Mathf.Sin(yr), 0f, -Mathf.Cos(yr)), right = new Vector3(Mathf.Cos(yr), 0f, -Mathf.Sin(yr));
@@ -230,7 +251,7 @@ namespace PixFootball.Presentation
                 _player.Time = t;
                 ApplyCamera(clip, t, dt);
                 _hud.SetSlow(Speed, false);
-                string state = Paused ? "PAUSED" : (rate < 0f ? "REWIND" : (rate > Speed + 0.01f ? "FAST FORWARD" : (Speed < 0.99f ? "SLOW MOTION  " + Speed.ToString("0.##") + "x" : "PLAYING  1x")));
+                string state = Paused ? "PAUSED" : (rate < 0f ? "REWIND" : (rate > Speed + 0.01f ? "FAST FORWARD" : (Speed < 0.99f ? "SLOW MOTION  " + Speed.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "x" : "PLAYING  1x")));
                 float key01 = clip.Duration > 0f ? Mathf.Clamp01((clip.KeyTime - clip.StartTime) / clip.Duration) : 0f;
                 _hud.SetTransport(clip.Duration > 0f ? (t - clip.StartTime) / clip.Duration : 0f, key01, t - clip.StartTime, clip.Duration, state, ReplayView.AngleNames[(int)_view.Angle] + (_view.Ground && _view.Angle == ReplayAngle.Free ? " (GROUND LEVEL)" : ""), TargetName(clip, _view.Target), _view.Dof);
                 yield return null;

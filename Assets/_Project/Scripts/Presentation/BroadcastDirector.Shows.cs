@@ -72,9 +72,26 @@ namespace PixFootball.Presentation
         }
 
         // ============================================================================================ page runner
+        struct PageDef { public string Name; public Func<RectTransform> Build; public float Secs; public PageDef(string name, Func<RectTransform> build, float secs) { Name = name; Build = build; Secs = secs; } }
+        bool _pageBack;
+
+        /// <summary>Runs the pages in order: A goes on, B steps back one page, Menu skips the rest of the show (QA-876).</summary>
+        IEnumerator RunPages(params PageDef[] pages)
+        {
+            int i = 0;
+            while (i < pages.Length && !_skipShow)
+            {
+                _pageBack = false;
+                yield return RunPage(pages[i].Name, pages[i].Build, pages[i].Secs);
+                if (_skipShow) yield break;
+                if (_pageBack) i = Mathf.Max(0, i - 1); else i++;
+            }
+        }
+
         IEnumerator RunPage(string name, Func<RectTransform> build, float autoSeconds, bool waitForInput = true)
         {
             var page = build();
+            PixFootball.UI.Glass.GlassSkin.Apply(page);
             var cg = page.gameObject.AddComponent<CanvasGroup>(); cg.alpha = 0f;
             CurrentPage = name; if (PageShown != null) PageShown(name);
             float t = 0f;
@@ -88,7 +105,8 @@ namespace PixFootball.Presentation
                 if (inp != null)
                 {
                     if (t > 0.5f && (inp.Down[(int)Btn.A] || inp.Confirm)) break;
-                    if (inp.Down[(int)Btn.B] || inp.Cancel || inp.Menu) { _skipShow = true; break; }
+                    if (inp.Down[(int)Btn.B] || inp.Cancel) { _pageBack = true; break; }
+                    if (inp.Menu) { _skipShow = true; break; }
                 }
                 float limit = _dir.Autopilot ? Mathf.Min(autoSeconds, 4.2f) : autoSeconds;
                 if (t > limit) break;
@@ -106,6 +124,7 @@ namespace PixFootball.Presentation
             EnsureTracker();
             bool minimal = PixSettings.Cinematics == 1;
             _introActive = true; CurrentShow = "intro"; _skipShow = false;
+            _dir.Ui?.SetHudVisible(false);   // the scorebug is not drawn over the establishing shot or the matchup card (QA-112 / 117)
             _cam.Begin();
             if (_dir.Stage != null && _dir.Stage.Ball != null) _dir.Stage.Ball.SetVisible(false);
             var home = Flow.Home; var away = Flow.Away;
@@ -121,15 +140,21 @@ namespace PixFootball.Presentation
                 {
                     shownMatchup = true;
                     string venue = (string.IsNullOrEmpty(home.StadiumName) ? "PIX PRO STADIUM" : home.StadiumName.ToUpperInvariant()) + "  -  " + home.City.ToUpperInvariant();
-                    _ov.ShowMatchup(VisOf(CoreTeam.Away), "0-0", KeyPlayers(away), VisOf(CoreTeam.Home), "0-0", KeyPlayers(home), venue, minimal ? 5f : 6.4f);
+                    _ov.ShowMatchup(VisOf(CoreTeam.Away), "OVR " + away.TeamOverall(), KeyPlayers(away), VisOf(CoreTeam.Home), "OVR " + home.TeamOverall(), KeyPlayers(home), venue, minimal ? 5f : 6.4f, MatchupHeader());
                     CurrentPage = "matchup"; if (PageShown != null) PageShown("matchup");
                 }
                 if (!shownStadium && t >= stadiumAt)
                 {
                     shownStadium = true;
-                    bool night = PixSettings.Lighting == LightingPreset.Night;
-                    int temp = OverlayText.KickoffTemperature(_dir.Config.Seed, night, home.City);
-                    _ov.ShowStadium(string.IsNullOrEmpty(home.StadiumName) ? "PIX PRO STADIUM" : home.StadiumName, home.City, temp, night ? "Clear night" : "Sunny", 5.4f);
+                    // the real weather and time of day of this game (not the Settings value, and not a fixed 'clear night')
+                    var w = _dir.Weather;
+                    bool hasW = !string.IsNullOrEmpty(w.Label);
+                    bool night = hasW ? w.Time == PixFootball.Core.TimeOfDay.Night : PixSettings.LastMatchLighting == LightingPreset.Night;
+                    int seed = _dir.Config.Seed != 0 ? _dir.Config.Seed : StableHash(home.City + away.City);
+                    int temp = AdjustTemperature(OverlayText.KickoffTemperature(seed, night, home.City), hasW ? w.Kind : PixFootball.Core.WeatherKind.Clear);
+                    string cond = hasW ? w.Label : (night ? "Clear night" : "Sunny");
+                    string header = !hasW ? (night ? "TONIGHT'S GAME" : "TODAY'S GAME") : (w.Time == PixFootball.Core.TimeOfDay.Night ? "TONIGHT'S GAME" : (w.Time == PixFootball.Core.TimeOfDay.Dusk ? "THIS EVENING" : "TODAY'S GAME"));
+                    _ov.ShowStadium(string.IsNullOrEmpty(home.StadiumName) ? "PIX PRO STADIUM" : home.StadiumName, home.City, temp, cond, 5.4f, header);
                     CurrentPage = "stadium"; if (PageShown != null) PageShown("stadium");
                 }
                 ShotPose pose;
@@ -138,30 +163,57 @@ namespace PixFootball.Presentation
                 _cam.Set(pose.Pos, pose.Look, pose.Fov, t < 0.7f ? 60f : -1f, 32f);   // the first frames run the depth-of-field pass once (a nearly blur-free f/32) so the first replay does not hitch compiling it
                 yield return null;
             }
+            _dir.Ui?.SetHudVisible(true);
             _ov.ClearAll();
             _cam.End();
             if (_dir.Stage != null && _dir.Stage.Ball != null) _dir.Stage.Ball.SetVisible(true);
             _introActive = false; CurrentShow = ""; CurrentPage = "";
         }
 
+        /// <summary>The same three lines for both teams, in the same order: the quarterback, the best skill player (RB / WR / TE) and the best defender (QA-114).</summary>
         List<string> KeyPlayers(LeagueTeam t)
         {
             var l = new List<string>();
-            foreach (var pos in new[] { Position.QB, Position.RB, Position.WR })
+            var qb = t.GetPlayer(t.Depth.StarterId(Position.QB));
+            if (qb != null) l.Add(OverlayText.PositionLabel(Position.QB) + "   " + OverlayText.ShortName(qb.Name) + "   " + qb.Overall);
+            Player skill = null;
+            foreach (var pos in new[] { Position.RB, Position.WR, Position.TE })
             {
                 var p = t.GetPlayer(t.Depth.StarterId(pos));
-                if (p != null) l.Add(OverlayText.PositionLabel(pos) + "   " + OverlayText.ShortName(p.Name) + "   " + p.Overall);
+                if (p != null && (skill == null || p.Overall > skill.Overall)) skill = p;
             }
-            // the best defender on the depth chart
+            if (skill != null) l.Add(OverlayText.PositionLabel(skill.Position) + "   " + OverlayText.ShortName(skill.Name) + "   " + skill.Overall);
             Player best = null;
             foreach (var pos in new[] { Position.LE, Position.RE, Position.MLB, Position.CB, Position.FS })
             {
                 var p = t.GetPlayer(t.Depth.StarterId(pos));
                 if (p != null && (best == null || p.Overall > best.Overall)) best = p;
             }
-            if (best != null) l.Insert(Math.Min(2, l.Count), OverlayText.PositionLabel(best.Position) + "   " + OverlayText.ShortName(best.Name) + "   " + best.Overall);
-            if (l.Count > 3) l.RemoveRange(3, l.Count - 3);
+            if (best != null) l.Add(OverlayText.PositionLabel(best.Position) + "   " + OverlayText.ShortName(best.Name) + "   " + best.Overall);
             return l;
+        }
+
+        /// <summary>"PRO FOOTBALL  -  PRIMETIME": the rule set and the time of day of this game.</summary>
+        string MatchupHeader()
+        {
+            var w = _dir.Weather;
+            string slot = string.IsNullOrEmpty(w.Label) ? "PRIMETIME" : (w.Time == PixFootball.Core.TimeOfDay.Night ? "PRIMETIME" : (w.Time == PixFootball.Core.TimeOfDay.Dusk ? "EVENING KICKOFF" : "AFTERNOON KICKOFF"));
+            return (_dir.Config.CollegeRules ? "COLLEGE FOOTBALL" : "PRO FOOTBALL") + "  -  " + slot;
+        }
+
+        static int StableHash(string s) { int h = 17; foreach (char c in s ?? "") h = h * 31 + c; return h & 0x7fffffff; }
+
+        /// <summary>Kickoff temperature (F) adjusted for the weather of the game: snow is cold, rain and fog are cool.</summary>
+        public static int AdjustTemperature(int baseF, PixFootball.Core.WeatherKind kind)
+        {
+            switch (kind)
+            {
+                case PixFootball.Core.WeatherKind.Snow: return Mathf.Clamp(baseF - 30, 12, 32);
+                case PixFootball.Core.WeatherKind.Rain: return Mathf.Clamp(baseF - 9, 38, 80);
+                case PixFootball.Core.WeatherKind.Fog: return Mathf.Clamp(baseF - 6, 36, 80);
+                case PixFootball.Core.WeatherKind.Overcast: return baseF - 4;
+                default: return baseF;
+            }
         }
 
         // ============================================================================================ halftime
@@ -169,8 +221,7 @@ namespace PixFootball.Presentation
         {
             if (!_attached || PixSettings.Cinematics >= 2 || _trk == null) yield break;
             BeginShow("halftime");
-            yield return RunPage("halftime stats", () => BuildStatsPage("HALFTIME", "FIRST HALF TEAM STATS", false), 14f);
-            if (!_skipShow) yield return RunPage("halftime performers", () => BuildLeadersPage("HALFTIME", "TOP PERFORMERS"), 14f);
+            yield return RunPages(new PageDef("halftime stats", () => BuildStatsPage("HALFTIME", "FIRST HALF TEAM STATS", false), 14f), new PageDef("halftime performers", () => BuildLeadersPage("HALFTIME", "TOP PERFORMERS"), 14f));
             if (!_skipShow) yield return HighlightsReel("HALFTIME HIGHLIGHTS", 1, 2, 4);
             EndShow();
         }
@@ -213,9 +264,7 @@ namespace PixFootball.Presentation
             var s = State;
             CoreTeam? winner = s.Winner;
             int widx = winner.HasValue ? TeamIdxOf(winner.Value) : -1;
-            yield return RunPage("final", () => BuildFinalPage(widx), 16f);
-            if (!_skipShow) yield return RunPage("box score", () => BuildStatsPage("FINAL", "TEAM STATS", true), 14f);
-            if (!_skipShow) yield return RunPage("leaders", () => BuildLeadersPage("FINAL", "TOP PERFORMERS"), 14f);
+            yield return RunPages(new PageDef("final", () => BuildFinalPage(widx), 16f), new PageDef("box score", () => BuildStatsPage("FINAL", "TEAM STATS", true), 14f), new PageDef("leaders", () => BuildLeadersPage("FINAL", "TOP PERFORMERS"), 14f));
             if (!_skipShow) yield return HighlightsReel("GAME HIGHLIGHTS", 1, 99, 5);
             yield return RunReturnPage(() => { });
             EndShow();
@@ -226,6 +275,7 @@ namespace PixFootball.Presentation
         {
             bool pressed = false;
             var page = BuildReturnPage(() => pressed = true);
+            PixFootball.UI.Glass.GlassSkin.Apply(page);
             var cg = page.gameObject.AddComponent<CanvasGroup>(); cg.alpha = 0f;
             CurrentPage = "return"; if (PageShown != null) PageShown("return");
             float t = 0f;
@@ -236,7 +286,7 @@ namespace PixFootball.Presentation
                 else
                 {
                     var inp = PollInput();
-                    if (t > 0.6f && (inp.Down[(int)Btn.A] || inp.Confirm)) break;
+                    if (t > 0.6f && (inp.Down[(int)Btn.A] || inp.Confirm || inp.Down[(int)Btn.B] || inp.Cancel || inp.Menu)) break;
                 }
                 yield return null;
             }
@@ -247,16 +297,17 @@ namespace PixFootball.Presentation
         RectTransform PageBase(string title, string subtitle, bool scoreStrip)
         {
             var root = UiKit.Rect(_showRoot, "Page_" + title); UiKit.Stretch(root);
-            var scrim = UiKit.Panel(root, "Scrim", new Color(0.02f, 0.03f, 0.06f, 0.84f)); UiKit.Stretch(scrim.rectTransform);
+            var scrim = UiKit.Panel(root, "Scrim", UiTheme.IsGlass ? new Color(0.02f, 0.025f, 0.035f, 0.52f) : new Color(0.02f, 0.03f, 0.06f, 0.84f)); UiKit.Stretch(scrim.rectTransform);
             var wash = TvUi.Fade() != null ? UiKit.Panel(root, "Wash", new Color(0.176f, 0.353f, 0.737f, 0.22f), TvUi.Fade()) : null;
+            if (wash != null && UiTheme.IsGlass) wash.enabled = false;
             if (wash != null) { wash.type = Image.Type.Sliced; UiKit.Anchor(wash.rectTransform, new Vector2(0, 0), new Vector2(0, 0), Vector2.zero, new Vector2(1920, 420)); wash.rectTransform.anchorMax = new Vector2(1, 0); wash.rectTransform.sizeDelta = new Vector2(0, 420); }
             TvUi.Bar(root, "Accent", TvUi.Gold, new Vector2(0, 1), new Vector2(0, 1), new Vector2(110, -190), new Vector2(240, 8));
             TvUi.Text(root, title, 118, Color.white, true, TextAlignmentOptions.BottomLeft, new Vector2(0, 1), new Vector2(0, 1), new Vector2(104, -48), new Vector2(900, 140), 6f);
             TvUi.Text(root, subtitle, 40, TvUi.Gold, true, TextAlignmentOptions.TopLeft, new Vector2(0, 1), new Vector2(0, 1), new Vector2(110, -210), new Vector2(900, 56), 6f);
             if (scoreStrip) ScoreStrip(root);
-            var foot = UiKit.Rect(root, "Footer"); UiKit.Anchor(foot, new Vector2(0, 0), new Vector2(0, 0), new Vector2(110, 26), new Vector2(900, 52));
+            var foot = UiKit.Rect(root, "Footer"); UiKit.Anchor(foot, new Vector2(0, 0), new Vector2(0, 0), new Vector2(110, 26), new Vector2(1100, 52));
             var h = foot.gameObject.AddComponent<HorizontalLayoutGroup>(); h.spacing = 40; h.childAlignment = TextAnchor.MiddleLeft; h.childControlWidth = true; h.childControlHeight = true; h.childForceExpandWidth = false;
-            UiKit.FooterPrompt(foot, "glyph_a", "NEXT", 46); UiKit.FooterPrompt(foot, "glyph_b", "SKIP", 46);
+            PromptFooter.Attach(foot, 46, 26, 40).Set(PromptFooter.Item("glyph_a", "NEXT"), PromptFooter.Item("glyph_b", "BACK"), PromptFooter.Item("glyph_menu", "SKIP"));
             return root;
         }
 
@@ -279,7 +330,10 @@ namespace PixFootball.Presentation
             var page = PageBase(title, subtitle, true);
             var away = VisOf(CoreTeam.Away); var home = VisOf(CoreTeam.Home);
             var rows = OverlayText.Compare(_trk.HomeBox, _trk.AwayBox);
-            float w = 1300f, top = -330f;
+            rows.AddRange(OverlayText.CompareExtra(_trk.HomeBox, _trk.AwayBox));   // 4th down, comp/att, sacked, red zone (QA-138)
+            float w = 1300f, top = -310f;
+            float canvasH = _showRoot != null && _showRoot.rect.height > 200f ? _showRoot.rect.height : 1080f;
+            float pitch = Mathf.Clamp((canvasH - (-top) - 96f - 100f) / Mathf.Max(1, rows.Count), 38f, 66f);   // the last row stays clear of the footer on short canvases (QA-877)
             // header: crests and names above each value column
             var hb = TvUi.Strip(page, "Head", TvUi.Blue, 84, 24, true, true); UiKit.Anchor(hb.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, top), new Vector2(w, 84));
             TvUi.Crest(hb.transform, away.Crest, 64f, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(44, 0));
@@ -288,7 +342,7 @@ namespace PixFootball.Presentation
             TvUi.Text(hb.transform, home.Name.ToUpperInvariant(), 40, Color.white, true, TextAlignmentOptions.MidlineRight, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-124, 2), new Vector2(480, 70), 2f);
             for (int i = 0; i < rows.Count; i++)
             {
-                var bg = TvUi.Bar(page, "Row" + i, i % 2 == 0 ? TvUi.Row : TvUi.RowAlt, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, top - 96 - i * 66), new Vector2(w, 62));
+                var bg = TvUi.Bar(page, "Row" + i, i % 2 == 0 ? TvUi.Row : TvUi.RowAlt, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, top - 96 - i * pitch), new Vector2(w, pitch - 4f));
                 TvUi.Text(bg.transform, rows[i].Away, 42, Color.white, true, TextAlignmentOptions.MidlineLeft, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(44, 0), new Vector2(300, 58));
                 TvUi.Text(bg.transform, rows[i].Label, 30, TvUi.Muted, true, TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(520, 58), 3f);
                 TvUi.Text(bg.transform, rows[i].Home, 42, Color.white, true, TextAlignmentOptions.MidlineRight, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-44, 0), new Vector2(300, 58));
@@ -299,7 +353,7 @@ namespace PixFootball.Presentation
         RectTransform BuildLeadersPage(string title, string subtitle)
         {
             var page = PageBase(title, subtitle, true);
-            string[] cats = { "pass", "rush", "rec", "def" }; string[] names = { "PASSING", "RUSHING", "RECEIVING", "DEFENSE" }; int[] counts = { 1, 2, 2, 1 };
+            string[] cats = { "pass", "rush", "rec", "def" }; string[] names = { "PASSING", "RUSHING", "RECEIVING", "DEFENSE" }; int[] counts = { 1, 2, 2, 2 };   // two defenders like the other categories (QA-139)
             for (int col = 0; col < 2; col++)
             {
                 int teamIdx = col == 0 ? 1 : 0;   // away on the left like the scorebug
@@ -351,8 +405,7 @@ namespace PixFootball.Presentation
                 var row = TvUi.Strip(page, "TeamRow" + i, t.Color, 118, 36, true, true); UiKit.Anchor(row.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -350 - i * 132), new Vector2(1560, 118));
                 TvUi.Crest(row.transform, t.Crest, 92f, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(64, 0));
                 TvUi.Text(row.transform, t.Name.ToUpperInvariant(), 52, TvUi.Readable(t.Color), true, TextAlignmentOptions.MidlineLeft, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(180, 2), new Vector2(680, 80), 2f);
-                int ot = 0; for (int k = 5; k < 8; k++) ot += byQ[k];
-                int[] vals = { byQ[1], byQ[2], byQ[3], byQ[4], ot };
+                int[] vals = MatchHud.LineScoreCells(byQ);
                 for (int k = 0; k < 5; k++) TvUi.Text(row.transform, vals[k].ToString(), 42, TvUi.Readable(t.Color), true, TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(150f + k * 96f, 0), new Vector2(90, 70));
                 TvUi.Text(row.transform, total.ToString(), 88, win ? TvUi.Gold : TvUi.Readable(t.Color), true, TextAlignmentOptions.MidlineRight, new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-50, 2), new Vector2(190, 100));
             }
@@ -366,16 +419,24 @@ namespace PixFootball.Presentation
                 TvUi.Text(tag.transform, "PLAYER OF\nTHE GAME", 44, new Color(0.06f, 0.07f, 0.1f), true, TextAlignmentOptions.Center, new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0), new Vector2(420, 220), 4f);
                 TvUi.Crest(card.transform, tv.Crest, 110f, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(470, 0));
                 TvUi.Text(card.transform, OverlayText.Heading(p), 74, Color.white, true, TextAlignmentOptions.MidlineLeft, new Vector2(0, 1), new Vector2(0, 1), new Vector2(610, -14), new Vector2(900, 90), 2f);
-                TvUi.Text(card.transform, OverlayText.PositionLabel(p.Position) + "  -  " + tv.Name.ToUpperInvariant() + "  -  " + OverlayText.StatLine(potg.Stats, p.Position), 36, TvUi.Gold, true, TextAlignmentOptions.MidlineLeft, new Vector2(0, 0), new Vector2(0, 0), new Vector2(610, 28), new Vector2(920, 56), 2f);
+                TvUi.Text(card.transform, OverlayText.PotgSubLine(p, tv.Name, potg.Stats), 36, TvUi.Gold, true, TextAlignmentOptions.MidlineLeft, new Vector2(0, 0), new Vector2(0, 0), new Vector2(610, 28), new Vector2(920, 56), 2f);
             }
             return page;
+        }
+
+        /// <summary>Joins the non-empty parts (a player with no stat line no longer ends in a dangling separator).</summary>
+        public static string JoinNonEmpty(string sep, params string[] parts)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var p in parts) { if (string.IsNullOrEmpty(p)) continue; if (sb.Length > 0) sb.Append(sep); sb.Append(p); }
+            return sb.ToString();
         }
 
         RectTransform BuildReturnPage(Action onContinue)
         {
             var s = State;
             var root = UiKit.Rect(_showRoot, "Page_Return"); UiKit.Stretch(root);
-            var scrim = UiKit.Panel(root, "Scrim", new Color(0.02f, 0.03f, 0.06f, 0.9f)); UiKit.Stretch(scrim.rectTransform); scrim.raycastTarget = true;
+            var scrim = UiKit.Panel(root, "Scrim", UiTheme.IsGlass ? new Color(0.02f, 0.025f, 0.035f, 0.55f) : new Color(0.02f, 0.03f, 0.06f, 0.9f)); UiKit.Stretch(scrim.rectTransform); scrim.raycastTarget = true;
             TvUi.Text(root, "THANKS FOR WATCHING", 96, Color.white, true, TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 250), new Vector2(1500, 130), 8f);
             TvUi.Bar(root, "Rule", TvUi.Gold, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 170), new Vector2(240, 8));
             TvUi.Text(root, Flow.Abbr(CoreTeam.Away) + " " + s.AwayScore + "   -   " + Flow.Abbr(CoreTeam.Home) + " " + s.HomeScore, 64, TvUi.Gold, true, TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 80), new Vector2(1500, 90), 6f);

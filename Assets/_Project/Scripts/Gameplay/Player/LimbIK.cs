@@ -33,6 +33,7 @@ namespace PixFootball.Gameplay
         public static void Apply(Transform upper, Transform lower, Transform endBone, Vector3 target, Vector3 pole, float weight)
         {
             if (upper == null || lower == null || endBone == null || weight <= 0.001f) return;
+            Quaternion endRot = endBone.rotation;     // QA-723: the foot / hand keeps its world orientation (flat foot, palm direction)
             Vector3 root = upper.position, joint = lower.position, end = endBone.position;
             Vector3 nj, ne;
             Solve(root, joint, end, target, pole, out nj, out ne);
@@ -44,6 +45,7 @@ namespace PixFootball.Gameplay
             joint = lower.position; end = endBone.position;
             Quaternion r2 = Quaternion.FromToRotation(end - joint, ne - joint);
             lower.rotation = r2 * lower.rotation;
+            endBone.rotation = Quaternion.Slerp(endBone.rotation, endRot, weight);
         }
 
         /// <summary>Total reach of a limb.</summary>

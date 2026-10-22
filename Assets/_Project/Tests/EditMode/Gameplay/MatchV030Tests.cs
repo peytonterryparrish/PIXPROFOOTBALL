@@ -144,9 +144,11 @@ namespace PixFootball.Tests
             Scrimmage(f);
             var sim = Sim(f);
             sim.CallPreSnapFoul(PenaltyType.Offside, Team.Away, 11);
-            Assert.IsTrue(f.UserDecides(f.PenaltyChoiceFor(sim)), "the user's offense was offended");
-            var sim2 = Sim(f); sim2.CallPreSnapFoul(PenaltyType.FalseStart, Team.Home, 2);
-            Assert.IsFalse(f.UserDecides(f.PenaltyChoiceFor(sim2)), "the CPU decides about the user's foul");
+            Assert.IsFalse(f.UserDecides(f.PenaltyChoiceFor(sim)), "a dead-ball foul is enforced: nothing to decide (SIM-139)");
+            var live = PlayResult.Run(8, 5f); live.Penalty = new PenaltyCall(PenaltyType.DefensiveHolding, Team.Away, 3f);
+            Assert.IsTrue(f.UserDecides(PenaltyEnforcer.Describe(f.State, live)), "the user's offense was offended on a live play");
+            var liveOwn = PlayResult.Run(8, 5f); liveOwn.Penalty = new PenaltyCall(PenaltyType.OffensiveHolding, Team.Home, 3f);
+            Assert.IsFalse(f.UserDecides(PenaltyEnforcer.Describe(f.State, liveOwn)), "the CPU decides about the user's foul");
         }
 
         // ------------------------------------------------------------------------------------------------ call screen data
@@ -206,7 +208,7 @@ namespace PixFootball.Tests
             f.State.Quarter = 4; f.State.ClockSeconds = 60f; f.State.HomeScore = 10; f.State.AwayScore = 13;
             Assert.IsTrue(f.CpuHurryUp);
             f.State.ClockSeconds = 300f; Assert.IsFalse(f.CpuHurryUp);
-            f.State.ClockSeconds = 12f; f.State.HomeTimeouts = 0;
+            f.State.ClockSeconds = 12f; f.State.HomeTimeouts = 0; f.State.ClockRunning = true; f.State.PendingRunoff = 25f;   // the spike saves time only while the clock runs (SIM-052)
             Play off, def; f.CpuCalls(out off, out def);
             Assert.AreEqual(PlayCategory.Spike, off.Category);
         }
@@ -232,7 +234,7 @@ namespace PixFootball.Tests
                 Assert.AreEqual(GamePhase.Scrimmage, f.State.Phase);
                 Assert.AreEqual(75, f.State.BallSpot, "first possession at the opponent's 25");
                 Assert.AreEqual(Team.Home, f.State.Possession);
-                var seen = new List<string>(); int guard = 0; string lastKey = "";
+                var seen = new List<string>(); int guard = 0; string lastKey = ""; PlayOutcome lastOc = null;
                 while (!f.State.IsFinal && guard++ < 500)
                 {
                     var pc = f.PrepareSnap(); if (pc.Final) break; if (pc.Changed) continue;
@@ -242,11 +244,13 @@ namespace PixFootball.Tests
                         if (key != lastKey) { lastKey = key; seen.Add(key); Assert.AreEqual(75, f.State.BallSpot, "every overtime possession starts at the 25 (" + key + ")"); }
                     }
                     Play off, def; f.CpuCalls(out off, out def);
-                    var sim = f.CreateSim(off, def, true); sim.RunToCompletion(); f.Finish(sim);
+                    var sim = f.CreateSim(off, def, true); sim.RunToCompletion(); lastOc = f.Finish(sim);
                 }
                 Assert.IsTrue(f.State.IsFinal, "college overtime always produces a winner (seed " + seed + ")");
                 Assert.AreNotEqual(f.State.HomeScore, f.State.AwayScore);
-                Assert.GreaterOrEqual(seen.Count, 2, "both teams get the ball");
+                // a defensive score (interception / fumble return, safety) wins the game on the spot: the other team never gets its possession (real college rule, and the realistic turnovers of the v0.6 engine make it happen)
+                bool defensiveWin = lastOc != null && lastOc.ScoringTeam.HasValue && lastOc.ScoringTeam.Value != lastOc.Offense;
+                if (seen.Count < 2) { Assert.IsTrue(defensiveWin, "both teams get the ball unless the defense scores (seed " + seed + ", " + f.State.HomeScore + "-" + f.State.AwayScore + ", last play " + (lastOc != null ? lastOc.LogText : "none") + ")"); Assert.AreEqual("5:Home", seen[0]); tdPossessions += seen.Count; continue; }
                 Assert.AreEqual("5:Home", seen[0]); Assert.AreEqual("5:Away", seen[1], "the other team answers from the same spot");
                 if (seen.Count >= 4) { Assert.AreEqual("6:Away", seen[2], "the second overtime starts with the other team"); Assert.AreEqual("6:Home", seen[3]); }
                 tdPossessions += seen.Count;
@@ -296,8 +300,11 @@ namespace PixFootball.Tests
         {
             var college = new GameState(RuleSet.College()) { Phase = GamePhase.Scrimmage, BallSpot = 30, Down = 1, Distance = 10, Possession = Team.Home, Quarter = 1, ClockSeconds = 600 };
             college.Apply(PlayResult.Run(12, 6f));
-            Assert.IsFalse(college.ClockRunning, "college: the clock stops on a first down");
-            Assert.Greater(college.PendingRunoff, 0f); Assert.LessOrEqual(college.PendingRunoff, 20.01f, "restarts on the ready for play");
+            Assert.IsTrue(college.ClockRunning, "college: current NCAA rules keep the clock running on a first down early in the half (SIM-053)");
+            var late = new GameState(RuleSet.College()) { Phase = GamePhase.Scrimmage, BallSpot = 30, Down = 1, Distance = 10, Possession = Team.Home, Quarter = 2, ClockSeconds = 100 };
+            late.Apply(PlayResult.Run(12, 6f));
+            Assert.IsFalse(late.ClockRunning, "college: the clock stops on a first down in the last two minutes of a half");
+            Assert.Greater(late.PendingRunoff, 0f); Assert.LessOrEqual(late.PendingRunoff, 20.01f, "restarts on the ready for play");
             var pro = new GameState(RuleSet.Pro()) { Phase = GamePhase.Scrimmage, BallSpot = 30, Down = 1, Distance = 10, Possession = Team.Home, Quarter = 1, ClockSeconds = 600 };
             pro.Apply(PlayResult.Run(12, 6f));
             Assert.IsTrue(pro.ClockRunning, "pro: it keeps running in the first quarter");

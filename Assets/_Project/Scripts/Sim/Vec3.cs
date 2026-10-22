@@ -120,3 +120,19 @@ namespace PixFootball.Sim
         }
     }
 }
+namespace PixFootball.Sim
+{
+    /// <summary>List.Sort is an unstable introsort: ties (mirrored slots at equal X, equal costs) could order differently between runtimes. This sort is stable, so assignments are deterministic everywhere.</summary>
+    public static class StableSortExtensions
+    {
+        public static void SortStable<T>(this System.Collections.Generic.List<T> list, System.Comparison<T> cmp)
+        {
+            for (int i = 1; i < list.Count; i++)
+            {
+                T x = list[i]; int j = i - 1;
+                while (j >= 0 && cmp(list[j], x) > 0) { list[j + 1] = list[j]; j--; }
+                list[j + 1] = x;
+            }
+        }
+    }
+}

@@ -53,7 +53,7 @@ namespace PixFootball.League
             int peak = AgeCurve.PeakStart(p.Position) + (p.Dev == DevTrait.Late ? 2 : 0);
             bool growing = p.Bio.Age <= peak;
             float coach = (coachDevelopment - 65) * 0.045f;
-            float change = growing ? exp + coach + rng.Gaussian(0f, 1.5f) : exp * (0.75f + 0.5f * rng.NextFloat()) + coach * 0.6f + rng.Gaussian(0f, 0.9f);
+            float change = growing ? exp + coach + rng.Gaussian(0f, 1.5f) : exp * (0.75f + 0.5f * rng.NextFloat()) * (cur >= 85 ? 0.8f : 1f) + coach * 0.6f + rng.Gaussian(0f, 0.9f);   // QA-580: stars decline a little slower so the top of the league is not eroded faster than classes replace it
 
             float target = cur + change;
             if (growing)

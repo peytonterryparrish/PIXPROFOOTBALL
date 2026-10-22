@@ -10,6 +10,8 @@ namespace PixFootball.Gameplay
     {
         public Vector2 Move, Look;
         public bool Sprint, LT;
+        /// <summary>Edge flags (true only on the frame the trigger crossed the threshold) so no consumer needs its own previous-frame bookkeeping (QA-833).</summary>
+        public bool LTDown, SprintDown;
         public readonly bool[] Down = new bool[6], Up = new bool[6], Held = new bool[6];
         public readonly float[] HeldTime = new float[6];
         public bool DPadUp, DPadDown, DPadLeft, DPadRight, View, Menu, Back, Confirm, Cancel;
@@ -23,7 +25,7 @@ namespace PixFootball.Gameplay
         public bool AnyDown { get { for (int i = 0; i < 6; i++) if (Down[i]) return true; return false; } }
         public void Clear()
         {
-            Move = Look = Vector2.zero; Sprint = LT = false;
+            Move = Look = Vector2.zero; Sprint = LT = false; LTDown = SprintDown = false;
             for (int i = 0; i < 6; i++) { Down[i] = Up[i] = Held[i] = false; HeldTime[i] = 0f; }
             DPadUp = DPadDown = DPadLeft = DPadRight = View = Menu = Back = Confirm = Cancel = false; DPadLeftHeld = DPadRightHeld = false;
             LookFlickLeft = LookFlickRight = LookFlickUp = LookHeldDown = false; NavX = NavY = 0;
@@ -49,20 +51,31 @@ namespace PixFootball.Gameplay
         readonly float[] _heldFor = new float[6];
         float _prevRsMag, _flickCooldown;
         float _navRepeat; int _lastNavX, _lastNavY;
+        int _lastPollFrame = -1; bool _prevLTHeld, _prevSprintHeld;
+        int _swallow;
+
+        /// <summary>Drops the device input for the next <paramref name="frames"/> polls (and clears the frame already read this frame): used when a menu closes so the button that closed it never also acts in the game (QA-755).</summary>
+        public static void SwallowInput(int frames) { var i = Instance; i._swallow = Mathf.Max(i._swallow, frames); i.Frame.Clear(); }
+        // reused per-poll scratch (QA-711 / QA-830: no garbage per poll)
+        readonly bool[] _press = new bool[6], _rel = new bool[6], _held = new bool[6];
 
         public MatchInputFrame Poll(float unscaledDt)
         {
             if (Scripted != null) return Scripted;
             if (ScriptMode) { _empty.Clear(); return _queue.Count > 0 ? _queue.Dequeue() : _empty; }
             var f = Frame;
+            // QA-831: several callers poll in the same frame (match loop, replay, shows); the timers below must advance once per frame, so later calls reuse the first result
+            if (Application.isPlaying && _lastPollFrame == Time.frameCount) return f;
+            _lastPollFrame = Time.frameCount;
+            if (_swallow > 0) { _swallow--; f.Clear(); f.UsingGamepad = InputDeviceTracker.GamepadActive; return f; }
             f.Clear();
             var pad = Gamepad.current; var kb = Keyboard.current;
-            if (pad != null && pad.wasUpdatedThisFrame) f.UsingGamepad = true;
-            if (kb != null && kb.wasUpdatedThisFrame && (kb.anyKey.isPressed)) f.UsingGamepad = false;
-            PixInput_SetScheme(f.UsingGamepad);
+            InputDeviceTracker.Update();
+            f.UsingGamepad = InputDeviceTracker.GamepadActive;
 
             Vector2 mv = Vector2.zero, look = Vector2.zero;
-            bool[] press = new bool[6], rel = new bool[6], held = new bool[6];
+            bool[] press = _press, rel = _rel, held = _held;
+            for (int i = 0; i < 6; i++) press[i] = rel[i] = held[i] = false;
             if (pad != null)
             {
                 mv = pad.leftStick.ReadValue(); look = pad.rightStick.ReadValue();
@@ -90,7 +103,8 @@ namespace PixFootball.Gameplay
                 f.DPadDown |= kb.tKey.wasPressedThisFrame; f.DPadUp |= kb.gKey.wasPressedThisFrame; f.DPadLeft |= kb.qKey.wasPressedThisFrame; f.DPadRight |= kb.eKey.wasPressedThisFrame;
                 f.DPadLeftHeld |= kb.qKey.isPressed; f.DPadRightHeld |= kb.eKey.isPressed;
                 f.View |= kb.tabKey.wasPressedThisFrame; f.Menu |= kb.escapeKey.wasPressedThisFrame;
-                f.Confirm |= kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame; f.Cancel |= kb.backspaceKey.wasPressedThisFrame || kb.fKey.wasPressedThisFrame;
+                // QA-832 / QA-993: Confirm / Cancel are menu-only keys (Enter, Backspace); Space (A) and F (B) are read through Down[] so a game button never double-fires a menu action
+                f.Confirm |= kb.enterKey.wasPressedThisFrame; f.Cancel |= kb.backspaceKey.wasPressedThisFrame;
             }
             f.Move = mv; f.Look = look;
             for (int i = 0; i < 6; i++)
@@ -101,6 +115,8 @@ namespace PixFootball.Gameplay
                 if (rel[i]) f.HeldTime[i] = _heldFor[i];
             }
             for (int i = 0; i < 6; i++) if (rel[i]) _heldFor[i] = 0f;
+
+            f.LTDown = f.LT && !_prevLTHeld; f.SprintDown = f.Sprint && !_prevSprintHeld; _prevLTHeld = f.LT; _prevSprintHeld = f.Sprint;
 
             // right-stick flicks (juke left / right, truck up) and a held "down" (protect the ball)
             float mag = look.magnitude;
@@ -137,8 +153,7 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>Whether the HUD should show controller glyphs or keycaps.</summary>
-        public static bool GamepadActive { get; private set; } = true;
-        static void PixInput_SetScheme(bool pad) { GamepadActive = pad; }
+        public static bool GamepadActive { get { return InputDeviceTracker.GamepadActive; } }
     }
 }
 

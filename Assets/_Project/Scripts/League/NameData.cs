@@ -118,8 +118,8 @@ namespace PixFootball.League
             "Riverboats", "Marauders", "Sunhawks", "Copperheads", "Scorpions", "Silverbacks", "Lanterns", "Hammers", "Bluecoats", "Millers",
             "Stampeders", "Voyagers", "Northmen", "Aviators", "Missionaries", "Outlaws", "Wranglers", "Bayou Kings", "Ironclads", "Prospectors",
             "Lumberjacks", "Tradewinds", "Blizzard", "Gladiators", "Harpoons", "Mustangers", "Thunderheads", "Wildfire", "Vanguard", "Rampage",
-            "Condors", "Cutthroats", "Dragoons", "Embers", "Frostbite", "Grizzlies", "Hurricanes", "Juggernauts", "Kodiaks", "Longhorns",
-            "Maulers", "Nighthawks", "Overlords", "Pathfinders", "Quakes", "Raptors", "Sabres", "Titans", "Undertow", "Vipers",
+            "Condors", "Cutthroats", "Dragoons", "Embers", "Frostbite", "Brownbacks", "Galeforce", "Juggernauts", "Kodiaks", "Plainshorns",
+            "Maulers", "Nighthawks", "Overlords", "Pathfinders", "Quakes", "Talonbirds", "Cutlasses", "Behemoths", "Undertow", "Vipers",
             "Warhawks", "Rustlers", "Yellowjackets", "Zephyrs", "Armada", "Brawlers", "Clippers", "Drifters", "Engineers", "Falconers"
         };
 
@@ -167,12 +167,12 @@ namespace PixFootball.League
         internal static readonly string[] SchoolMascots =
         {
             "Wolverhounds", "Gryphons", "Stags", "Lynx", "Sandpipers", "Mountaineers", "Pioneers", "Highlanders", "Cavaliers", "Rangers",
-            "Bobcats", "Herons", "Falcons", "Otters", "Badgers", "Bison", "Cougars", "Dragons", "Eagles", "Foxes",
-            "Griffins", "Hornets", "Ibis", "Jackals", "Kestrels", "Lancers", "Mustangs", "Nomads", "Owls", "Panthers",
-            "Quakers", "Rams", "Spartans", "Tigers", "Unicorns", "Vikings", "Wildcats", "Yetis", "Zephyrs", "Trojans",
-            "Buccaneers", "Captains", "Rebels", "Crusaders", "Titans", "Knights", "Raiders", "Chargers", "Bulldogs", "Hawks",
+            "Bobcats", "Herons", "Peregrines", "Otters", "Badgers", "Bison", "Cougars", "Dragons", "Windhawks", "Foxes",
+            "Griffins", "Hornets", "Ibis", "Jackals", "Kestrels", "Lancers", "Mustangs", "Nomads", "Owls", "Prowlcats",
+            "Quakers", "Cragrams", "Hoplites", "Tigers", "Unicorns", "Longshipmen", "Wildcats", "Yetis", "Zephyrs", "Trailmen",
+            "Brigands", "Captains", "Rebels", "Crusaders", "Colossals", "Knights", "Skyraiders", "Bolters", "Bulldogs", "Hawks",
             "Ospreys", "Pelicans", "Stallions", "Thunder", "Blaze", "Comets", "Voyagers", "Miners", "Foresters", "Anglers",
-            "Coyotes", "Armadillos", "Salamanders", "Gators", "Terriers", "Wolves", "Rattlers", "Cardinals", "Jayhawks", "Blue Herons",
+            "Coyotes", "Armadillos", "Salamanders", "Gators", "Terriers", "Wolves", "Rattlers", "Redbirds", "Skyjays", "Blue Herons",
             "Harriers", "Ironmen", "Mariners", "Sentries", "Scouts", "Pilots", "Barons", "Dukes", "Monarchs", "Regents"
         };
 
@@ -181,8 +181,43 @@ namespace PixFootball.League
             "Sunrise Bowl", "Harvest Bowl", "Lantern Bowl", "Rosewater Bowl", "Orchard Bowl", "Summit Bowl", "Capital Bowl", "Gulfline Bowl",
             "Pinecone Bowl", "Redstone Bowl", "Skyline Bowl", "Riverwalk Bowl", "Frostfire Bowl", "Mesa Verde Bowl", "Lakeshore Classic", "Ironworks Bowl",
             "Cornerstone Bowl", "Heritage Bowl", "Beacon Bowl", "Driftwood Bowl", "Silverleaf Bowl", "Goldenrod Bowl", "Canyon Classic", "Founders Bowl",
-            "Magnolia Bowl", "Tidewater Bowl", "Sandhill Bowl", "Evergreen Bowl", "Copperline Bowl", "Prairie Fire Bowl", "Bluegrass Bowl", "Palmetto Bowl",
-            "Lighthouse Bowl", "Foothills Bowl", "Crossroads Bowl", "Starlight Bowl", "Wildcat Run Bowl", "Pioneer Trail Bowl", "Northern Lights Bowl", "Peach State Classic"
+            "Magnolia Bowl", "Tidewater Bowl", "Sandhill Bowl", "Evergreen Bowl", "Copperline Bowl", "Prairie Fire Bowl", "Bluegrass Bowl", "Fanpalm Bowl",
+            "Lighthouse Bowl", "Foothills Bowl", "Crossroads Bowl", "Starlight Bowl", "Wildcat Run Bowl", "Pioneer Trail Bowl", "Northern Lights Bowl", "Amber State Classic"
+        };
+
+        /// <summary>
+        /// Real players / coaches whose "First Last" can fall out of the generic given-name and surname pools (QA-583). The generator rejects these
+        /// combinations. Hand-written, lower case; not exhaustive, but covers every name the audit found plus the best-known stars.
+        /// </summary>
+        internal static readonly string[] RealNameBlocklist =
+        {
+            "jerry rice", "barry sanders", "reggie white", "randy moss", "lawrence taylor", "terrell owens", "aaron rodgers", "lamar jackson", "jared goff", "jordan love",
+            "trevor lawrence", "russell wilson", "calvin johnson", "patrick willis", "john madden", "walter payton", "emmitt smith", "jim brown", "joe montana", "dan marino",
+            "john elway", "brett favre", "drew brees", "patrick mahomes", "josh allen", "joe burrow", "justin herbert", "dak prescott", "derrick henry", "saquon barkley",
+            "christian mccaffrey", "travis kelce", "tyreek hill", "justin jefferson", "davante adams", "cooper kupp", "stefon diggs", "julio jones", "antonio brown",
+            "odell beckham", "adrian peterson", "ladainian tomlinson", "marshall faulk", "ray lewis", "brian urlacher", "ed reed", "troy polamalu", "deion sanders",
+            "darrelle revis", "richard sherman", "aaron donald", "von miller", "khalil mack", "myles garrett", "nick bosa", "micah parsons", "kyler murray", "jalen hurts",
+            "matthew stafford", "joe flacco", "ben roethlisberger", "eli manning", "peyton manning", "philip rivers", "cam newton", "andrew luck", "carson palmer",
+            "michael vick", "steve young", "troy aikman", "kurt warner", "johnny unitas", "bart starr", "roger staubach", "terry bradshaw", "joe namath", "dick butkus",
+            "mike singletary", "jack lambert", "joe greene", "bruce smith", "michael strahan", "warren sapp", "derrick thomas", "junior seau", "anthony munoz",
+            "larry fitzgerald", "hines ward", "torry holt", "isaac bruce", "cris carter", "tim brown", "michael irvin", "marvin harrison", "andre johnson", "steve smith",
+            "roddy white", "wes welker", "tony gonzalez", "antonio gates", "jason witten", "shannon sharpe", "brian dawkins", "charles woodson", "champ bailey",
+            "rod woodson", "ronnie lott", "darrell green", "joe thomas", "jonathan ogden", "orlando pace", "walter jones", "tony dungy", "andy reid", "mike tomlin",
+            "sean payton", "bill parcells", "vince lombardi", "don shula", "chuck noll", "joe gibbs", "bill walsh", "tom landry", "jimmy johnson", "pete carroll",
+            "john harbaugh", "mike mccarthy", "sean mcvay", "kyle shanahan", "dan reeves", "marv levy", "bruce arians", "mike shanahan", "bill cowher", "jon gruden",
+            "nick saban", "urban meyer", "terrell davis", "ricky williams", "steve largent", "eric dickerson", "earl campbell", "marcus allen", "curtis martin",
+            "jamal lewis", "edgerrin james", "frank gore", "chris johnson", "arian foster", "ezekiel elliott", "dalvin cook", "alvin kamara", "nick chubb", "jonathan taylor",
+            "austin ekeler", "leonard fournette", "mark ingram", "marshawn lynch", "tom brady", "rob gronkowski", "michael jordan", "james brown", "george washington",
+            "tony romo", "alex smith", "jay cutler", "sam bradford", "mark sanchez", "ryan tannehill", "ryan fitzpatrick", "tua tagovailoa", "baker mayfield", "kirk cousins",
+            "derek carr", "teddy bridgewater", "geno smith", "jameis winston", "mitchell trubisky", "jimmy garoppolo", "daniel jones", "bryce young", "caleb williams",
+            "jayden daniels", "drake maye", "bo nix", "c.j. stroud", "anthony richardson", "justin fields", "zach wilson", "mac jones", "trey lance", "joe mixon",
+            "devin white", "fred warner", "bobby wagner", "luke kuechly", "lavonte david", "tj watt", "jj watt", "tj hockenson", "george kittle", "mark andrews",
+            "darren waller", "dallas goedert", "evan engram", "jared allen", "julius peppers", "demarcus ware", "jason taylor", "simeon rice", "chris jones", "cameron jordan",
+            "joey bosa", "maxx crosby", "trent williams", "tyron smith", "zack martin", "joe staley", "jason kelce", "maurkice pouncey", "jalen ramsey", "patrick peterson",
+            "stephon gilmore", "marlon humphrey", "tyrann mathieu", "earl thomas", "kam chancellor", "harrison smith", "minkah fitzpatrick", "derwin james", "jamal adams",
+            "justin tucker", "adam vinatieri", "morten andersen", "sebastian janikowski", "matt prater", "pat mcafee", "shane lechler", "ray guy", "jeff wilson",
+            "alvin harper", "keenan allen", "mike evans", "adam thielen", "amari cooper", "deandre hopkins", "dk metcalf", "a.j. brown", "ceedee lamb", "jaylen waddle",
+            "jamarr chase", "garrett wilson", "chris olave", "drake london", "puka nacua", "amon-ra st. brown", "brandon aiyuk", "deebo samuel", "terry mclaurin"
         };
     }
 }

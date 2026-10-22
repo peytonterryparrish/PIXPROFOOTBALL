@@ -82,7 +82,8 @@ namespace PixFootball.Presentation
                 _clip.Agents[i] = new ReplayAgent
                 {
                     Size = (byte)size, Side = (byte)(a.Side == SimSide.Offense ? 0 : 1), Slot = (byte)a.Slot, Position = a.PlayPos.ToString(),
-                    Name = a.Player != null ? a.Player.Name : a.Label, Number = a.Player != null ? a.Player.Bio.JerseyNumber : 0
+                    Name = a.Player != null ? a.Player.Name : a.Label, Number = a.Player != null ? a.Player.Bio.JerseyNumber : 0, PlayerId = a.Player != null ? a.Player.Id : -1,
+                    Dirt = a.Player != null && _dir.Look != null ? _dir.Look.Dirt.Get(a.Player.Id) : default(PixFootball.Core.DirtState)
                 };
                 _agentSets[i] = v != null ? SetFor(v) : null;
                 if (v != null && _layouts[size] == null) _layouts[size] = new ReplayLayout { BoneCount = _agentSets[i].Bones.Length, PosBones = _agentSets[i].PosIndex };
@@ -90,7 +91,7 @@ namespace PixFootball.Presentation
             for (int s = 0; s < 3; s++) _clip.Layouts[s] = _layouts[s];
             _clip.BuildOffsets();
             var ok = stage.OffenseKit; var dk = stage.DefenseKit;
-            Kit(_clip.OffenseKit, ok); Kit(_clip.DefenseKit, dk);
+            Kit(_clip.OffenseKit, ok); Kit(_clip.DefenseKit, dk); _clip.OffenseHome = ok.Home; _clip.OffenseWord = ok.Wordmark; _clip.DefenseWord = dk.Wordmark; _clip.OffenseCrest = ok.CrestKey; _clip.DefenseCrest = dk.CrestKey;
             _clip.LosPos = frame.ToUnity(new Vec2(sim.BallX0, sim.LosY));
             return _clip;
         }
@@ -134,7 +135,7 @@ namespace PixFootball.Presentation
             return c;
         }
 
-        public void Recycle(ReplayClip c) { foreach (var f in c.Frames) if (_pool.Count < 400) _pool.Push(f); c.Frames.Clear(); }
+        public void Recycle(ReplayClip c) { foreach (var f in c.Frames) if (_pool.Count < 1200) _pool.Push(f); c.Frames.Clear(); }
 
         void TrimBefore(float t)
         {
@@ -142,7 +143,7 @@ namespace PixFootball.Presentation
             int n = 0;
             while (n < _clip.Frames.Count - 1 && _clip.Frames[n].T < t) n++;
             if (n <= 0) return;
-            for (int i = 0; i < n; i++) if (_pool.Count < 400) _pool.Push(_clip.Frames[i]);
+            for (int i = 0; i < n; i++) if (_pool.Count < 1200) _pool.Push(_clip.Frames[i]);
             _clip.Frames.RemoveRange(0, n);
         }
 
@@ -170,6 +171,7 @@ namespace PixFootball.Presentation
                 if (v == null || set == null) continue;
                 var tr = v.transform;
                 f.Pos[i] = tr.position; f.Yaw[i] = tr.eulerAngles.y;
+                f.BodyYaw[i] = v.Avatar != null && v.Avatar.Root != null ? v.Avatar.Root.localEulerAngles.y : PlayerAvatar.ModelYaw; f.Setback[i] = v.Avatar != null ? v.Avatar.transform.localPosition.z : 0f;
                 int ro = _clip.RotOffset[i], po = _clip.PosOffset[i];
                 var bones = set.Bones;
                 int n = Mathf.Min(bones.Length, _clip.RotOffset[i + 1] - ro);
