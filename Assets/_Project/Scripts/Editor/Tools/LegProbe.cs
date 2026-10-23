@@ -70,7 +70,7 @@ namespace PixFootball.EditorTools
            if (speed > 1f && travel.sqrMagnitude > 1e-4f)
            {
                float d = Vector3.Dot(travel.normalized, facing);
-               if (d > 0.5f) refDir = travel.normalized; else if (d < -0.5f) refDir = -travel.normalized;     // backpedal: the body line is the reverse of the travel
+               if (d > 0.85f) refDir = travel.normalized; else if (d < -0.85f) refDir = -travel.normalized;     // straight forward / straight back: the line of travel; oblique travel (shuffles, diagonal back-pedals): the body is square to the facing and the feet point along it
            }
            Vector3 right = Vector3.Cross(Vector3.up, refDir);       // the lateral axis of the line of travel
            acc.Frames++;
@@ -96,7 +96,7 @@ namespace PixFootball.EditorTools
                float inward = g.Left ? dev : -dev;             // + = toward the midline (knock-kneed), - = bowed out
                float thigh = Mathf.Max(0.1f, (K - H).magnitude);
                acc.Add(stance ? "knee dev cm stance" : "knee dev cm swing", Mathf.Abs(inward) * 100f);
-               if (stance) { acc.Add("knee inward cm stance (signed)", inward * 100f); acc.Add("knee dev deg stance", Mathf.Atan2(Mathf.Abs(inward), thigh) * Mathf.Rad2Deg); }
+               if (stance) { acc.Add("knee inward cm stance (signed)", inward * 100f); acc.Add("knee dev deg stance", Mathf.Atan2(Mathf.Abs(inward), thigh) * Mathf.Rad2Deg); acc.Add("knee inward cm stance (signed)" + (g.Left ? " L" : " R"), inward * 100f); }
            }
            // knee hinge axis
            Vector3 hinge = Vector3.Cross(K - H, A - K);
@@ -133,7 +133,7 @@ namespace PixFootball.EditorTools
                acc.Add("foot yaw deg all", Mathf.Abs(yaw));
                if (stance)
                {
-                   acc.Add("foot toe-out deg contact (abs)", Mathf.Abs(outDeg)); acc.Add("foot toe-out deg contact (signed, + = out)", outDeg);
+                   acc.Add("foot toe-out deg contact (abs)", Mathf.Abs(outDeg)); acc.Add("foot toe-out deg contact (signed, + = out)", outDeg); acc.Add("foot toe-out deg contact (signed, + = out)" + (g.Left ? " L" : " R"), outDeg);
                    if (g.HavePrev && g.PrevStance) { float dy = Mathf.Abs(Mathf.DeltaAngle(g.PrevYaw, yaw)); acc.Add("foot yaw change deg/frame in contact", dy); if (dy > 8f) acc.YawPops++; }
                }
            }
@@ -146,7 +146,7 @@ namespace PixFootball.EditorTools
                 {
                     roll = rr;
                     acc.Add("ankle roll deg (abs, all)", Mathf.Abs(roll));
-                    if (stance) acc.Add("ankle roll deg stance (abs)", Mathf.Abs(roll));
+                    if (stance) { acc.Add("ankle roll deg stance (abs)", Mathf.Abs(roll)); acc.Add("ankle roll deg stance (signed, + = outer edge down)" + (g.Left ? " L" : " R"), g.Left ? -roll : roll); }
                     if (g.HavePrev && g.PrevRollOk) { float dr = Mathf.Abs(Mathf.DeltaAngle(g.PrevRoll, roll)); acc.Add("ankle roll jitter deg/frame", dr); if (dr > 6f) acc.RollPops++; }
                 }
                 g.PrevRollOk = okr;
@@ -167,15 +167,23 @@ namespace PixFootball.EditorTools
        static string MP(Acc a, string k) { List<float> l; a.V.TryGetValue(k, out l); return F(Mean(l)) + " / " + F(P(l, 0.95f)); }
        static string M1(Acc a, string k) { List<float> l; a.V.TryGetValue(k, out l); return F(Mean(l)); }
 
+       /// <summary>Left / right mean of a per-side key and their difference: "L / R (diff)".</summary>
+       static string LR(Acc a, string k)
+       {
+           List<float> l, r; a.V.TryGetValue(k + " L", out l); a.V.TryGetValue(k + " R", out r);
+           float ml = Mean(l), mr = Mean(r);
+           return F(ml) + " / " + F(mr) + " (" + F(float.IsNaN(ml) || float.IsNaN(mr) ? float.NaN : Mathf.Abs(ml - mr)) + ")";
+       }
+
        public static string Table(IDictionary<string, Acc> rows)
        {
            var sb = new StringBuilder();
-           sb.AppendLine("| case | frames | knee dev stance cm (mean / p95) | knee inward cm (signed mean) | knee hinge yaw stance deg | knee points off line deg stance | pole flips | toe-out at contact deg (abs mean / p95) | toe-out signed | yaw change in contact deg/frame (p95) | ankle roll stance deg (mean / p95) | roll jitter deg/frame (mean / p95) | roll pops >6 | yaw pops >8 | thigh / shin / foot twist muscle deg | pelvis off line deg (mean / p95) |");
-           sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+           sb.AppendLine("| case | frames | knee dev stance cm (mean / p95) | knee inward cm (signed mean) | knee hinge yaw stance deg | knee points off line deg stance | pole flips | toe-out at contact deg (abs mean / p95) | toe-out signed | yaw change in contact deg/frame (p95) | ankle roll stance deg (mean / p95) | roll jitter deg/frame (mean / p95) | roll pops >6 | yaw pops >8 | thigh / shin / foot twist muscle deg | pelvis off line deg (mean / p95) | L / R toe-out signed deg (asymmetry) | L / R roll signed deg | L / R knee inward cm |");
+           sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
            foreach (var kv in rows.OrderBy(x => x.Key))
            {
                var a = kv.Value; List<float> yc; a.V.TryGetValue("foot yaw change deg/frame in contact", out yc);
-               sb.AppendLine("| " + kv.Key + " | " + a.Frames + " | " + MP(a, "knee dev cm stance") + " | " + M1(a, "knee inward cm stance (signed)") + " | " + MP(a, "knee hinge yaw deg stance") + " | " + MP(a, "knee pointing off the line of travel deg stance") + " | " + a.Flips + " | " + MP(a, "foot toe-out deg contact (abs)") + " | " + M1(a, "foot toe-out deg contact (signed, + = out)") + " | " + F(P(yc, 0.95f)) + " | " + MP(a, "ankle roll deg stance (abs)") + " | " + MP(a, "ankle roll jitter deg/frame") + " | " + a.RollPops + " | " + a.YawPops + " | " + M1(a, "thigh twist deg (abs)") + " / " + M1(a, "shin twist deg (abs)") + " / " + M1(a, "foot twist deg (abs)") + " | " + MP(a, "pelvis yaw off line deg") + " |");
+               sb.AppendLine("| " + kv.Key + " | " + a.Frames + " | " + MP(a, "knee dev cm stance") + " | " + M1(a, "knee inward cm stance (signed)") + " | " + MP(a, "knee hinge yaw deg stance") + " | " + MP(a, "knee pointing off the line of travel deg stance") + " | " + a.Flips + " | " + MP(a, "foot toe-out deg contact (abs)") + " | " + M1(a, "foot toe-out deg contact (signed, + = out)") + " | " + F(P(yc, 0.95f)) + " | " + MP(a, "ankle roll deg stance (abs)") + " | " + MP(a, "ankle roll jitter deg/frame") + " | " + a.RollPops + " | " + a.YawPops + " | " + M1(a, "thigh twist deg (abs)") + " / " + M1(a, "shin twist deg (abs)") + " / " + M1(a, "foot twist deg (abs)") + " | " + MP(a, "pelvis yaw off line deg") + " | " + LR(a, "foot toe-out deg contact (signed, + = out)") + " | " + LR(a, "ankle roll deg stance (signed, + = outer edge down)") + " | " + LR(a, "knee inward cm stance (signed)") + " |");
            }
            return sb.ToString();
        }

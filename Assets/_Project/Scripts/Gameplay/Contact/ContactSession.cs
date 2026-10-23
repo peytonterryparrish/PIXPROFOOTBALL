@@ -67,6 +67,19 @@ namespace PixFootball.Gameplay
         public bool CarrierRunsOn { get { return Kind == ContactKind.Broken || Kind == ContactKind.SackBroken || Kind == ContactKind.Truck || Kind == ContactKind.Contested || Kind == ContactKind.Collision; } }
         public bool PassedContact { get { return Time >= Pair.tContact; } }
 
+        /// <summary>v0.10.0 CHOREO: the simulation owns both bodies and moves them along the take (the choreographer booking); the session only plays the clips and draws the bodies where the simulation has them.</summary>
+        public PixFootball.Sim.ChoreoBooking Booking;
+        public bool Booked { get { return Booking != null; } }
+
+        /// <summary>A session for a booked take: no alignment of its own (the booking placed the pair), no warp, no correction back to the simulation.</summary>
+        public static ContactSession CreateBooked(ContactTable.Pair p, ContactKind kind, int carrier, int tackler, PixFootball.Sim.ChoreoBooking booking, float clipTimeNow)
+        {
+            var s = new ContactSession { Pair = p, Kind = kind, Carrier = carrier, Tackler = tackler, Booking = booking };
+            s.Start = Mathf.Clamp(clipTimeNow, 0f, Mathf.Max(0f, Mathf.Min(p.lengthA, p.lengthB) - 0.05f));
+            s.Time = s.Start; s.Lead = Mathf.Max(0f, p.tContact - s.Start);
+            return s;
+        }
+
         public static ContactSession Create(ContactTable.Pair p, ContactKind kind, int carrier, int tackler, Vector2 simA, Vector2 simB, float carrierYaw, float yawB, Vector2 simVelA, float lead = 0.36f, float axisWeight = 0.6f)
         {
             var s = new ContactSession { Pair = p, Kind = kind, Carrier = carrier, Tackler = tackler };
@@ -131,6 +144,7 @@ namespace PixFootball.Gameplay
         /// <summary>Pose of both views for the current clip time. sim* are the simulated bodies this frame (view root space: the sim position drives the view when no take is playing).</summary>
         public void Evaluate(Vector2 simA, float simYawA, Vector2 simB, float simYawB, out ContactActorPose a, out ContactActorPose b)
         {
+            if (Booking != null) { a.Root = simA; b.Root = simB; a.Yaw = simYawA; b.Yaw = simYawB; a.Warp = 1f; b.Warp = 1f; return; }      // v0.10.0 CHOREO: the simulation already moves both bodies along the take
             float tA = Mathf.Min(Time, Pair.lengthA), tB = Mathf.Min(Time, Pair.lengthB);
             float w = WarpWeight;
             Vector2 slide = Slide();

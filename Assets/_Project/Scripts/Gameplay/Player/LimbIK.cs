@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PixFootball.Gameplay
@@ -5,9 +6,21 @@ namespace PixFootball.Gameplay
     /// <summary>
     /// Analytic two-bone IK (arm / leg): given the root (shoulder / hip), joint (elbow / knee) and end (hand / foot) positions and a target for the end, returns where the joint and the end go.
     /// The pole direction keeps the elbow / knee bending the way the animation bends it. Pure math, unit tested. The Apply helpers rotate real bones to follow the solved positions.
+    /// v0.10.0 BODIES: <see cref="Apply"/> also rolls the upper bone about its own axis so the joint's hinge lies across the bending plane (without it the forearm picked up a quarter turn of roll
+    /// whenever the arm was moved far from the animation: candy-wrapper wrists), and a hand follows the forearm for the larger part of its roll (<see cref="HandKeepWorld"/>) instead of holding its world orientation.
     /// </summary>
     public static class LimbIK
     {
+        static readonly Dictionary<Transform, Vector3> Hinges = new Dictionary<Transform, Vector3>();
+        /// <summary>Roll the upper bone so the registered hinge lies across the bending plane.</summary>
+        public static bool AlignHinges = true;
+        /// <summary>How much of its world orientation an arm's hand keeps when the arm moves (1 = all, the old behaviour; a foot always keeps all of it).</summary>
+        public static float HandKeepWorld = 0.4f;
+
+        /// <summary>Registers the flexion hinge of a joint (an elbow): <paramref name="hingeLocal"/> is the axis in the lower bone's own space, positive = the way the joint folds.</summary>
+        public static void RegisterHinge(Transform lower, Vector3 hingeLocal) { if (lower != null) Hinges[lower] = hingeLocal; }
+        public static void UnregisterHinge(Transform lower) { if (lower != null) Hinges.Remove(lower); }
+
         /// <summary>Returns the new joint position and the reachable end position (the target clamped to the limb's reach).</summary>
         public static void Solve(Vector3 root, Vector3 joint, Vector3 end, Vector3 target, Vector3 pole, out Vector3 newJoint, out Vector3 newEnd)
         {
@@ -41,11 +54,32 @@ namespace PixFootball.Gameplay
             // upper bone swings so the joint lands on nj
             Quaternion r1 = Quaternion.FromToRotation(joint - root, nj - root);
             upper.rotation = r1 * upper.rotation;
+            // v0.10.0 BODIES: roll the upper bone about its own axis so the hinge of the joint lies across the bending plane (the joint stays where it is, the lower bone is swung next)
+            Vector3 hingeLocal; bool arm = false;
+            if (AlignHinges && Hinges.TryGetValue(lower, out hingeLocal))
+            {
+                arm = true;
+                Vector3 axis = nj - root, e = ne - nj;
+                Vector3 want = Vector3.Cross(axis, e);
+                float bend = want.magnitude / Mathf.Max(1e-5f, axis.magnitude * e.magnitude);
+                if (bend > 0.06f && axis.sqrMagnitude > 1e-8f)
+                {
+                    axis.Normalize(); want.Normalize();
+                    Vector3 cur = lower.rotation * hingeLocal;
+                    Vector3 cp = Vector3.ProjectOnPlane(cur, axis), wp = Vector3.ProjectOnPlane(want, axis);
+                    if (cp.sqrMagnitude > 1e-6f && wp.sqrMagnitude > 1e-6f)
+                    {
+                        float a = Vector3.SignedAngle(cp, wp, axis);
+                        if (Mathf.Abs(a) > 90f) a = Mathf.Sign(a) * 90f;      // never a half turn: a bent arm that would need one is a pole the animation never meant
+                        upper.rotation = Quaternion.AngleAxis(a * Mathf.Clamp01(bend * 6f), axis) * upper.rotation;
+                    }
+                }
+            }
             // the lower bone follows (its world position moved with the parent); swing it so the end lands on ne
             joint = lower.position; end = endBone.position;
             Quaternion r2 = Quaternion.FromToRotation(end - joint, ne - joint);
             lower.rotation = r2 * lower.rotation;
-            endBone.rotation = Quaternion.Slerp(endBone.rotation, endRot, weight);
+            endBone.rotation = Quaternion.Slerp(endBone.rotation, endRot, weight * (arm ? HandKeepWorld : 1f));
         }
 
         /// <summary>Total reach of a limb.</summary>

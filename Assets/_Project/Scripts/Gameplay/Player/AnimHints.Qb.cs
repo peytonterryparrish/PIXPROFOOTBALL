@@ -21,5 +21,9 @@ namespace PixFootball.Gameplay
         public bool Snapper;
         /// <summary>1 = kneel-down play, 2 = spike (the quarterback of a victory-formation / clock play), 0 = none; and the quarterback clock (seconds since the snap).</summary>
         public int QbSpecial; public float QbClock;
+        /// <summary>v0.10.0 QB: the play is a hand-off (not a toss): the quarterback poses the open step, the reach into the runner's pocket and the carry-out.</summary>
+        public bool QbHandoffPlan;
+        /// <summary>v0.10.0 QB: seconds until the simulated exchange (the stage predicts it from the closing speed; -1 = not in a hand-off). The sync frame of the quarterback's reach.</summary>
+        public float QbMeshEta;
     }
 }

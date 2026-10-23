@@ -6,6 +6,45 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 Next: **College Network** returns (paused in 0.9.0): a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools. Its logic is in main (`League/Career/College*`); its screens live on the local branch `wip/v0.9-college-ui`.
 
+## [0.10.0] - 2026-10-23 - "Choreography"
+
+Answers the v0.9.0 playtest notes (`Docs/QA/v0100/PLAYTEST_v090.md`) with seven tracks (MOTION, QB, CHOREO, DEFENSE, BODIES, ANIMLIB, UI); status of every note in `Docs/QA/v0100/STATUS.md`, track logs next to it. Built player, 80 s live play, 2560 x 1440 High: 148.5 fps average, 114.5 1 %-low (v0.9.1: 145 / 82). 1,248 EditMode tests in the `!Slow` run, all green after two re-baselines.
+
+### Added
+- **Motion matching** (`Gameplay/Player/Motion/*`, `PlaySimulation.MotionPlan.cs`, `PlayStage.Motion.cs`, `PixMotionDb`): locomotion picks the pose from clean Mixamo running, jogging, back-pedal and shuffle takes (skeleton-only exports re-based from their first-frame rest pose), with inertialization, per-take floor height and planted-foot hold. Flags `-pixLocoLegacy` (v0.9.0 gait player), `-pixLocoOff`.
+- **Choreographer** (`Sim/Choreo/*`, `ContactDirector.Choreo`, `SimAgentView.Choreo`, `GameChoreoLibrary`, `PixChoreo`): forecasts tackles and catches 0.5-1.2 s ahead, bends paths with a bounded rate, books the paired take by bearing / speed / height / side, and makes the sim body follow the take's root path; lead-in time warp, contested-catch pre-roll, `EngageStepper` foot reach and plant, DB hip-flip planner, sack / interception / big-play celebrations. Flags `-pixNoChoreo`, `-pixNoChoreoView`, `-pixNoTurn`, `-pixNoGetOffFit`, `-pixNoRootScale`, `-pixNoDuel`, `-pixNoChoreoCelebrate`, `-pixSteerSacks`, `-pixSteerCatchers`.
+- **Quarterback sequence** (`PlayStage.QbSeq`, `SimAgentView.QbSeq`, `StancePoses.QbSeq`, `Sim/QbSeqTiming`): walk, survey / point, step in, crouch, cadence, snap, 0.2 s secure, 3 / 5 / 7 step drop, set with the chest north, scramble transition. The sim fixes each segment's length.
+- **Kick sync** (`PlayStage.Kick`, `SimAgentView.Kick`): contact time from the sim, foot-path IK pulse, holder spot used.
+- **Defense rules** (`DefenseAI.Rules`, `SimAgent.Defense`, `SimTuning`): zone landmarks, man targets with swap rules, spy, blitz gaps. `CoverageAudit` probe and `CoverageRulesTests`.
+- **Plays** (`DefaultPlaybooks.Concepts`, `PlayDataV100Tests`): 22 offensive formations / 619 plays / 49 concepts (was 12 / 287 / 46), 8 defensive formations / 101 plays (was 5 / 66); `Play.Note` coaching line shown on the play-call card.
+- **Bodies** (`BodySanity`, `PhotoArmProportions` v5, `BallFollower.Release`, `MatchOfficials.Ball`, `PlayStage.BallFlow`): new OL / DL stances, human arm proportions on all 15 photoreal prefabs, seat / shoulder skin relaxation, joint-limit layer, ball carried in the hand and dropped after a celebration.
+- **Animation library** (`ClipSelect`, `ClipTagTable` / `PixClipTags`, `AnimKit.Extra2`, `Editor/Tools/AnimLib/*`): per-clip QA, 383 more cleaned clips, tag table of 2,628 clips, kickoff idles / runs, QB cadences and snaps, center snap, 4-point get-off, celebrations and reactions, 71 bad takes rejected.
+- **Tools:** `ChoreoAudit`, `QbChoreoAudit`, `BodyProbe`, `MotionBench`, `MixamoScan` / `MixamoImport`, `MotionDbBuilder`, `ChoreoClipBuilder`, `SkinFixCheck`.
+- 25 menu design directions (3 screens each) as mockups outside the repo (`D:\PIXFootball\Renders\ui_directions`, notes in `Docs/QA/v0100/ui.md`); the in-game menus are unchanged.
+
+### Changed
+- Running: both feet in the air 12 % at a run and 28 % at a sprint (was 44 % / 58 %), toe-out at contact 3-5 degrees (was 14), planted-foot slide at run / sprint 0.07-0.10 m/s (was 0.24-0.30).
+- QB: chest 3 degrees off north in the pocket (was 100), head on the read 2 degrees (was 37), ball in the hands on the snap frame, drop slide 0.04-0.06 m/s.
+- Choreography: planted-foot slide in action takes 1.16 -> 0.20 m/s, floating 20 % -> 5 % of action frames, catch ball-to-hand gap 0.57 -> 0.10 m, chest snaps 3,724 -> 704 per 60 plays.
+- Kicks: kickoff foot-to-ball gap 8.9 -> 0.6 cm.
+- Defense: lost defenders 14.7 -> 0.1 per 100 pass plays, sacks per team per game 1.3 -> 2.5, Read Option 2.97 -> 4.61 yd, Outside Zone 3.38 -> 5.08, punts 49.2 -> 45.9 yd.
+- 4,000-play check (choreography on): rush 3.88 yd, pass 7.41 yd, completion 52.8 %, 213 sacks, 47 interceptions, 36 fumbles. Pass was 7.61 with choreography off; the test bands are rush 0.40 / pass 0.85 yd.
+- `SimAbilityLineTests.SniperBlitzArrivesSooner` bound -0.03 -> -0.02 s (the 0.2 s QB secure and new drop facing shift every blitzer-arrival time; measured -0.026); `BodiesTests` helper-bone test requires the driver only while `BodyHelperBones.Enabled`.
+- `BuildScript` slim ArtLibrary whitelist now keeps the v0.10.0 string-keyed takes (kickoff, QB cadence, center snap, 4-point get-off, celebrations, crowd, draft night).
+
+### Fixed
+- Players leaving zones or coverage; QB with his back to the field in the drop; kickoff / punt ball sync; ball glued to the forearm in celebrations; OL / DL stances; twisting waists and forearms; arm proportions; pass-yard tilt from catcher / rusher steering (off by default).
+
+### Known Issues
+- Wrap-tackle planted-foot slide about 1.6 m/s mean (0.7 median); Jump and GetUp contacts are played by the view, not the sim, and still slide.
+- Jog and shuffle slide means 0.2-0.4 m/s (medians about 0.1); the old tree walks below 1.7 m/s.
+- Sprinters are played 20-25 % over the fastest Mixamo take.
+- Seat (p99 1.6-1.7x) and sleeve (1.8-2.1x) skin stretch at extreme poses; grip and wrap hands slightly clawed.
+- Clip-change rate above target for linemen (about 1.0 per second against 0.5).
+- Field goal swing passes about 17 cm from the ball; 5-step drops land 8 steps; hand-off and play-action pivots not choreographed; interception and big-play celebrations not yet seen in a strip.
+- UI: 25 directions delivered as mockups, owner to pick; in-game menus unchanged.
+- `CollegeAssets.asset` has no script in main (College screens live on `wip/v0.9-college-ui`); harmless warning at build.
+
 ## [0.9.1] - 2026-10-22 - "Frame Rate"
 
 Performance fix for the v0.9.0 frame-rate regression, same look. Built player, 80 s of live play (`-pixAutotestMatchOnly -pixAutotestNoV3 -pixAutotestMeasure`), night, 2560 x 1440, High, Auto upscaler, RTX 5090 Laptop: v0.9.0 81.7 fps average / 50.4 1 %-low (GPU 12.8 ms, main thread 5.3 ms) -> v0.9.1 145.3 / 82.3 (GPU 6.3 ms, main thread 5.0 ms) on an otherwise idle machine. Runs taken while other Unity / Blender jobs ran on the same laptop gave 88-119 average and 22-30 1 %-low (CPU contention). Profiling notes: `Docs/QA/v091/perf.md`.
@@ -369,7 +408,8 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Some head models and logo source files still carry real-person / real-school names internally; to be replaced before any public release.
 
 
-[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.7.0...v0.8.0

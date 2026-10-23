@@ -561,6 +561,7 @@ namespace PixFootball.UI
                 foreach (Assignment a in asg) { var bz = a as BlitzAssignment; if (bz != null && f != null && a.Slot >= 0 && a.Slot < f.Slots.Length) { sb.Append("\nBLITZ: " + PlayDiagram.LabelFor(f, a.Slot) + " " + GapText(bz.Gap)); break; } }
             }
             else DescribeSpecial(sb, p, asg);
+            if (!string.IsNullOrEmpty(p.Note)) { if (sb.Length > 0) sb.Append("\n"); sb.Append(p.Note); }   // v0.10.0: the play's coaching line
             return sb.ToString();
         }
 

@@ -7,5 +7,7 @@ namespace PixFootball.Sim
         public int QbLookTargetId { get { return OffAI != null ? OffAI.QbLookTargetId : -1; } }
         /// <summary>Agent id of the runner of a play-action fake (-1 = none).</summary>
         public int QbFakeTargetId { get { return OffAI != null ? OffAI.QbFakeTargetId : -1; } }
+        /// <summary>v0.10.0 QB: agent id of the field-goal holder (-1 = none): the ball is spotted at his knee.</summary>
+        public int KickHolderId { get { return Specials != null && Specials.HolderAgent != null && Kind == PlayKind.FieldGoal ? Specials.HolderAgent.Id : -1; } }
     }
 }

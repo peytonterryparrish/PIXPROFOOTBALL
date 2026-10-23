@@ -15,6 +15,10 @@ namespace PixFootball.Gameplay
         float _actOff;
         /// <summary>QA: switch the action ground pass off (the "before" state).</summary>
         public static bool DebugNoActionGround;
+        /// <summary>QA: a pair take (ContactDriven) does not get the planted-foot hold (the pre-v0.10.0 behaviour).</summary>
+        public static bool NoContactPlant = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoContactPlant") >= 0;
+        /// <summary>Body speed (m/s) below which planted feet of a free clip / of a pair take are held still.</summary>
+        public static float ActionPlantSpeed = 1.2f, ContactPlantSpeed = 1.0f;
         /// <summary>QA: how far (m) the action pass has lowered (-) or raised (+) the body this frame.</summary>
         public float ActionGroundOffset { get { return _actOff; } }
         /// <summary>QA: lowest sole height (m above the turf, bind pose = 0) of the final pose before the action pass moved the body; 9 when not measured.</summary>
@@ -50,8 +54,9 @@ namespace PixFootball.Gameplay
         {
             var plant = Motion != null ? Motion.Plant : null;
             if (plant == null || !plant.Ok || Avatar == null || Avatar.Root == null || Avatar.Animator == null || !Avatar.Animator.isHuman) { _actOff = 0f; return; }
-            bool gaitOwns = Gait != null && Gait.Ready && Gait.Layer > 0.5f && !DebugNoGait;
-            bool ok = !DebugNoActionGround && !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid && !AirborneAction(_lastAction) && !AirborneClip(Rig.CurrentClipName) && !gaitOwns;
+            bool gaitOwns = LocoOwns;      // v0.10.0 MOTION: the matcher or the gait player
+            bool contactTake = ContactDriven && !NoContactPlant;      // v0.10.0 CHOREO: a pair take (engaged hand fight, get-up, catch) also keeps its planted feet still
+            bool ok = !DebugNoActionGround && (!ContactDriven || contactTake) && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid && !AirborneAction(_lastAction) && !AirborneClip(Rig.CurrentClipName) && !gaitOwns;
             if (!ok)
             {
                 plant.ActionClaim = false;
@@ -69,12 +74,12 @@ namespace PixFootball.Gameplay
             // the pose already contains this frame's offset only if FitGround kept it: it resets the root, so `low` is measured without the action offset
             LastSoleGap = low;
             float gap = low - FootPlant.SoleGoal;
-            float target = Mathf.Abs(gap) < 0.012f ? 0f : Mathf.Clamp(-gap, -0.5f, 0.08f);
+            float target = ContactDriven ? 0f : (Mathf.Abs(gap) < 0.012f ? 0f : Mathf.Clamp(-gap, -0.5f, 0.08f));      // (a pair take keeps the director's own ground fit: only the feet are held)
             float tau = target < _actOff ? 0.03f : 0.06f;      // down fast (the body follows its lowest foot to the turf within two frames), up slower
             _actOff = Mathf.Lerp(_actOff, target, 1f - Mathf.Exp(-dt / tau));
             ApplyActionOffset();
             // 2. planted feet of a still body stay planted
-            if (plant.Speed < 1.2f)
+            if (plant.Speed < (ContactDriven ? ContactPlantSpeed : ActionPlantSpeed))
             {
                 plant.ActionMode = true; plant.ActionClaim = true; plant.HintLeft = plant.HintRight = -1; plant.Warp = 1f; plant.GroundY = gy;
                 plant.Late(dt, true);

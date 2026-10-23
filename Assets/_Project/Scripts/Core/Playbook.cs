@@ -21,6 +21,12 @@ namespace PixFootball.Core
     }
 
     /// <summary>
+    /// v0.10.0: how the secondary LOOKS before the snap, which is not always what it plays. A two-high shell shows both safeties deep on the hashes, a one-high shell one safety in the middle and the other down in the box, a zero shell no deep safety and the corners pressed.
+    /// A coverage disguised in another shell rotates into its true landmarks as the ball is snapped. Auto = the shell the coverage naturally shows.
+    /// </summary>
+    public enum ShellLook { Auto, TwoHigh, OneHigh, Zero }
+
+    /// <summary>
     /// One of 11 positions in a formation. X = lateral yards from the ball (+ = offense's right),
     /// Y = yards downfield from the ball in the offense's direction (offense backfield negative, defense positive).
     /// </summary>
@@ -50,6 +56,8 @@ namespace PixFootball.Core
         public readonly string Family;
         /// <summary>Alignment / personnel set shown on the second play-call screen ("Base", "Doubles", "Bunch"...).</summary>
         public readonly string SetName;
+        /// <summary>v0.10.0: the defensive front of a defensive formation ("Under", "Over", "Even", "Odd", "Even3", "Bear", "Goal"): how the line aligns on the offensive line by technique (0 / 1 / 2 / 3 / 4 / 5 / 7 / 9). Empty = by formation name.</summary>
+        public string Front = "";
 
         public Formation(string name, PlaySide side, string unit, SlotSpec[] slots)
             : this(name, side, unit, slots, name, "Base") { }
@@ -221,6 +229,8 @@ namespace PixFootball.Core
         public int TargetSlot = -1;
         public bool Press;
         public ZoneRegion Zone;
+        /// <summary>v0.10.0: a MATCH zone: the defender carries the receiver he is responsible for (the outside receiver for a corner, the second receiver for a safety) when that receiver goes vertical, wherever he runs, instead of staying in the zone box. Quarters always match.</summary>
+        public bool Match;
         public override AssignmentKind Kind { get { return AssignmentKind.Coverage; } }
     }
 
@@ -293,6 +303,10 @@ namespace PixFootball.Core
         public PlayCategory Category;
         public CoverageScheme Scheme;
         public Assignment[] Assignments = new Assignment[Formation.SlotCount];
+        /// <summary>v0.10.0 (defense): the pre-snap look of the secondary (see <see cref="ShellLook"/>); a coverage that shows another shell rotates at the snap.</summary>
+        public ShellLook Shell;
+        /// <summary>One line about the concept for the play-call card (what it is meant to do).</summary>
+        public string Note = "";
         public string[] Tags = new string[0];
         /// <summary>Run gap for run plays (AI hint).</summary>
         public RunGap Gap;

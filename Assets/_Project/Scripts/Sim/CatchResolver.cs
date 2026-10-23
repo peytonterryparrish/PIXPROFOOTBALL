@@ -10,7 +10,7 @@ namespace PixFootball.Sim
     /// (Catching, Strength, timing and position vs coverage skill) with outcomes catch, drop, deflection, interception,
     /// hit-in-traffic fumbles, pass interference, and feet-in-bounds at the sideline.
     /// </summary>
-    internal sealed class CatchResolver
+    internal sealed partial class CatchResolver
     {
         private readonly PlaySimulation S;
         private readonly List<SimAgent> _near = new List<SimAgent>(8);
@@ -114,7 +114,7 @@ namespace PixFootball.Sim
             }
         }
 
-        public void ResetPass() { _tried.Clear(); _lock.Clear(); _dpiChecked = false; _pendCatch = null; _contactTime = 0f; }
+        public void ResetPass() { ResetPre(); _tried.Clear(); _lock.Clear(); _dpiChecked = false; _pendCatch = null; _contactTime = 0f; }
 
         // ---- v0.9.0 (E-134): the catch is made when the ball is in the hands. The envelope test (0.5 yd past the body) only starts the catch; the receiver then gets the ball over the next 2-6 ticks, so the
         // view never has to hide a catch awarded up to a yard from the hands.
@@ -131,9 +131,12 @@ namespace PixFootball.Sim
             BallSim ball = S.Ball;
             _pendT += PlaySimulation.Dt;
             Vec3 hand = new Vec3(r.Pos + r.Facing * 0.22f, SimMath.Clamp(ball.Pos.Z, 0.35f, S.Catches.ReachTop(r)));
+            float closeGap = 0.45f;
+            Vec3 booked;
+            if (S.Choreo != null && S.Choreo.TryCatchHand(r, ball.Pos.Z, out booked)) { hand = booked; closeGap = Math.Max(0.14f, ball.Vel.Length * PlaySimulation.Dt * 0.55f); }      // v0.10.0 CHOREO: the catch is made at the hands of the booked take, not at a generic arm length
             float gap = (ball.Pos - hand).Length;
             bool away = (ball.Pos.XY - r.Pos).Dot(ball.Vel.XY) > 0f && gap > 0.8f;   // it flew past him
-            if (gap < 0.45f || _pendT > 0.12f || away || ball.GroundContactThisStep)
+            if (gap < closeGap || _pendT > 0.12f || away || ball.GroundContactThisStep)
             {
                 bool contested = _pendContested; SimAgent d = _pendDef;
                 _pendCatch = null; _pendDef = null;
@@ -330,6 +333,7 @@ namespace PixFootball.Sim
 
             // ---------------- contested ----------------
             SimAgent R = bestR, D = bestD;
+            if (TryPreDuel(R, D)) return;      // v0.10.0 CHOREO: the duel was rolled ahead of the arrival so the contested-catch take could be booked to the outcome
             float rCov = D.Assign is CoverageAssignment && ((CoverageAssignment)D.Assign).IsMan ? D.R.ManCoverage : D.R.ZoneCoverage;
             float rScore = 0.36f * R.R.Catching + 0.18f * R.R.Jumping + 0.14f * R.R.Strength + 0.10f * R.R.Awareness + 0.12f * R.R.Agility + 0.10f * R.R.Speed;
             if (R.Fx != null) rScore += 0.5f * CatchBonus(R, true);   // v0.8.0 Sticky Hands, Fearless Middle, Sky Walker

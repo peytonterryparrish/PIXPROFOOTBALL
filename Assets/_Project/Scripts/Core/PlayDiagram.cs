@@ -4,7 +4,9 @@ using System.Collections.Generic;
 namespace PixFootball.Core
 {
     /// <summary>What a stroke of the play-art diagram means (and which colour the renderer gives it).</summary>
-    public enum InkKind { Route, PrimaryRoute, HotRoute, Run, Fake, Block, Handoff, Dropback, Blitz, Rush, Man, Spy, Ghost, Kick }
+    public enum InkKind { Route, PrimaryRoute, HotRoute, Run, Fake, Block, Handoff, Dropback, Blitz, Rush, Man, Spy, Ghost, Kick,
+        /// <summary>v0.10.0: the rotation of a disguised coverage, from the spot the shell shows to the spot the coverage plays (dashed).</summary>
+        Rotate }
 
     public sealed class DiagramStroke
     {
@@ -383,6 +385,9 @@ namespace PixFootball.Core
 
         void BuildDefense(Play play, Formation f, Formation offense)
         {
+            // v0.10.0: the safeties are drawn where the play's shell shows them before the snap (a disguised coverage shows another look), with a dashed arrow to where they play
+            var shell = ShellLayout.Spots(play, f, 1);
+            foreach (var kv in shell) if (kv.Key < Players.Count && Players[kv.Key].Slot == kv.Key) { Players[kv.Key].X = kv.Value.X; Players[kv.Key].Y = kv.Value.Y; }
             // ghost offense (QA-548): one faint stand-in per offensive slot that a man defender is assigned to, placed where that slot lines up in the
             // offensive formation (a Singleback look when none is supplied), so the coverage lines point at the receivers they cover
             var targets = new List<int>();
@@ -410,6 +415,7 @@ namespace PixFootball.Core
                     {
                         ZoneRegion z = cv.Zone;
                         Zones.Add(new DiagramZone { Kind = z.Kind, CenterX = z.CenterX, CenterY = z.CenterY, Width = z.Width, Height = Math.Min(z.Height, 12f), Slot = i, Deep = z.Kind == ZoneKind.DeepHalf || z.Kind == ZoneKind.DeepThird || z.Kind == ZoneKind.DeepMiddle || z.Kind == ZoneKind.Quarter });
+                        if (shell.ContainsKey(i)) { var rs = Stroke(InkKind.Rotate, i, true, true); rs.Points.Add(start); rs.Points.Add(new Vec2(z.CenterX, Math.Min(z.CenterY, 14f))); }
                     }
                     else if (cv.IsMan)
                     {

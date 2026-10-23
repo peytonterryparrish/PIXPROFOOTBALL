@@ -108,42 +108,58 @@ namespace PixFootball.Gameplay
                     if (role == PlayerRole.DL)
                     {
                         // hips above the shoulders, weight forward, hand down in front of the shoulder, the free hand loaded on the thigh
-                        p.Hips = 0.86f; p.HipsZ = -0.36f; p.Lean = 90f; p.Bend = 4f; p.Neck = 50f; p.HeadPitch = 12f;
+                        p.Hips = 0.86f; p.HipsZ = -0.36f; p.Lean = 100f; p.Bend = 4f; p.Neck = 46f; p.HeadPitch = -6f;
                         p.RX = 0.27f; p.RZ = -0.52f; p.LX = -0.26f; p.LZ = -0.16f; p.ToeOut = 4f; p.RHeel = 0.03f; p.LHeel = 0.02f;
                         p.RHand = HandMode.Ground; p.RPos = new Vector3(0.21f, 0f, 0.20f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.10f, 0.04f);
-                        p.MaxLean = 124f; p.HeadYaw = 0f;
+                        p.MaxLean = 104f; p.HeadYaw = 0f;
                     }
                     else if (role == PlayerRole.RB)
                     {
                         // fullback / goal-line back: a lighter three-point, hips a little higher
-                        p.Hips = 0.82f; p.HipsZ = -0.30f; p.Lean = 80f; p.Bend = 4f; p.Neck = 45f; p.HeadPitch = 14f;
+                        p.Hips = 0.82f; p.HipsZ = -0.30f; p.Lean = 80f; p.Bend = 4f; p.Neck = 42f; p.HeadPitch = -8f;
                         p.RX = 0.24f; p.RZ = -0.42f; p.LX = -0.22f; p.LZ = -0.12f; p.ToeOut = 4f; p.RHeel = 0.04f; p.LHeel = 0.02f;
                         p.RHand = HandMode.Ground; p.RPos = new Vector3(0.20f, 0f, 0.18f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.10f, 0.04f);
                         p.MaxLean = 112f;
                     }
+                    else if (spec.Ol == 1)
+                    {
+                        // v0.10.0 (note 9): the tackles sit a little more upright, in a chair, the forearms resting on the thighs; the tell is only a few degrees of lean
+                        p.Hips = 0.89f; p.HipsZ = -0.20f; p.Lean = 46f + 4f * tell; p.Bend = 5f; p.Neck = 18f; p.HeadPitch = 6f;
+                        p.RX = 0.21f; p.RZ = -0.28f; p.LX = -0.21f; p.LZ = -0.10f; p.ToeOut = 4f; p.RHeel = 0.035f; p.LHeel = 0.02f;
+                        p.RHand = HandMode.Thigh; p.RPos = new Vector3(0f, 0.085f, 0.03f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.085f, 0.03f);
+                        p.MaxLean = 62f;
+                    }
+                    else if (spec.Ol == 2)
+                    {
+                        // v0.10.0 (note 9): the guards are lower than the tackles, hips back, the forearm laid on the thigh; still no hand on the turf
+                        p.Hips = 0.82f; p.HipsZ = -0.27f; p.Lean = 66f + 4f * tell; p.Bend = 5f; p.Neck = 26f; p.HeadPitch = 8f;
+                        p.RX = 0.23f; p.RZ = -0.34f; p.LX = -0.23f; p.LZ = -0.12f; p.ToeOut = 4f; p.RHeel = 0.04f; p.LHeel = 0.025f;
+                        p.RHand = HandMode.Thigh; p.RPos = new Vector3(0f, 0.065f, 0.07f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.065f, 0.07f);
+                        p.MaxLean = 80f;
+                    }
                     else
                     {
                         // OL / TE: back flat, hips level with or a little above the shoulders, weight on the balls of the feet, one hand down slightly inside the back foot
-                        p.Hips = 0.82f; p.HipsZ = -0.34f; p.Lean = 88f; p.Bend = 4f; p.Neck = 52f; p.HeadPitch = 14f;
+                        p.Hips = 0.82f; p.HipsZ = -0.34f; p.Lean = 88f; p.Bend = 4f; p.Neck = 46f; p.HeadPitch = -6f;
                         p.RX = 0.25f; p.RZ = -0.48f; p.LX = -0.24f; p.LZ = -0.20f; p.ToeOut = 3f; p.RHeel = 0.04f; p.LHeel = 0.03f;
                         p.RHand = HandMode.Ground; p.RPos = new Vector3(0.20f, 0f, 0.20f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.10f, 0.04f);
-                        p.MaxLean = 116f;
+                        p.MaxLean = 108f;
                         // stance tells (image 98): weight forward on the hand for a run, sitting back with a light hand for a pass
                         p.HipsZ += -0.05f * -tell; p.Lean += 2.5f * tell; p.RPos.z += 0.03f * tell;
                     }
                     return p;
                 case StanceKind.FourPoint:
-                    p.Hips = 0.86f; p.HipsZ = -0.34f; p.Lean = 94f; p.Bend = 3f; p.Neck = 48f; p.HeadPitch = 12f;
+                    p.Hips = 0.86f; p.HipsZ = -0.34f; p.Lean = 102f; p.Bend = 3f; p.Neck = 46f; p.HeadPitch = -6f;
                     p.RX = 0.26f; p.RZ = -0.38f; p.LX = -0.26f; p.LZ = -0.30f; p.ToeOut = 3f; p.RHeel = 0.03f; p.LHeel = 0.03f;
                     p.RHand = HandMode.Ground; p.RPos = new Vector3(0.28f, 0f, 0.18f); p.LHand = HandMode.Ground; p.LPos = new Vector3(-0.28f, 0f, 0.18f);
-                    p.MaxLean = 126f;
+                    p.MaxLean = 106f;
                     return p;
                 case StanceKind.CenterSnap:
-                    // the right hand on the ball (the anchor), the left forearm on the thigh
-                    p.Hips = 0.80f; p.HipsZ = -0.36f; p.Lean = 90f; p.Bend = 4f; p.Neck = 52f; p.HeadPitch = 14f;
-                    p.RX = 0.25f; p.RZ = -0.40f; p.LX = -0.25f; p.LZ = -0.24f; p.ToeOut = 3f; p.RHeel = 0.04f; p.LHeel = 0.04f;
-                    p.RHand = HandMode.Anchor; p.RPos = new Vector3(0.0f, 0f, 0.12f); p.RY = 0.20f; p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.10f, 0.04f);
-                    p.MaxLean = 116f;
+                    // v0.10.0 (note 9): the centre is down over the ball, back flat, both hands on it (the right hand on the top, the left beside it)
+                    p.Hips = 0.74f; p.HipsZ = -0.40f; p.Lean = 98f; p.Bend = 3f; p.Neck = 46f; p.HeadPitch = -8f;
+                    p.RX = 0.26f; p.RZ = -0.36f; p.LX = -0.26f; p.LZ = -0.26f; p.ToeOut = 3f; p.RHeel = 0.045f; p.LHeel = 0.045f;
+                    p.RHand = HandMode.Anchor; p.RPos = new Vector3(0.045f, 0f, 0.0f); p.RY = 0.20f; p.LHand = HandMode.Anchor; p.LPos = new Vector3(-0.07f, 0f, 0.0f); p.LY = 0.14f;
+                    p.MaxLean = 106f;
                     return p;
                 case StanceKind.TwoPointLine:
                     if (role == PlayerRole.DL)
@@ -268,7 +284,7 @@ namespace PixFootball.Gameplay
                     return p;
                 case StanceKind.LongSnapper:
                     // wide base, head down, ball between the legs, hips high
-                    p.Hips = 0.80f; p.HipsZ = -0.50f; p.Lean = 96f; p.Bend = 4f; p.Neck = 56f; p.HeadPitch = 0f;
+                    p.Hips = 0.80f; p.HipsZ = -0.50f; p.Lean = 96f; p.Bend = 4f; p.Neck = 48f; p.HeadPitch = -14f;
                     p.RX = 0.34f; p.RZ = -0.46f; p.LX = -0.34f; p.LZ = -0.40f; p.ToeOut = 10f; p.RHeel = 0.02f; p.LHeel = 0.02f;
                     p.RHand = HandMode.Anchor; p.RPos = new Vector3(0.05f, 0f, 0f); p.RY = 0.26f; p.LHand = HandMode.Anchor; p.LPos = new Vector3(-0.05f, 0f, 0f); p.LY = 0.26f;
                     p.MaxLean = 112f;

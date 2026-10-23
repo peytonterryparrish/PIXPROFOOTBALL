@@ -25,7 +25,7 @@ namespace PixFootball.Core
             var q = a as QbAssignment;
             if (q != null) return new QbAssignment { Slot = q.Slot, Action = q.Action, Shotgun = q.Shotgun, DropbackSteps = q.DropbackSteps, RollDirection = q.RollDirection, ReadProgression = new List<int>(q.ReadProgression), HandoffSlot = q.HandoffSlot, RunPath = new List<Vec2>(q.RunPath) };
             var cv = a as CoverageAssignment;
-            if (cv != null) return new CoverageAssignment { Slot = cv.Slot, IsMan = cv.IsMan, TargetSlot = cv.TargetSlot, Press = cv.Press, Zone = cv.Zone == null ? null : new ZoneRegion(cv.Zone.Kind, cv.Zone.CenterX, cv.Zone.CenterY, cv.Zone.Width, cv.Zone.Height) };
+            if (cv != null) return new CoverageAssignment { Slot = cv.Slot, IsMan = cv.IsMan, TargetSlot = cv.TargetSlot, Press = cv.Press, Match = cv.Match, Zone = cv.Zone == null ? null : new ZoneRegion(cv.Zone.Kind, cv.Zone.CenterX, cv.Zone.CenterY, cv.Zone.Width, cv.Zone.Height) };
             var ru = a as RushAssignment;
             if (ru != null) return new RushAssignment { Slot = ru.Slot, Gap = ru.Gap, Stunt = ru.Stunt, StuntPartnerSlot = ru.StuntPartnerSlot, Contain = ru.Contain };
             var sp = a as SpyAssignment;
@@ -47,7 +47,7 @@ namespace PixFootball.Core
             return new Play
             {
                 Id = p.Id, Name = p.Name, FormationName = p.FormationName, Side = p.Side, Category = p.Category, Scheme = p.Scheme,
-                Assignments = (Assignment[])p.Assignments.Clone(), Tags = p.Tags, Gap = p.Gap, Mirrored = p.Mirrored
+                Assignments = (Assignment[])p.Assignments.Clone(), Tags = p.Tags, Gap = p.Gap, Mirrored = p.Mirrored, Shell = p.Shell, Note = p.Note
             };
         }
 

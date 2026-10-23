@@ -105,7 +105,7 @@ namespace PixFootball.Gameplay
     /// clips and signalling touchdowns, first downs, incomplete passes, penalties (flag), timeouts and safeties; plus two sideline coaches per team in team colours.
     /// Everything is optional: without the ArtLibrary prefabs the component builds nothing.
     /// </summary>
-    public sealed class MatchOfficials : MonoBehaviour
+    public sealed partial class MatchOfficials : MonoBehaviour
     {
         sealed class Person
         {
@@ -170,7 +170,7 @@ namespace PixFootball.Gameplay
             // v0.4 performance: sideline people are not posed when off screen, skin with two bones, and the coaches (far from the action) cast no shadows
             if (anim != null) anim.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
             foreach (var smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true)) { smr.quality = SkinQuality.Bone2; smr.updateWhenOffscreen = false; if (coach) smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; }
-            if (coach) p.Anim.Play(role == "C1" ? _clipboard ?? _headset : _headset ?? _idle, true, 0f);
+            if (coach) p.Anim.Play(AnimKit.CoachIdle(role, team, role == "C1" ? _clipboard ?? _headset : _headset ?? _idle), true, 0f);      // v0.10.0 ANIMLIB: one coach per team uses the studio's sideline ambient takes
             else p.Anim.Play(_idle, true, 0f);
             go.SetActive(false);
             return p;
@@ -201,6 +201,7 @@ namespace PixFootball.Gameplay
         {
             // QA-674: when the offense changes direction the crew re-spots instantly (they used to sprint across the field during the call screen)
             bool flipped = _hasFrame && _frame.TowardsPlusZ != frame.TowardsPlusZ;
+            _taker = null;
             _frame = frame; _hasFrame = true; _live = false;
             for (int i = 0; i < _crew.Count; i++)
             {
@@ -315,6 +316,7 @@ namespace PixFootball.Gameplay
                 Vec2 t = CrewTarget(p.Role, sim.BallX0, sim.LosY, follow);
                 if (p.Role == "R" && live) { float qy = sim.Agents[0].Pos.Y; t = new Vec2(Mathf.Clamp(sim.Agents[0].Pos.X + 7f, 6f, FieldGeometry.Width - 6f), qy - 8f); if (ballY > sim.LosY + 3f) t = new Vec2(t.X, ballY - 9f); }
                 p.Target = _frame.ToUnity(t);
+                if (p == _taker) p.Target = _takerSpot;      // v0.10.0 BODIES: the official who goes to collect the ball
                 Move(p, dt, 6.0f, _frame.ToUnity(new Vec2(sim.Ball.Pos.X, ballY)));
             }
             for (int i = 0; i < _coaches.Count; i++)

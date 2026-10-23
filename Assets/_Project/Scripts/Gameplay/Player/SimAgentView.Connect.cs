@@ -14,7 +14,7 @@ namespace PixFootball.Gameplay
     {
         /// <summary>QA: switch the connection layer off (the "before" state of the audit).</summary>
         public static bool DebugNoConnect;
-        public static bool DebugNoPopFilter;
+        public static bool DebugNoPopFilter = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoPopFilter") >= 0;
 
         // ------------------------------------------------------------------------------------------ view offset
         Vector3 _viewOff;
@@ -79,7 +79,8 @@ namespace PixFootball.Gameplay
             float heading = 0f;
             Vector3 vh = new Vector3(velocity.x, 0f, velocity.z);
             if (vh.magnitude > 0.3f) heading = Vector3.SignedAngle(new Vector3(facing.x, 0f, facing.z), vh, Vector3.up);
-            return AnimKit.GetOffFor(Role, h.Seed, action, heading, h.Block);
+            if (Role == PlayerRole.DL && Stance.Kind == StanceKind.FourPoint && Mathf.Abs(heading) < 20f && action != AgentAction.Backpedal) { var fp = AnimKit.FourPointGetOff(h.Seed); if (fp.Valid) return ChoreoFitGetOff(fp, facing); }      // v0.10.0 ANIMLIB: the 4-point get-off mocap
+            return ChoreoFitGetOff(AnimKit.GetOffFor(Role, h.Seed, action, heading, h.Block), facing);      // v0.10.0 CHOREO: committed only while the planned path agrees
         }
 
         /// <summary>Plays the hand-fight loop after an engagement take ran through (E-185), instead of holding the last pose.</summary>
@@ -90,7 +91,7 @@ namespace PixFootball.Gameplay
             if (Rig.CurrentClip == _engClip && !Rig.InWindow)
             {
                 var loop = AnimKit.EngageLoop(_engClip, _engHold);
-                if (loop.Valid) { Rig.Play(loop); _ownsClip = true; _engClip = null; }
+                if (loop.Valid) { loop = ChoreoMask(_engAction, loop); Rig.Play(loop); _ownsClip = true; _engClip = null; }
             }
         }
 

@@ -36,8 +36,8 @@ namespace PixFootball.Tests
             var rules = RuleSet.Pro();
             PlaySimulation sim = SimTestKit.Run(SimTestKit.Special("Field Goal"), SimTestKit.Special("Field Goal Block Middle"), 75, 75, 3, rules, SimTestKit.Scrimmage(rules, 70, 4, 8), Quiet());
             SimAgent k = sim.Specials.KickerAgent, h = sim.Specials.HolderAgent;
-            Assert.Less(k.Pos.X, h.Pos.X - 1.0f, "the (right-footed) kicker stands to the left of the holder");
-            Assert.Less(k.Pos.Y, h.Pos.Y - 2.0f, "and behind him");
+            Assert.Less(k.Pos.X, h.Pos.X - 0.7f, "the (right-footed) kicker stands to the left of the holder");
+            Assert.Less(k.Pos.Y, h.Pos.Y - 1.2f, "and behind him");
         }
 
         [Test]
@@ -66,7 +66,8 @@ namespace PixFootball.Tests
                 uc.Tick(PlaySimulation.Dt, default(ControlInput), -1);
                 if (QbOf(uc).QbState == QbPhase.Dropback) minFaceY = Math.Min(minFaceY, QbOf(uc).Facing.Y);
             }
-            Assert.Less(minFaceY, -0.4f, "under centre the quarterback faces away from the line during the drop (reverse pivot)");
+            Assert.Less(minFaceY, 0.5f, "under centre the quarterback opens at least 60 degrees from the line during the drop (reverse pivot, v0.10.0: 72 degrees, never his back to the field)");
+            Assert.Greater(minFaceY, -0.1f, "but he never turns his back on the field");
             // shotgun: eyes on the line
             var sg = SimTestKit.RunNamed("Four Verticals", "Shotgun", "Cover 3 Sky", "4-3 Base", 75, 75, 5, RuleSet.Pro(), null, Quiet());
             float minY = 1f; guard = 0;

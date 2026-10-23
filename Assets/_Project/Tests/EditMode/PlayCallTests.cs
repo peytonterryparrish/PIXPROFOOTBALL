@@ -434,7 +434,7 @@ namespace PixFootball.Tests
             }
             Assert.Greater(counts["Shotgun"].GetValueOrDefault("Nickel"), 70, "11 personnel draws nickel");
             Assert.Greater(counts["Empty"].GetValueOrDefault("Dime") + counts["Empty"].GetValueOrDefault("Nickel"), 100, "five receivers draw a nickel or dime look");
-            Assert.Greater(counts["I-Form"].GetValueOrDefault("4-3 Base") + counts["I-Form"].GetValueOrDefault("3-4 Base"), 100, "two backs draw a base defense");
+            Assert.Greater(counts["I-Form"].GetValueOrDefault("4-3 Base") + counts["I-Form"].GetValueOrDefault("4-3 Over") + counts["I-Form"].GetValueOrDefault("3-4 Base") + counts["I-Form"].GetValueOrDefault("46 Bear"), 100, "two backs draw a base defense (any front)");
             Assert.AreEqual(0, counts["I-Form"].GetValueOrDefault("Dime"));
         }
 

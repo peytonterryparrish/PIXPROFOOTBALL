@@ -316,7 +316,8 @@ namespace PixFootball.Gameplay
         /// <summary>The huddle stand (hands on knees / hips), looped with a staggered phase (E-252).</summary>
         public static ClipPlan HuddlePlan(int seed)
         {
-            var c = V(ArtKeys.HuddleIdle, seed);
+            var c = HuddleClip(seed);      // v0.10.0 ANIMLIB: the authored huddle stand mostly, fidgets / look-arounds for variety
+            if (c == null) c = V(ArtKeys.HuddleIdle, seed);
             if (c == null) c = V(ArtKeys.IdleLively, seed);
             if (c == null) return default(ClipPlan);
             float frac = (seed * 0.37f) % 1f; if (frac < 0f) frac += 1f;

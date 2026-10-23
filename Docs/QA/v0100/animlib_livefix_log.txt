@@ -1,0 +1,15 @@
+BONES_QB_falling_throw_forward_sack_001_s04: kept: pops 2->2 waist 82->63 torso 78->51 score 93->67
+BONES_QB_frustration_001_s03: kept: pops 3->3 waist 60->46 torso 59->44 score 90->74
+BONES_QB_frustration_001_s04: kept: pops 0->0 waist 86->53 torso 88->54 score 90->71
+BONES_QB_offbalance_pass_003_s04: kept: pops 3->3 waist 91->58 torso 89->55 score 76->61
+BONES_QB_offbalance_pass_004_s01: forced: pops 6->6 waist 64->52 torso 55->42 score 80->80
+BONES_QB_pass_medium_lob_001_s04: kept: pops 0->0 waist 89->56 torso 89->54 score 87->76
+BONES_QB_run_forward_pass_001_s03: kept: pops 0->0 waist 94->61 torso 92->56 score 83->71
+BONES_QB_run_left_pass_002_s03: forced: pops 4->4 waist 70->54 torso 62->45 score 60->57
+BONES_QB_run_left_pass_002_s04: forced: pops 4->4 waist 65->49 torso 62->45 score 60->57
+QB_pass_bullet_001_s03: forced: pops 1->0 waist 110->59 torso 116->64 score 74->71
+QB_pass_bullet_001_s04: kept: pops 1->0 waist 179->95 torso 212->98 score 74->52
+ref_gesture_safety: forced: pops 2->0 waist 3->4 torso 3->3 score 70->85
+ref_gesture_whistle_01: forced: pops 2->2 waist 8->8 torso 1->1 score 71->79
+ref_penalty_flag: forced: pops 17->0 waist 0->0 torso 0->0 score 70->94
+ref_spot_ball: forced: pops 10->2 waist 0->0 torso 0->0 score 54->74

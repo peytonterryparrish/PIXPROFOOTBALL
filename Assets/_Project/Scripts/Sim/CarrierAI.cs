@@ -77,6 +77,8 @@ namespace PixFootball.Sim
                 float usable = Math.Min(open, look);
                 float val = usable * (0.45f + 0.55f * Math.Max(0f, prog)) + 1.6f * prog - 0.9f * threat;
                 if (c.Speed > 3f) val -= 1.15f * SimMath.AngleBetween(cur, d);
+                // v0.10.0: a runner on a scrimmage play does not retreat toward his own goal line from a pursuer (a receiver caught at the 46 ran 57 yd backwards into his own end zone with a linebacker two yards behind him): going backward costs 3.2 per unit past a slight cutback
+                if (S.Kind == PlayKind.Scrimmage && c.Slot != 0 && prog < -0.15f) val += 3.2f * (prog + 0.15f);
                 // sidelines
                 Vec2 end = c.Pos + d * Math.Min(usable, 6f);
                 float toLine = FieldGeometry.DistanceToSideline(end.X);

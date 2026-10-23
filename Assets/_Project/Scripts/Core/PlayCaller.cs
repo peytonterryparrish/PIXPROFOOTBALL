@@ -167,7 +167,7 @@ namespace PixFootball.Core
                 if (fam == DefaultPlaybooks.IForm || fam == DefaultPlaybooks.Singleback || fam == DefaultPlaybooks.Pistol) w *= 1.35f;
                 if (fam == DefaultPlaybooks.Empty || fam == DefaultPlaybooks.Trips) w *= 0.2f;
             }
-            if (toGoal <= 3) { if (fam == DefaultPlaybooks.GoalLine) w *= 14f; else w *= 0.4f; }
+            if (toGoal <= 3) { if (fam == DefaultPlaybooks.GoalLine) w *= 36f; else w *= 0.4f; }   // (v0.10.0: 36, was 14: the book has 22 formations now, the goal-line family is one of them)
             else if (fam == DefaultPlaybooks.GoalLine) w *= 0.15f;
             if (c.Style == PlayStyle.PowerRun && (fam == DefaultPlaybooks.IForm || fam == DefaultPlaybooks.GoalLine)) w *= 1.4f;
             if (c.Style == PlayStyle.AirRaid && (fam == DefaultPlaybooks.ShotgunF || fam == DefaultPlaybooks.Empty)) w *= 1.3f;
@@ -206,7 +206,7 @@ namespace PixFootball.Core
             if (toGoal <= 12 && p.IsPass && (p.Category == PlayCategory.MediumPass || p.Category == PlayCategory.ShortPass)) w *= 1.2f;
             if (hurry && p.IsPass)
             {
-                if (SidelineRoute(p)) w *= 2.6f;
+                if (SidelineRoute(p)) w *= 8f;
                 if (p.Category == PlayCategory.Screen || p.Category == PlayCategory.PlayAction) w *= 0.3f;
             }
             if (hurry && p.IsRun) w *= 0.3f;
@@ -329,9 +329,19 @@ namespace PixFootball.Core
             int toGoal = 100 - s.BallSpot;
             if (toGoal <= 3 && (offFamily == DefaultPlaybooks.GoalLine || offUnit == "22" || offUnit == "21" || _rng.Chance(0.5f))) return DefaultPlaybooks.GoalLineD;
             bool longYardage = s.Distance >= 7 && s.Down >= 2;
+            string f = PickBaseFormation(s, c, offUnit, longYardage);
+            // v0.10.0: the other fronts of the book: the 4-3 over front, the 3-3-5 against three receivers, the 46 against a heavy set
+            if (f == DefaultPlaybooks.Base43) { if (_rng.Chance(0.06f) && (offUnit == "21" || offUnit == "22")) return DefaultPlaybooks.Bear46; return _rng.Chance(0.30f) ? DefaultPlaybooks.Over43 : f; }
+            if (f == DefaultPlaybooks.Nickel && (offUnit == "11" || offUnit == "20") && !longYardage && _rng.Chance(0.10f)) return DefaultPlaybooks.Nickel335;
+            return f;
+        }
+
+        string PickBaseFormation(GameState s, CoachProfile c, string offUnit, bool longYardage)
+        {
             switch (offUnit)
             {
                 case "01": return longYardage || _rng.Chance(0.45f) ? DefaultPlaybooks.Dime : DefaultPlaybooks.Nickel;
+                case "10": return longYardage && _rng.Chance(0.5f) || _rng.Chance(0.25f) ? DefaultPlaybooks.Dime : DefaultPlaybooks.Nickel;
                 case "20": case "11": return longYardage && s.Distance >= 10 && _rng.Chance(0.4f) ? DefaultPlaybooks.Dime : DefaultPlaybooks.Nickel;
                 case "21": if (c.NickelBias > 0f && _rng.Chance(0.4f * c.NickelBias)) return DefaultPlaybooks.Nickel; return _rng.Chance(Math.Max(0.02f, Math.Min(0.95f, 0.35f + 0.35f * c.FrontBias))) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;
                 case "12": if (c.NickelBias > 0f && _rng.Chance(0.3f * c.NickelBias)) return DefaultPlaybooks.Nickel; return _rng.Chance(Math.Max(0.02f, Math.Min(0.95f, 0.25f + 0.35f * c.FrontBias))) ? DefaultPlaybooks.Base34 : DefaultPlaybooks.Base43;

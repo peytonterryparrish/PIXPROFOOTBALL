@@ -100,6 +100,7 @@ namespace PixFootball.Sim
                 if (!diving && dist > 0.05f && d.Facing.Dot(rel * (1f / dist)) < 0.15f) reach -= 0.3f;
                 if (diving) { if (S.BodyBetween(d, carrier)) continue; reach += 1.25f; }
                 if (carrier.Move == CarrierMove.StiffArm && carrier.MoveTime > 0f) reach -= 0.2f;
+                if (S.Choreo != null && !engagedArm && !diving) reach = S.Choreo.TackleReach(d, carrier, reach);      // v0.10.0 CHOREO: a booked take makes contact at the layout of the take
                 if (dist > reach) continue;
                 if (engagedArm) { ArmTackle(d, carrier); if (S.Phase != PlayPhase.Live) return; carrier = S.Carrier; if (carrier == null || carrier.State == AgentState.Down) return; continue; }
                 Attempt(d, carrier, diving);
@@ -168,6 +169,7 @@ namespace PixFootball.Sim
                 d.Body.Fall(0.45f);
                 d.TackleCooldown = 1.5f;
                 S.LogEvent(SimEventType.PileOn, d.Id, carrier.Id, new Vec3(carrier.Pos, 0f), TackleType.GangTackle);
+                if (S.Choreo != null) S.Choreo.OnPileOn(d, carrier);      // v0.10.0 CHOREO
             }
         }
 
@@ -223,7 +225,7 @@ namespace PixFootball.Sim
             if (c.Body.StumbleTime > 0f) mod += 10f;
             if (d.Body.StumbleTime > 0f) mod -= 9f;
             if (c.DragMass > 0f) mod += 10f + 22f * (c.DragMass / c.Body.Mass);
-            if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) mod += 7f; // passers rarely escape an unblocked rusher (v0.9.0 E-242: +7, was +12; the grasp itself is the sack, a passer in the arms of a rusher is not a flat coin flip)
+            if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) mod += SimTuning.PasserBonus; // passers rarely escape an unblocked rusher (v0.9.0 E-242: +7, was +12; the grasp itself is the sack, a passer in the arms of a rusher is not a flat coin flip)
             if (c.State == AgentState.Normal && c.Body.FallenTime > 0f) mod += 20f;
 
             float margin = tackleSkill - carrierSkill + mod + S.Rng.Gaussian(0f, 12f) + 2.0f;
@@ -426,6 +428,7 @@ namespace PixFootball.Sim
                 return;
             }
             S.LogEventVel(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), type, closing, cVel0);
+            if (S.Choreo != null) S.Choreo.OnContact(d, c, type, sack, false, d.Move == CarrierMove.Dive, closing, cVel0);      // v0.10.0 CHOREO: book the take
 
             if (sack && fumble)
             {
@@ -603,6 +606,7 @@ namespace PixFootball.Sim
             c.Body.Stumble(0.55f);
             c.Body.Vel = c.Body.Vel * 0.7f;
             S.LogEvent(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), TackleType.Shoestring);
+            if (S.Choreo != null) S.Choreo.OnContact(d, c, TackleType.Shoestring, false, true, diving, 0f, c.Vel * 1.4286f);
             S.LastTackleType = TackleType.Shoestring;
             c.IgnoreAgent = d.Id; c.IgnoreUntil = S.Time + 0.6f;
             d.TackleCooldown = 1.1f;   // the player who whiffed does not re-attempt on the next tick
@@ -631,6 +635,7 @@ namespace PixFootball.Sim
             d.TackleCooldown = 1.3f;
             c.Body.Vel = c.Body.Vel * 0.9f;
             S.LogEvent(SimEventType.BrokenTackle, d.Id, c.Id, new Vec3(c.Pos, 0f), TackleType.BrokenTackle);
+            if (S.Choreo != null) S.Choreo.OnContact(d, c, TackleType.BrokenTackle, false, true, diving, 0f, c.Vel * 1.1111f);
             S.LastTackleType = TackleType.BrokenTackle;
         }
     }

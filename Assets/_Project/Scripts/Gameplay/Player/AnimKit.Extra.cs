@@ -86,6 +86,7 @@ namespace PixFootball.Gameplay
         /// <summary>Huddle / sideline idles: relaxed standing variants, picked by seed.</summary>
         public static ClipPlan IdleVariant(int seed)
         {
+            var wide = IdleVariantWide(seed); if (wide.Valid) return wide;      // v0.10.0 ANIMLIB: lively / look / helmet / generic pool
             var c = V(ArtKeys.IdleLively, seed);
             if (c == null) c = V(ArtKeys.IdleAlt, seed);
             return c == null ? default(ClipPlan) : P(c, 0f, 0f, 1f, 0.4f, 0.4f, c.isLooping);

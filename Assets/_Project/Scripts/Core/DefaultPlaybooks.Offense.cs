@@ -3,43 +3,92 @@ using System.Collections.Generic;
 
 namespace PixFootball.Core
 {
-    /// <summary>Route templates as (outward, downfield) pairs. Downfield is absolute from the ball; outward is relative to the receiver's start x.</summary>
+    /// <summary>
+    /// Route templates as (outward, downfield) pairs. Downfield is absolute from the ball; outward is relative to the receiver's start x (negative = toward the middle of the field).
+    /// v0.10.0: every break depth and angle follows the standard route tree (hitch 5-6, slant 3-step stem then a 45 degree break, curl 12 coming back to 10, out 10 at 90 degrees, dig 12 at 90 degrees,
+    /// post 12 then toward the goalpost, corner 12 then toward the pylon, comeback 15-16 back to the sideline) and the depth can be overridden per concept ("S1=Curl@10").
+    /// </summary>
     public static class RouteLibrary
     {
-        private static readonly Dictionary<RouteKind, float[]> Templates = new Dictionary<RouteKind, float[]>
+        /// <summary>The break depth a route runs when the concept does not name one (0 for routes that do not have a single break depth).</summary>
+        public static float DefaultDepth(RouteKind k)
         {
-            { RouteKind.Go, new[] { 0f, 5f, 0f, 14f, 0f, 40f } },
-            { RouteKind.Fade, new[] { 1f, 4f, 3f, 14f, 4f, 38f } },
-            { RouteKind.Hitch, new[] { 0f, 7f, 0f, 5.5f } },
-            { RouteKind.Curl, new[] { 0f, 12f, -1.5f, 10f } },
-            { RouteKind.Comeback, new[] { 0f, 14f, 2.5f, 12f } },
-            { RouteKind.Slant, new[] { 0f, 2f, -2.5f, 4.5f, -9f, 11f } },
-            { RouteKind.Out, new[] { 0f, 10.5f, 8f, 11f } },
-            { RouteKind.Dig, new[] { 0f, 12f, -12f, 12f } },
-            { RouteKind.Post, new[] { 0f, 12f, -13f, 30f } },
-            { RouteKind.Corner, new[] { 0f, 12f, 13f, 30f } },
-            { RouteKind.Seam, new[] { 0f, 8f, 0f, 22f, 0f, 40f } },
-            { RouteKind.Drag, new[] { -3f, 2f, -18f, 3f } },
-            { RouteKind.Cross, new[] { 0f, 5f, -8f, 13f, -24f, 15f } },
-            { RouteKind.Flat, new[] { 3f, 0.5f, 9f, 1.5f } },
-            { RouteKind.Swing, new[] { 4f, -1f, 9f, 2f, 11f, 6f } },
-            { RouteKind.Wheel, new[] { 3f, 0f, 9f, 2f, 11f, 12f, 10f, 32f } },
-            { RouteKind.Stick, new[] { 0f, 5f, 1f, 5.5f } },
-            { RouteKind.Texas, new[] { 3f, 1f, -3f, 5f, -5f, 11f } },
-            { RouteKind.Bubble, new[] { 3f, -1f, 6f, 0f } },
-            { RouteKind.ScreenRelease, new[] { -2f, -3f, -8f, -1f } },
-            { RouteKind.Shallow, new[] { -4f, 3f, -20f, 4f } },
-            { RouteKind.OutAndUp, new[] { 0f, 8f, 5f, 8.5f, 7f, 32f } },
-            { RouteKind.Corner2, new[] { 0f, 12f, 8f, 22f, 14f, 36f } },
-            { RouteKind.Delay, new[] { 0f, -1f, 4f, 2f, 8f, 6f } },
-            { RouteKind.In, new[] { 0f, 6f, -8f, 6.5f } },
-        };
+            switch (k)
+            {
+                case RouteKind.Hitch: return 6f;
+                case RouteKind.Curl: return 12f;
+                case RouteKind.Comeback: return 15f;
+                case RouteKind.Out: return 10f;
+                case RouteKind.Dig: return 12f;
+                case RouteKind.In: return 6f;
+                case RouteKind.Post: return 12f;
+                case RouteKind.Corner: return 12f;
+                case RouteKind.Drag: return 5f;
+                case RouteKind.Shallow: return 4f;
+                case RouteKind.Cross: return 13f;
+                case RouteKind.Stick: return 5.5f;
+                case RouteKind.OutAndUp: return 8f;
+                default: return 0f;
+            }
+        }
+
+        /// <summary>The route's break angle in degrees away from the stem (0 = straight on, 90 = a square break, 180 = a turn back to the passer), measured on the first break of the template.</summary>
+        public static float BreakAngle(RouteKind k)
+        {
+            float[] t = Shape(k, DefaultDepth(k));
+            if (t.Length < 6) return t.Length >= 4 && (k == RouteKind.Hitch || k == RouteKind.Curl) ? 160f : (t.Length >= 4 ? AngleOf(0f, 1f, t[2] - t[0], t[3] - t[1]) : 0f);
+            return AngleOf(t[0] - 0f, t[1] - 0f, t[2] - t[0], t[3] - t[1]);
+        }
+
+        private static float AngleOf(float ax, float ay, float bx, float by)
+        {
+            float la = (float)Math.Sqrt(ax * ax + ay * ay), lb = (float)Math.Sqrt(bx * bx + by * by);
+            if (la < 1e-4f || lb < 1e-4f) return 0f;
+            float c = (ax * bx + ay * by) / (la * lb);
+            return (float)(Math.Acos(Math.Max(-1f, Math.Min(1f, c))) * 180.0 / Math.PI);
+        }
+
+        private static float[] Shape(RouteKind k, float d)
+        {
+            switch (k)
+            {
+                case RouteKind.Go: return new[] { 0f, 5f, 0f, 14f, 0f, 40f };
+                case RouteKind.Fade: return new[] { 0.8f, 4f, 2.6f, 14f, 4.5f, 38f };
+                case RouteKind.Hitch: return new[] { 0f, d, 0f, d - 1.2f };
+                case RouteKind.Curl: return new[] { 0f, d, -1.2f, d - 2.2f };
+                case RouteKind.Comeback: return new[] { 0f, d, 2.8f, d - 3.5f };
+                case RouteKind.Slant: return new[] { 0f, 2.8f, -2f, 4.8f, -8.5f, 11f };
+                case RouteKind.Out: return new[] { 0f, d, 8f, d + 0.3f };
+                case RouteKind.Dig: return new[] { 0f, d, -13f, d + 0.3f };
+                case RouteKind.Post: return new[] { 0f, d, -15f, d + 17f };
+                case RouteKind.Corner: return new[] { 0f, d, 14f, d + 15f };
+                case RouteKind.Seam: return new[] { 0f, 7f, 0f, 22f, 0f, 42f };
+                case RouteKind.Drag: return new[] { -2.2f, d, -17f, d + 0.4f };
+                case RouteKind.Cross: return new[] { -0.5f, 5f, -8f, d, -23f, d + 1.5f };
+                case RouteKind.Flat: return new[] { 3f, 0.4f, 9f, 1.2f };
+                case RouteKind.Swing: return new[] { 4f, -1f, 9f, 2f, 11f, 6f };
+                case RouteKind.Wheel: return new[] { 3f, 0f, 9f, 2f, 11f, 12f, 10f, 32f };
+                case RouteKind.Stick: return new[] { 0f, d, 1.2f, d + 0.2f };
+                case RouteKind.Texas: return new[] { 3f, 1f, -3f, 5f, -5f, 11f };
+                case RouteKind.Bubble: return new[] { 3f, -1f, 6f, 0f };
+                case RouteKind.ScreenRelease: return new[] { -2f, -3f, -8f, -1f };
+                case RouteKind.Shallow: return new[] { -3f, d, -22f, d + 0.4f };
+                case RouteKind.OutAndUp: return new[] { 0f, d, 5f, d + 0.5f, 7f, 32f };
+                case RouteKind.Corner2: return new[] { 0f, 12f, 8f, 22f, 14f, 36f };
+                case RouteKind.Delay: return new[] { 0f, -1f, 4f, 2f, 8f, 6f };
+                case RouteKind.In: return new[] { 0f, d, -8f, d + 0.5f };
+                default: return new[] { 0f, 10f };
+            }
+        }
 
         public const float RouteSpeed = 5.6f;   // v0.9.0 (E-110): the QB's timing estimate of a route IS the receiver's average pace including the stand-still start (a 9 yd out takes about 1.9 s for a 75 WR, not the 1.5 s that 7 yd/s gave); the sim runs the stems at 88-98 percent of his top speed
 
-        public static List<RouteWaypoint> Build(RouteKind kind, Vec2 start, float sign)
+        public static List<RouteWaypoint> Build(RouteKind kind, Vec2 start, float sign) { return Build(kind, start, sign, 0f); }
+
+        /// <summary>The route from a start spot. <paramref name="depth"/> overrides the break depth of the routes that have one (0 = the default).</summary>
+        public static List<RouteWaypoint> Build(RouteKind kind, Vec2 start, float sign, float depth)
         {
-            float[] t = Templates[kind];
+            float[] t = Shape(kind, depth > 0.5f ? depth : DefaultDepth(kind));
             var list = new List<RouteWaypoint>();
             Vec2 prev = start;
             Vec2 prevDir = Vec2.Zero;
@@ -60,6 +109,9 @@ namespace PixFootball.Core
         }
     }
 
+    /// <summary>Which side of the formation a concept's "strong" roles (S1..S4) belong to: the side with more receivers, the side with more wide receivers, or the tight end's side.</summary>
+    internal enum SideMode { Strong, Wr, Te }
+
     internal sealed class OffBuilder
     {
         public const int QB = 0, HB = 1, LT = 2, LG = 3, C = 4, RG = 5, RT = 6;
@@ -70,17 +122,83 @@ namespace PixFootball.Core
         public QbAssignment Qb;
         private readonly List<KeyValuePair<int, int>> _reads = new List<KeyValuePair<int, int>>();
         public int RouteCount;
+        /// <summary>The side (+1 right, -1 left) with more receivers; with equal numbers the tight-end side, else the right.</summary>
+        public readonly int StrongSign;
+        private readonly List<int> _strong = new List<int>(), _weak = new List<int>();
 
-        public OffBuilder(Formation f, bool isPass)
+        public OffBuilder(Formation f, bool isPass) : this(f, isPass, SideMode.Strong) { }
+
+        public OffBuilder(Formation f, bool isPass, SideMode mode)
         {
             F = f; IsPass = isPass;
             Shotgun = f.Slots[0].Y <= -3f;
+            // the receivers of the formation (wide receivers and tight ends who are not in the backfield), outside in on each side
+            int nr = 0, nl = 0, wr = 0, wl = 0; int teSide = 0;
+            for (int i = 1; i < Formation.SlotCount; i++)
+            {
+                SlotSpec s = f.Slots[i];
+                if (!IsReceiverSlot(s)) continue;
+                if (s.X > 0.5f) { nr++; if (s.Position == Position.WR) wr++; } else if (s.X < -0.5f) { nl++; if (s.Position == Position.WR) wl++; }
+                if (s.Position == Position.TE && Math.Abs(s.X) < 6f && teSide == 0) teSide = s.X >= 0f ? 1 : -1;
+            }
+            StrongSign = nr > nl ? 1 : (nl > nr ? -1 : (teSide != 0 ? teSide : 1));
+            if (mode == SideMode.Wr && wr != wl) StrongSign = wr > wl ? 1 : -1;            // the side with more wide receivers (a TE alone does not make a side)
+            else if (mode == SideMode.Te && teSide != 0) StrongSign = teSide;               // the tight end's side
+            for (int i = 1; i < Formation.SlotCount; i++)
+            {
+                SlotSpec s = f.Slots[i];
+                if (!IsReceiverSlot(s)) continue;
+                int sign = s.X >= 0f ? 1 : -1;
+                (sign == StrongSign ? _strong : _weak).Add(i);
+            }
+            Comparison<int> outsideIn = (p, q) => Math.Abs(f.Slots[q].X).CompareTo(Math.Abs(f.Slots[p].X));
+            _strong.Sort(outsideIn); _weak.Sort(outsideIn);
+        }
+
+        private static bool IsReceiverSlot(SlotSpec s)
+        {
+            if (s.Position != Position.WR && s.Position != Position.TE) return false;
+            return s.Y > -2.2f || Math.Abs(s.X) > 5.5f;
         }
 
         public static Vec2 P(float x, float y) { return new Vec2(x, y); }
-        public int Idx(string label) { return F.IndexOfLabel(label); }
-        public bool Has(string label) { return Idx(label) >= 0; }
+        public int Idx(string label) { return Role(label); }
+        public bool Has(string label) { return Role(label) >= 0; }
         public float Sign(int slot) { return F.Slots[slot].X < 0f ? -1f : 1f; }
+
+        /// <summary>
+        /// Resolves a role token to a formation slot: S1..S4 (strong side, outside in), W1..W3 (weak side), TE (the inline tight end, strong side first), HB, F, or a formation label (X, Z, H, W, Y, Y2).
+        /// Returns -1 when the formation has no such player.
+        /// </summary>
+        public int Role(string tok)
+        {
+            if (tok.Length == 2 && (tok[0] == 'S' || tok[0] == 'W') && char.IsDigit(tok[1]))
+            {
+                int rank = tok[1] - '1';
+                List<int> l = tok[0] == 'S' ? _strong : _weak;
+                return rank >= 0 && rank < l.Count ? l[rank] : -1;
+            }
+            if (tok == "WI") return _weak.Count > 0 ? _weak[_weak.Count - 1] : -1;   // the innermost weak-side receiver (a crosser)
+            if (tok == "SI")                                                              // the innermost strong-side wide receiver (the slot), else the innermost strong-side receiver
+            {
+                for (int k = _strong.Count - 1; k >= 0; k--) if (F.Slots[_strong[k]].Position == Position.WR) return _strong[k];
+                return _strong.Count > 0 ? _strong[_strong.Count - 1] : -1;
+            }
+            if (tok == "TE" || tok == "TE+")
+            {
+                int best = -1; float bd = 99f;
+                for (int i = 1; i < Formation.SlotCount; i++)
+                {
+                    SlotSpec s = F.Slots[i];
+                    if (s.Position != Position.TE || Math.Abs(s.X) > 6f) continue;
+                    float d = (Math.Sign(s.X) == StrongSign ? 0f : 10f) + Math.Abs(s.X);
+                    if (d < bd) { bd = d; best = i; }
+                }
+                if (best < 0 && tok == "TE+") return Role("SI");   // no inline tight end (10 personnel): the slot runs the tight end's route
+                return best;
+            }
+            return F.IndexOfLabel(tok);
+        }
 
         public void SetQb(QbAction action, int steps, int roll = 0, int handoffSlot = -1, params Vec2[] runPath)
         {
@@ -89,12 +207,12 @@ namespace PixFootball.Core
             A[0] = Qb;
         }
 
-        public bool Route(string label, RouteKind kind, int read = 0)
+        public bool Route(string label, RouteKind kind, int read = 0, float depth = 0f)
         {
-            int i = Idx(label);
+            int i = Role(label);
             if (i < 0 || A[i] != null) return false;
             var ra = new RouteAssignment { Slot = i, Route = kind, ReadOrder = read };
-            ra.Waypoints.AddRange(RouteLibrary.Build(kind, F.Slots[i].Offset, Sign(i)));
+            ra.Waypoints.AddRange(RouteLibrary.Build(kind, F.Slots[i].Offset, Sign(i), depth));
             A[i] = ra;
             RouteCount++;
             if (read > 0) _reads.Add(new KeyValuePair<int, int>(read, i));
@@ -103,7 +221,7 @@ namespace PixFootball.Core
 
         public bool Block(string label, BlockKind kind, BlockTarget target, RunGap gap = RunGap.None)
         {
-            int i = Idx(label);
+            int i = Role(label);
             return i >= 0 && BlockAt(i, kind, target, gap);
         }
 
@@ -118,7 +236,7 @@ namespace PixFootball.Core
 
         public bool Carry(string label, CarryStyle style, RunGap gap, float delay, params Vec2[] path)
         {
-            int i = Idx(label);
+            int i = Role(label);
             if (i < 0 || A[i] != null) return false;
             var c = new CarryAssignment { Slot = i, Style = style, Gap = gap, Delay = delay };
             c.Path.AddRange(path);
@@ -129,7 +247,7 @@ namespace PixFootball.Core
         public bool FakeCarry(string label, CarryStyle style, RunGap gap, params Vec2[] path)
         {
             bool ok = Carry(label, style, gap, 0f, path);
-            if (ok) ((CarryAssignment)A[Idx(label)]).IsFake = true;
+            if (ok) ((CarryAssignment)A[Role(label)]).IsFake = true;
             return ok;
         }
 
@@ -204,7 +322,10 @@ namespace PixFootball.Core
             BlockAt(RG, BlockKind.Wall, BlockTarget.Playside);
         }
 
-        /// <summary>Applies a spec like "X=Slant*1 Z=Go*2 HB=@PassPro" of labeled route/block assignments.</summary>
+        /// <summary>
+        /// Applies a spec like "S1=Curl@10*1 S2=Flat*2 W1=Go HB=@PassPro" of role (or label) assigned routes and blocks. A role is S1..S4 / W1..W3 / TE / HB / F or a formation label;
+        /// "@depth" overrides the break depth of the route, "*n" is the quarterback's read order.
+        /// </summary>
         public void Spec(string spec)
         {
             foreach (string tok in spec.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
@@ -216,7 +337,11 @@ namespace PixFootball.Core
                 int read = 0;
                 int star = what.IndexOf('*');
                 if (star >= 0) { int.TryParse(what.Substring(star + 1), out read); what = what.Substring(0, star); }
+                float depth = 0f;
+                int at = what.StartsWith("@") ? -1 : what.IndexOf('@');
+                if (at > 0) { float.TryParse(what.Substring(at + 1), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out depth); what = what.Substring(0, at); }
                 bool ok = true;
+                if (Role(label) < 0) { DefaultPlaybooks.SkippedSpecTokens.Add(F.Name + ": no player for " + tok); continue; }
                 if (what == "@PassPro") ok = Block(label, BlockKind.PassPro, BlockTarget.BlitzPickup);
                 else if (what == "@Chip") ok = Block(label, BlockKind.Chip, BlockTarget.EdgeDefender);
                 else if (what == "@Block") ok = Block(label, BlockKind.Stalk, BlockTarget.Cornerback);
@@ -224,9 +349,9 @@ namespace PixFootball.Core
                 {
                     RouteKind rk;
                     if (!Enum.TryParse(what, out rk)) { DefaultPlaybooks.SkippedSpecTokens.Add(F.Name + ": unknown route " + tok); continue; }
-                    ok = Route(label, rk, read);
+                    ok = Route(label, rk, read, depth);
                 }
-                if (!ok) DefaultPlaybooks.SkippedSpecTokens.Add(F.Name + ": skipped " + tok);   // label missing from the formation or the slot already has an assignment
+                if (!ok) DefaultPlaybooks.SkippedSpecTokens.Add(F.Name + ": skipped " + tok);   // the slot already has an assignment
             }
         }
 
@@ -246,8 +371,11 @@ namespace PixFootball.Core
                 {
                     if (pos == Position.WR)
                     {
-                        A[i] = new RouteAssignment { Slot = i, Route = RouteKind.Hitch };
-                        ((RouteAssignment)A[i]).Waypoints.AddRange(RouteLibrary.Build(RouteKind.Hitch, F.Slots[i].Offset, Sign(i)));
+                        // a receiver the concept does not use runs a clearing vertical when he is wide and a hitch when he is in the slot
+                        RouteKind rk = Math.Abs(F.Slots[i].X) >= 14f ? RouteKind.Go : RouteKind.Hitch;
+                        DefaultPlaybooks.DefaultedReceivers.Add(F.Name + " / " + name + ": " + (F.Slots[i].Label.Length > 0 ? F.Slots[i].Label : F.Slots[i].Position.ToString()) + " -> " + rk);
+                        A[i] = new RouteAssignment { Slot = i, Route = rk };
+                        ((RouteAssignment)A[i]).Waypoints.AddRange(RouteLibrary.Build(rk, F.Slots[i].Offset, Sign(i)));
                     }
                     else BlockAt(i, pos == Position.TE ? BlockKind.Chip : BlockKind.PassPro, BlockTarget.BlitzPickup);
                 }
@@ -288,8 +416,11 @@ namespace PixFootball.Core
 
     public static partial class DefaultPlaybooks
     {
-        /// <summary>Spec tokens ("HB=Flat*3") that did not apply while the default playbook was built (label missing from the formation, slot already assigned, unknown route): diagnostics for the playbook tests.</summary>
+        /// <summary>Spec tokens ("HB=Flat*3") that did not apply while the default playbook was built (no such player in the formation, slot already assigned, unknown route): diagnostics for the playbook tests.</summary>
         public static readonly System.Collections.Generic.List<string> SkippedSpecTokens = new System.Collections.Generic.List<string>();
+
+        /// <summary>Receivers a pass concept did not name (they run the default clearing vertical or hitch): diagnostics for the playbook tests.</summary>
+        public static readonly System.Collections.Generic.List<string> DefaultedReceivers = new System.Collections.Generic.List<string>();
 
         public const string Singleback = "Singleback", IForm = "I-Form", ShotgunF = "Shotgun", Pistol = "Pistol",
             GoalLine = "Goal Line", Empty = "Empty", Trips = "Trips";
@@ -312,9 +443,15 @@ namespace PixFootball.Core
             };
         }
 
+        /// <summary>
+        /// The offensive formations. Alignment numbers (yards from the ball): the line splits are 1.25 yd, a tight end is attached at 3.75, a slot receiver stands 8-12 yd out and a split end 17.5 (near the numbers),
+        /// receivers on the line stand at 0 and flankers / slots one yard off it, a shotgun passer 5 yd back with the back beside him, a pistol passer 4 yd back with the back directly behind him,
+        /// an under-center back 6-7 yd deep and a fullback 3-4 yd deep. Every set keeps its family's labels (X, Z, H, W, Y, Y2, HB, F) so concepts resolve their roles.
+        /// </summary>
         public static List<Formation> OffensiveFormations()
         {
             var list = new List<Formation>();
+            // ---- base families ----
             list.Add(new Formation(Singleback, PlaySide.Offense, "11", OffSlots(
                 S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
                 S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"), S(Position.WR, -8f, -1, "H"))));
@@ -337,22 +474,52 @@ namespace PixFootball.Core
                 S(Position.QB, 0, -5, "QB"), S(Position.RB, -2f, -5, "HB"),
                 S(Position.TE, -3.75f, 0, "Y"), S(Position.WR, 18f, 0, "Z"), S(Position.WR, 12f, -1, "H"), S(Position.WR, 7.5f, -1, "W"))));
 
-            // ---- v0.3 alignment / personnel variants (the second play-call screen). They reuse the labels of the base family so every concept builds. ----
+            // ---- alignment / personnel variants (the second play-call screen) ----
             list.Add(new Formation("Shotgun Doubles", PlaySide.Offense, "11", OffSlots(
                 S(Position.QB, 0, -5, "QB"), S(Position.RB, 2f, -5, "HB"),
                 S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"), S(Position.WR, -8f, -1, "H")), ShotgunF, "Doubles"));
             list.Add(new Formation("Shotgun Bunch", PlaySide.Offense, "11", OffSlots(
                 S(Position.QB, 0, -5, "QB"), S(Position.RB, -2f, -5, "HB"),
-                S(Position.TE, 13f, -1.2f, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 14.5f, 0, "Z"), S(Position.WR, 16.5f, -1.2f, "H")), ShotgunF, "Bunch"));
+                S(Position.TE, -3.75f, 0, "Y"), S(Position.WR, 14.5f, 0, "Z"), S(Position.WR, 16.5f, -1.2f, "H"), S(Position.WR, 12.5f, -1.2f, "W")), ShotgunF, "Bunch"));
+            list.Add(new Formation("Shotgun Spread", PlaySide.Offense, "10", OffSlots(
+                S(Position.QB, 0, -5, "QB"), S(Position.RB, 2f, -5, "HB"),
+                S(Position.WR, -17.5f, 0, "X"), S(Position.WR, -8f, -1, "H"), S(Position.WR, 8.5f, -1, "W"), S(Position.WR, 17.5f, 0, "Z")), ShotgunF, "Spread (10)"));
+            list.Add(new Formation("Shotgun Ace", PlaySide.Offense, "12", OffSlots(
+                S(Position.QB, 0, -5, "QB"), S(Position.RB, 2f, -5, "HB"),
+                S(Position.TE, 3.75f, 0, "Y"), S(Position.TE, -3.75f, 0, "Y2"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z")), ShotgunF, "Ace (12)"));
             list.Add(new Formation("Singleback Ace", PlaySide.Offense, "12", OffSlots(
                 S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
                 S(Position.TE, 3.75f, 0, "Y"), S(Position.TE, -3.75f, 0, "Y2"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z")), Singleback, "Ace (12)"));
+            list.Add(new Formation("Singleback Doubles", PlaySide.Offense, "10", OffSlots(
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
+                S(Position.WR, -17.5f, 0, "X"), S(Position.WR, -8f, -1, "H"), S(Position.WR, 8.5f, -1, "W"), S(Position.WR, 17.5f, 0, "Z")), Singleback, "Doubles (10)"));
+            list.Add(new Formation("Singleback Trips", PlaySide.Offense, "11", OffSlots(
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
+                S(Position.TE, -3.75f, 0, "Y"), S(Position.WR, 18f, 0, "Z"), S(Position.WR, 12.5f, -1, "H"), S(Position.WR, 7.5f, -1, "W")), Singleback, "Trips"));
+            list.Add(new Formation("Singleback Bunch", PlaySide.Offense, "11", OffSlots(
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -6, "HB"),
+                S(Position.TE, -3.75f, 0, "Y"), S(Position.WR, 14.5f, 0, "Z"), S(Position.WR, 16.5f, -1.2f, "H"), S(Position.WR, 12.5f, -1.2f, "W")), Singleback, "Bunch"));
             list.Add(new Formation("I-Form Slot", PlaySide.Offense, "20", OffSlots(
                 S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -7, "HB"),
                 S(Position.FB, 0, -4, "F"), S(Position.WR, 8f, -1, "H"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, 0, "Z")), IForm, "Slot (20)"));   // 7 on the line (QA-510)
+            list.Add(new Formation("I-Form Twins", PlaySide.Offense, "21", OffSlots(
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.FB, 0, -4, "F"), S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, -10f, -1, "H")), IForm, "Twins"));
+            list.Add(new Formation("I-Form Tight", PlaySide.Offense, "22", OffSlots(
+                S(Position.QB, 0, -1.25f, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.FB, 0, -4, "F"), S(Position.TE, 3.75f, 0, "Y"), S(Position.TE, -3.75f, 0, "Y2"), S(Position.WR, 12.5f, -1, "Z")), IForm, "Tight (22)"));
             list.Add(new Formation("Pistol Trips", PlaySide.Offense, "11", OffSlots(
                 S(Position.QB, 0, -4, "QB"), S(Position.RB, 0, -7, "HB"),
                 S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z"), S(Position.WR, 10f, -1, "H")), Pistol, "Trips"));
+            list.Add(new Formation("Pistol Ace", PlaySide.Offense, "12", OffSlots(
+                S(Position.QB, 0, -4, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.TE, 3.75f, 0, "Y"), S(Position.TE, -3.75f, 0, "Y2"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z")), Pistol, "Ace (12)"));
+            list.Add(new Formation("Pistol Strong", PlaySide.Offense, "21", OffSlots(
+                S(Position.QB, 0, -4, "QB"), S(Position.RB, 0, -7, "HB"),
+                S(Position.FB, 2.6f, -4.6f, "F"), S(Position.TE, 3.75f, 0, "Y"), S(Position.WR, -17.5f, 0, "X"), S(Position.WR, 17.5f, -1, "Z")), Pistol, "Strong (21)"));
+            list.Add(new Formation("Empty Quads", PlaySide.Offense, "01", OffSlots(
+                S(Position.QB, 0, -5, "QB"), S(Position.WR, -17.5f, 0, "X"),
+                S(Position.WR, 19f, 0, "Z"), S(Position.WR, 15.5f, -1, "H"), S(Position.WR, 12f, -1, "W"), S(Position.TE, 8.5f, -1, "Y")), Empty, "Quads"));
             return list;
         }
 
@@ -400,7 +567,7 @@ namespace PixFootball.Core
                 b.SetQb(QbAction.Handoff, 0, 0, OffBuilder.HB);
                 b.OlZone(d);
                 b.Block("F", BlockKind.Lead, BlockTarget.Linebacker);
-                b.Block("Y", BlockKind.Zone, d > 0 ? BlockTarget.ZoneRight : BlockTarget.ZoneLeft);
+                b.Block("TE", BlockKind.Zone, d > 0 ? BlockTarget.ZoneRight : BlockTarget.ZoneLeft);
                 return b.Carry("HB", CarryStyle.InsideZone, d > 0 ? RunGap.BRight : RunGap.BLeft, 0f, P(d * 1.5f, -3f), P(d * 2.5f, 0.5f), P(d * 3.5f, 6f));
             });
             AddRun(pb, "Outside Zone", PlayCategory.OutsideRun, new[] { Singleback, IForm, Pistol, ShotgunF }, true, (b, d) =>
@@ -408,9 +575,9 @@ namespace PixFootball.Core
                 b.SetQb(QbAction.Handoff, 0, d, OffBuilder.HB);
                 b.OlZone(d);
                 b.Block("F", BlockKind.Lead, BlockTarget.EdgeDefender);
-                b.Block("Y", BlockKind.Zone, d > 0 ? BlockTarget.ZoneRight : BlockTarget.ZoneLeft);
+                b.Block("TE", BlockKind.Zone, d > 0 ? BlockTarget.ZoneRight : BlockTarget.ZoneLeft);
                 float oy = b.F.Slots[OffBuilder.HB].Y;
-                return b.Carry("HB", CarryStyle.OutsideZone, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 3f, Math.Min(-3f, oy + 1.8f)), P(d * 6.5f, -1.2f), P(d * 8.5f, 4f), P(d * 10f, 12f));
+                return b.Carry("HB", CarryStyle.OutsideZone, d > 0 ? RunGap.DRight : RunGap.DLeft, 0f, P(d * 2.8f, Math.Min(-3f, oy + 1.8f)), P(d * 5.0f, -1.0f), P(d * 7.0f, 3.0f), P(d * 8.5f, 10f));
             });
             AddRun(pb, "Power", PlayCategory.InsideRun, new[] { IForm, Singleback, GoalLine, Pistol }, true, (b, d) =>
             {
@@ -425,7 +592,7 @@ namespace PixFootball.Core
                         if (ix >= 0 && b.F.Slots[ix].X * d > 0f && b.Block(lbl, BlockKind.Kickout, BlockTarget.EdgeDefender)) break;
                     }
                 }
-                return b.Carry("HB", CarryStyle.Power, d > 0 ? RunGap.CRight : RunGap.CLeft, 0f, P(d * 2.2f, -3.6f), P(d * 4.2f, -0.5f), P(d * 5f, 6f));
+                return b.Carry("HB", CarryStyle.Power, d > 0 ? RunGap.CRight : RunGap.CLeft, 0f, P(d * 2.4f, -3.4f), P(d * 3.8f, -0.8f), P(d * 4.6f, 4f), P(d * 5.2f, 11f));
             });
             AddRun(pb, "Counter", PlayCategory.InsideRun, new[] { Singleback, Pistol, ShotgunF }, true, (b, d) =>
             {
@@ -502,7 +669,7 @@ namespace PixFootball.Core
                 float yc = Math.Min(-3f, b.F.Slots[0].Y + 0.8f);
                 b.SetQb(QbAction.Toss, 0, d, slot);
                 b.OlZone(d);
-                b.Block("Y", BlockKind.Man, BlockTarget.EdgeDefender);   // v0.9.0 (E-156): the tight end takes the edge defender, the back leads outside of him
+                b.Block("TE", BlockKind.Man, BlockTarget.EdgeDefender);   // v0.9.0 (E-156): the tight end takes the edge defender, the back leads outside of him
                 b.Block("HB", BlockKind.Lead, BlockTarget.Linebacker);
                 foreach (string wl in new[] { "X", "Z", "W", "H" })   // v0.9.0 (E-156): the playside receivers block the force players (the corner, then the nearest linebacker or safety)
                 {
@@ -524,61 +691,6 @@ namespace PixFootball.Core
                 for (int i = OffBuilder.LT; i <= OffBuilder.RT; i++) b.BlockAt(i, BlockKind.PassPro, BlockTarget.NearestDefender);
                 return true;
             });
-        }
-
-        private static void AddPass(Playbook pb, string name, PlayCategory cat, string[] formations, string spec,
-            QbAction action = QbAction.QuickPass, int steps = 3, int roll = 0, bool screen = false, bool fakeRun = false)
-        {
-            foreach (string fn in Expand(formations))
-            {
-                Formation f = pb.FindFormation(fn);
-                var b = new OffBuilder(f, true);
-                int dropSteps = b.Shotgun ? steps : (steps <= 3 ? 3 : (steps <= 5 ? 5 : 7));
-                b.SetQb(action, dropSteps, roll);
-                if (fakeRun)
-                    b.FakeCarry("HB", CarryStyle.InsideZone, RunGap.BRight, P(1.2f, Math.Min(-2.6f, b.F.Slots[OffBuilder.HB].Y + 3f)), P(1.8f, -1.2f));
-                b.Spec(spec);
-                if (b.RouteCount < 2) continue;
-                if (screen) b.OlScreen(); else b.OlPassPro(roll >= 0 ? 1 : -1);
-                AddPlay(pb, b.Finish(name, cat, "pass"));
-            }
-        }
-
-        private static void AddPasses(Playbook pb)
-        {
-            string[] sg = { ShotgunF, Singleback };
-            AddPass(pb, "Slants", PlayCategory.ShortPass, new[] { ShotgunF, Singleback, Trips, Pistol }, "X=Slant*1 Z=Slant*2 H=Slant*3 W=Slant*4 Y=Flat HB=@Chip");
-            AddPass(pb, "Quick Hitches", PlayCategory.ShortPass, new[] { ShotgunF, Pistol, Trips }, "X=Hitch*1 Z=Hitch*2 H=Hitch*3 W=Hitch*3 Y=Hitch HB=Swing");
-            AddPass(pb, "Stick", PlayCategory.ShortPass, new[] { ShotgunF, Trips, Singleback }, "Y=Stick*1 X=Go H=Flat*2 Z=Out*3 W=Flat*2 HB=Swing");
-            AddPass(pb, "Curl-Flat", PlayCategory.ShortPass, new[] { Singleback, ShotgunF, IForm }, "X=Curl*1 Z=Curl*2 Y=Flat*3 H=Flat*4 HB=@Chip F=@PassPro", QbAction.DropbackPass, 5);
-            AddPass(pb, "Mesh", PlayCategory.ShortPass, new[] { ShotgunF, Empty, Pistol }, "X=Drag*1 Z=Shallow*2 H=Curl*3 W=Curl Y=Seam HB=Flat");
-            AddPass(pb, "Snag", PlayCategory.ShortPass, new[] { Trips }, "Z=Corner*3 H=Curl*1 W=Flat*2 Y=Go HB=@PassPro");
-            AddPass(pb, "Spacing", PlayCategory.ShortPass, new[] { ShotgunF, Empty }, "X=Hitch*2 Z=Hitch*3 H=Curl*1 W=Curl Y=Flat HB=Swing");
-            AddPass(pb, "Double Outs", PlayCategory.ShortPass, sg, "X=Out*1 Z=Out*2 H=Flat*3 Y=Hitch HB=Swing");
-            AddPass(pb, "Texas Route", PlayCategory.ShortPass, new[] { ShotgunF, Singleback, Pistol }, "HB=Texas*1 X=Go*2 Z=Hitch*3 H=Slant Y=Out");
-            AddPass(pb, "Levels", PlayCategory.MediumPass, new[] { ShotgunF, Empty }, "X=Dig*1 H=Drag*2 W=Drag Z=Hitch Y=Seam HB=Swing", QbAction.DropbackPass, 5);
-            AddPass(pb, "Smash", PlayCategory.MediumPass, new[] { ShotgunF, Singleback, Trips }, "Z=Corner*1 H=Hitch*2 W=Hitch X=Hitch*3 Y=Flat HB=Swing", QbAction.DropbackPass, 5);
-            AddPass(pb, "Flood", PlayCategory.MediumPass, new[] { ShotgunF }, "Z=Corner*1 H=Out*2 Y=Flat*3 X=Go HB=@Chip", QbAction.Rollout, 5, 1);
-            AddPass(pb, "Y-Cross", PlayCategory.MediumPass, sg, "Y=Cross*1 X=Post*2 Z=Go H=Curl*3 HB=Swing", QbAction.DropbackPass, 5);
-            AddPass(pb, "Drive", PlayCategory.MediumPass, sg, "X=Dig*1 H=Drag*2 Z=Go Y=Seam HB=Swing", QbAction.DropbackPass, 5);
-            AddPass(pb, "Deep Comebacks", PlayCategory.MediumPass, sg, "X=Comeback*1 Z=Comeback*2 H=Go*3 Y=Out HB=Flat", QbAction.DropbackPass, 5);
-            AddPass(pb, "TE Seam", PlayCategory.MediumPass, new[] { Singleback, IForm, ShotgunF }, "Y=Seam*1 X=Hitch*2 Z=Out*3 HB=Flat F=@PassPro", QbAction.DropbackPass, 5);
-            AddPass(pb, "Four Verticals", PlayCategory.DeepPass, new[] { ShotgunF, Empty, Trips }, "X=Go*1 Z=Go*2 H=Seam*3 W=Seam Y=Seam HB=Swing*4", QbAction.DropbackPass, 5);
-            AddPass(pb, "Hail Mary", PlayCategory.DeepPass, new[] { ShotgunF, Empty }, "X=Go*1 Z=Go*2 H=Go*3 W=Go Y=Go HB=@PassPro", QbAction.HailMary, 5);
-            AddPass(pb, "Post-Wheel", PlayCategory.DeepPass, sg, "X=Post*1 Z=Go*2 HB=Wheel*3 H=Out Y=Flat", QbAction.DropbackPass, 5);
-            AddPass(pb, "Corner-Post", PlayCategory.DeepPass, sg, "X=Post*1 Z=Corner2*2 H=Dig*3 Y=Seam HB=@PassPro", QbAction.DropbackPass, 7);
-            AddPass(pb, "Out-and-Up Shot", PlayCategory.DeepPass, new[] { Singleback, IForm }, "X=OutAndUp*1 Z=Go*2 Y=Drag*3 HB=@PassPro F=Flat*4", QbAction.DropbackPass, 7);
-            AddPass(pb, "Wheel Route", PlayCategory.DeepPass, sg, "HB=Wheel*1 X=Go*2 Z=Hitch H=Out Y=Drag", QbAction.DropbackPass, 5);
-            AddPass(pb, "Fade", PlayCategory.DeepPass, new[] { ShotgunF, Empty, GoalLine }, "Z=Fade*1 X=Fade*2 H=Slant*3 Y=Flat*4 Y2=Flat HB=@PassPro F=@PassPro");
-            AddPass(pb, "PA Boot", PlayCategory.PlayAction, new[] { Singleback, IForm }, "Y=Drag*1 Z=Corner*2 H=Flat*3 X=Post F=Flat", QbAction.Boot, 5, 1, false, true);
-            AddPass(pb, "PA Crossers", PlayCategory.PlayAction, new[] { IForm, Singleback }, "Y=Cross*1 X=Post*2 Z=Dig*3", QbAction.PlayActionFake, 5, 0, false, true);
-            AddPass(pb, "PA Deep Shot", PlayCategory.PlayAction, new[] { Singleback, IForm }, "X=Post*1 Z=Go*2 Y=Out*3 H=Hitch*4", QbAction.PlayActionFake, 5, 0, false, true);
-            AddPass(pb, "HB Screen", PlayCategory.Screen, sg, "HB=ScreenRelease*1 X=Go Z=Go H=Go Y=@Block", QbAction.ScreenPass, 3, 0, true);
-            AddPass(pb, "WR Screen", PlayCategory.Screen, new[] { Trips, Empty }, "H=Bubble*1 W=Bubble*2 X=Go Z=@Block Y=@Block", QbAction.ScreenPass, 3, 0, true);
-            // inside the five: quick throws and a bootleg so the goal-line calls are not just four runs and a fade
-            AddPass(pb, "Goal Line Slant", PlayCategory.ShortPass, new[] { GoalLine }, "Z=Slant*1 Y=Flat*2 F=Flat*3 Y2=@Chip HB=@PassPro", QbAction.DropbackPass, 3);
-            AddPass(pb, "Goal Line Boot", PlayCategory.PlayAction, new[] { GoalLine }, "Y=Drag*1 Z=Out*2 F=Flat*3 Y2=@Chip", QbAction.Boot, 3, 1, false, true);
-            AddPass(pb, "Slip Screen", PlayCategory.Screen, sg, "Y=ScreenRelease*1 X=Go Z=Go HB=Flat", QbAction.ScreenPass, 3, 0, true);
         }
 
         internal static void AddPlay(Playbook pb, Play p)

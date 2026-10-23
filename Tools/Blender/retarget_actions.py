@@ -1,6 +1,9 @@
 """Re-bake EVERY action of one or more Auto-Rig-Pro FBX files onto the clean deform skeleton and export one FBX per action.
 
-    blender -b --python retarget_actions.py -- <clean_skeleton.fbx> <out_dir> <prefix> [--only <regex>] [--skip <regex>] [--force] <src1.fbx> [src2.fbx ...]
+    blender -b --python retarget_actions.py -- <clean_skeleton.fbx> <out_dir> <prefix> [--only <regex>] [--skip <regex>] [--obj <regex>] [--force] <src1.fbx|src1.blend> [...]
+
+* v0.10.0 (ANIMLIB): a source may also be a .blend. Its armature objects whose name matches --obj (default "^root") and ALL of its actions are loaded (data blocks only,
+  no meshes), and every action that animates bones of that armature is baked (actions of other rigs are skipped by a bone-name test). Use --only to pick takes.
 
 * The clean skeleton is the Auto-Rig-Pro deform skeleton of StiffArm_14.fbx (the same one the player bodies use).
 * The source character is scaled so the hip height matches the clean skeleton (0.907 m), 'copy world loc/rot' constraints drive the clean
@@ -13,12 +16,16 @@ argv = sys.argv[sys.argv.index('--') + 1:]
 clean_fbx, out_dir, prefix = argv[0], argv[1], argv[2]
 rest = argv[3:]
 only = skip = None
+objre = re.compile('^root', re.I)
+fps_override = 0
 force = False                      # QA-929: --force re-bakes and overwrites outputs that already exist
 files = []
 i = 0
 while i < len(rest):
     if rest[i] == '--only': only = re.compile(rest[i + 1], re.I); i += 2
     elif rest[i] == '--skip': skip = re.compile(rest[i + 1], re.I); i += 2
+    elif rest[i] == '--fps': fps_override = int(rest[i + 1]); i += 2
+    elif rest[i] == '--obj': objre = re.compile(rest[i + 1], re.I); i += 2
     elif rest[i] == '--force': force = True; i += 1
     else: files.append(rest[i]); i += 1
 os.makedirs(out_dir, exist_ok=True)
@@ -28,6 +35,49 @@ def import_fbx(p):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.fbx(filepath=p, automatic_bone_orientation=False, use_anim=True, ignore_leaf_bones=False)
     return [o for o in bpy.data.objects if o not in before]
+
+
+def import_blend(p):
+    before = set(bpy.data.objects)
+    with bpy.data.libraries.load(p, link=False) as (df, dt):
+        dt.objects = [n for n in df.objects if objre.search(n)]
+        dt.actions = list(df.actions)
+        dt.scenes = [df.scenes[0]] if df.scenes else []
+    # the take timing: the source scene's frame rate (a .blend has no FBX frame rate); --fps overrides it
+    if dt.scenes and dt.scenes[0] is not None:
+        sc = dt.scenes[0]
+        bpy.context.scene.render.fps = int(fps_override or sc.render.fps)
+        bpy.context.scene.render.fps_base = sc.render.fps_base
+        bpy.data.scenes.remove(sc)
+    elif fps_override:
+        bpy.context.scene.render.fps = int(fps_override)
+    for o in dt.objects:
+        if o is not None:
+            bpy.context.scene.collection.objects.link(o)
+    bpy.context.view_layer.update()
+    return [o for o in bpy.data.objects if o not in before]
+
+
+def action_bones(act):
+    """pose-bone names animated by an action (Blender 5.x layered actions and the legacy fcurves list)"""
+    names = set()
+    rx = re.compile(r'pose\.bones\["([^"]+)"\]')
+    try:
+        for layer in act.layers:
+            for strip in layer.strips:
+                for bag in strip.channelbags:
+                    for fc in bag.fcurves:
+                        m = rx.match(fc.data_path)
+                        if m: names.add(m.group(1))
+    except Exception:
+        pass
+    try:
+        for fc in act.fcurves:
+            m = rx.match(fc.data_path)
+            if m: names.add(m.group(1))
+    except Exception:
+        pass
+    return names
 
 
 def purge(objs):
@@ -72,15 +122,21 @@ for src in files:
     t_src = time.time()
     try:
         before_actions = set(bpy.data.actions)
-        objs = import_fbx(src)
+        is_blend = src.lower().endswith('.blend')
+        objs = import_blend(src) if is_blend else import_fbx(src)
         arms = [o for o in objs if o.type == 'ARMATURE']
+        if is_blend:
+            arms = [o for o in arms if "root.x" in sname(o)]
         if not arms or "root.x" not in sname(arms[0]):
             print("SKIP (not ARP)", src); purge(objs); continue
-        A = arms[0]
+        A = max(arms, key=lambda o: len(o.data.bones))
         fps = bpy.context.scene.render.fps
         new_actions = [a for a in bpy.data.actions if a not in before_actions]
-        purge([o for o in objs if o.type != 'ARMATURE'])
+        purge([o for o in objs if o.type != 'ARMATURE' or o is not A])
         SA = sname(A)
+        if is_blend:
+            ab = set(sname(A).values())
+            new_actions = [a for a in new_actions if len(action_bones(a) & ab) >= 8]
         hipA = (A.matrix_world @ A.data.bones[SA["root.x"]].matrix_local).translation.z - ground_z(A)
         hipB = (B.matrix_world @ B.data.bones["root.x"].matrix_local).translation.z - ground_z(B)
         s = hipB / hipA
@@ -107,7 +163,7 @@ for src in files:
         # QA-930: the take name is the cleaned action name; only a file with exactly ONE distinct cleaned action name (Key| duplicates and Legacy Slot copies count as the same
         # action) takes the file name (keeps the _A / _B suffix of the studio takes)
         distinct = {clean_name(a.name) for a in new_actions}
-        single = len(distinct) == 1
+        single = len(distinct) == 1 and not is_blend
         for act in sorted(new_actions, key=lambda a: (('Key' in a.name.split('|')[0]), a.name)):
             nm = clean_name(act.name)
             if single:
@@ -123,6 +179,10 @@ for src in files:
             if os.path.exists(out_path) and not force: continue
             t0 = time.time()
             A.animation_data.action = act
+            try:
+                if len(act.slots) > 0: A.animation_data.action_slot = act.slots[0]
+            except Exception:
+                pass
             bpy.context.scene.frame_start, bpy.context.scene.frame_end = f0, f1
             bpy.ops.object.select_all(action='DESELECT')
             bpy.context.view_layer.objects.active = B

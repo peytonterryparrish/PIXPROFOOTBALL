@@ -37,10 +37,14 @@ namespace PixFootball.Gameplay
         /// <summary>QA: the footfall planner of the pose layer (planted flags, step count).</summary>
         public ProcGait FootGait { get { return _gait; } }
 
+        /// <summary>v0.10.0 BODIES: the joint-limit pass over the final pose (see <see cref="BodySanity"/>).</summary>
+        public BodySanity Sanity;
+
         void InitStanceLayer()
         {
             if (Avatar == null || Avatar.Animator == null) return;
             StanceLayer = new StanceIK(Avatar.Animator, name.GetHashCode() & 0xffff);
+            if (Sanity == null && Avatar.Animator.isHuman) { Sanity = Avatar.Animator.gameObject.AddComponent<BodySanity>(); Sanity.Init(Avatar.Animator); }
         }
 
         /// <summary>The solved pose of the current stance (QA / tests).</summary>
@@ -87,16 +91,23 @@ namespace PixFootball.Gameplay
 
         void LateStancePose(float dt)
         {
+            LateStancePoseCore(dt);
+            if (Sanity != null) { Sanity.ThrowPose = _throwPose; Sanity.Torso(); }      // v0.10.0 BODIES: spine twist and head limits before the arm IK reaches for the ball
+        }
+
+        void LateStancePoseCore(float dt)
+        {
             if (StanceLayer == null || !StanceLayer.Ok) return;
             bool free = !DebugNoStancePose && !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid;
             StancePose target = default(StancePose); bool have = false, gait = false, throwing = false; float tau = 0.09f;
             float u;
-            if (free && ThrowPoseU(out u)) { target = _throwToss ? StancePoses.QbToss(u) : StancePoses.QbThrow(u, _throwOnRun); if (_lefty) target = target.Mirrored(); have = true; gait = _throwOnRun; throwing = true; tau = 0.04f; }
+            if (free && QbSeqPose(ref target, ref tau, ref gait)) { have = true; }      // v0.10.0 QB: the choreographed sequence poses (survey, crouch ...)
+            else if (free && ThrowPoseU(out u)) { target = _throwToss ? StancePoses.QbToss(u) : StancePoses.QbThrow(u, _throwOnRun); if (_lefty) target = target.Mirrored(); have = true; gait = _throwOnRun || QbThrowGait; throwing = true; tau = 0.04f; }
             else if (free && _qbSpecial != 0) { target = _qbSpecial == 1 ? StancePoses.QbKneel(_specialU) : StancePoses.QbSpike(_specialU); have = true; tau = 0.05f; }
             else if (free && _qbPoseOn) { target = StancePoses.For(new StanceSpec { Kind = _qbPoseKind }, Role); if (_lefty) target = target.Mirrored(); have = target.Valid; gait = true; }
             else if (free && (_lastAction == AgentAction.Stance || _qbStanceHold))
             {
-                if (_poseSpec.Kind != Stance.Kind || _poseSpec.Mirror != Stance.Mirror || _poseSpec.IsLeftOfBall != Stance.IsLeftOfBall || _poseSpec.Defense != Stance.Defense
+                if (_poseSpec.Kind != Stance.Kind || _poseSpec.Mirror != Stance.Mirror || _poseSpec.IsLeftOfBall != Stance.IsLeftOfBall || _poseSpec.Defense != Stance.Defense || _poseSpec.Ol != Stance.Ol
                     || !Mathf.Approximately(_poseSpec.Tell, Stance.Tell) || !Mathf.Approximately(_poseSpec.Tilt, Stance.Tilt) || _poseRole != Role || !_poseHaveSpec)
                 { _poseSpec = Stance; _poseRole = Role; _poseHaveSpec = true; _stancePoseCache = StancePoses.For(Stance, Role); }
                 target = _stancePoseCache; have = target.Valid;
@@ -146,6 +157,7 @@ namespace PixFootball.Gameplay
                 float side = Vector3.Dot(Vector3.Cross(Vector3.up, Forward), toR.normalized) >= 0f ? 1f : -1f;
                 dyn.ChestShift = new Vector3(side * 0.22f * sf, -0.10f * sf, 0.30f * sf);
             }
+            QbSeqDyn(ref dyn, have);      // v0.10.0 QB
             StanceLayer.Late(dt, have, _pose, transform.position, _yaw, dyn);
         }
 

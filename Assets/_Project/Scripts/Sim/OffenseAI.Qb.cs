@@ -15,6 +15,7 @@ namespace PixFootball.Sim
         {
             SimAgent q = _qb;
             if (S.Phase != PlayPhase.Live || q.State == AgentState.Down) return;
+            QbSeqWatch(q);      // v0.10.0 QB: secure, scramble transition
             q.QbClock += PlaySimulation.Dt;
             q.Intent = AgentAction.Idle;
 
@@ -43,7 +44,7 @@ namespace PixFootball.Sim
                     if (q.HasBall && q.QbClock > 0.7f) KneelOrSpike(false);
                     q.Want = Vec2.Zero;
                     return;
-                case QbPhase.Mesh: QbMesh(q); return;
+                case QbPhase.Mesh: QbMesh(q); QbSeqMeshFace(q); return;      // v0.10.0 QB: he opens to the runner, he never spins his back to the field
                 case QbPhase.Fake: QbFake(q); return;
                 case QbPhase.Dropback: QbDropback(q); return;
                 case QbPhase.Set: QbSet(q); return;
@@ -126,6 +127,7 @@ namespace PixFootball.Sim
             float minHandoff = _shotgun ? 0.78f : 0.70f;
             if (_qa.Action == QbAction.ReadOption) minHandoff = Math.Max(minHandoff, 0.58f);   // E-154: the quarterback rides the mesh and reads the end
             var hca = tgt.Assign as CarryAssignment;
+            if (hca != null && hca.Style == CarryStyle.OutsideZone) minHandoff = _shotgun ? SimTuning.OutsideZoneHandoffSg : SimTuning.OutsideZoneHandoffUc;   // v0.10.0: the outside-zone exchange is a quick flip (the back must beat the force defender to the edge)
             if (hca != null && S.OffPlay.Category == PlayCategory.Draw)
             {
                 // the draw: drop as if to pass, then give it late
@@ -169,6 +171,8 @@ namespace PixFootball.Sim
             Vec2 disp = key.Pos - key.PosAgo(0.3f);
             bool crashed = disp.X * dir < -0.30f || (key.Pos.X - q.Pos.X) * dir < 2.4f;
             bool keep = crashed; // end crashes down on the back: pull it and run outside; end stays home: give
+            // v0.10.0: the quarterback keeps only when the edge is really open (the lane outside the crashed end), not into a flowing linebacker and a corner with force
+            if (keep) { float lopen, lval; LaneFinder.Best(S, q, new Vec2(dir * 0.8f, 0.6f), 2.0f, 9f, Vec2.Zero, out lopen, out lval); if (lopen * (q.Body.VMax / 10.5f) < SimTuning.OptionKeepOpen) keep = false; }
             if (keep && S.Rng.NextFloat() < 0.55f * (1f - SimMath.Rating01(q.R.Speed))) keep = false; // a slow quarterback hands it off anyway
             if (S.Rng.NextFloat() < (1f - SimMath.Rating01(q.R.Awareness)) * 0.06f) keep = !keep;
             return !keep;
@@ -358,11 +362,11 @@ namespace PixFootball.Sim
         private float Threshold(SimAgent q, int idx, float press)
         {
             float aw = SimMath.Rating01(q.R.Awareness);
-            float t0 = 0.70f - 0.12f * aw;
+            float t0 = 0.70f - 0.12f * aw + SimTuning.QbPatience;
             float hm = HoldMax(q, _hotMode);
             float decay = SimMath.Clamp01((S.Time - 1.2f) / Math.Max(0.5f, hm - 1.2f));
             float th = t0 - 0.30f * decay - 0.30f * press - 0.02f * idx;
-            return Math.Max(0.45f, th);
+            return Math.Max(SimTuning.QbMinThreshold, th);
         }
 
         /// <summary>How much easier (openness threshold) and how much more attractive (ranking) a hot-routed receiver is to the quarterback.</summary>
@@ -423,7 +427,7 @@ namespace PixFootball.Sim
             bool hot = _hotMode;
             // v0.9.0 (E-325): the passer works his progression one read at a time; he only scans the whole field when the rush is hot, the pocket is breaking, or he has worked through every read
             bool exhaustedReads = q.ReadIdx >= _reads.Count - 1;
-            int upTo = (hot || exhaustedReads || press > 0.30f || S.Time > HoldMax(q, hot) - 0.35f) ? _reads.Count - 1 : Math.Min(q.ReadIdx, _reads.Count - 1);   // (the checkdowns come into view when the rush or the clock closes in)
+            int upTo = (hot || exhaustedReads || press > SimTuning.ScanPressure || S.Time > HoldMax(q, hot) - 0.35f) ? _reads.Count - 1 : Math.Min(q.ReadIdx, _reads.Count - 1);   // (the checkdowns come into view when the rush or the clock closes in)
             int pick = -1; ThrowStyle pickStyle = ThrowStyle.Auto; float pickOpen = -1f; float pickScore = -9f;
             float bestOpen = -1f; int bestIdx = -1; ThrowStyle bestStyle = ThrowStyle.Auto;
             for (int i = 0; i < _reads.Count; i++)
@@ -469,10 +473,17 @@ namespace PixFootball.Sim
             float holdMax = HoldMax(q, hot);
             if (!onRun)
             {
-                bool bail = press >= 0.50f || S.Time > holdMax;
+                // v0.10.0: a covered quarterback holds the ball. He takes a window that is really there (0.16-0.26 open, by awareness); with nobody open he sits on it for a beat longer (0.20-0.75 s, the sack the
+                // offense gave up by hanging on) before he scrambles, throws it away or takes the sack. Under a hit he still dumps it to anything that is not dead covered.
+                float takeMin = SimTuning.TakeMin + 0.10f * aw;
+                bool shot = bestIdx >= 0 && S.Agents[_reads[bestIdx]].Pos.Y - S.LosY >= SimTuning.ShotDepth;   // a vertical route: he takes the shot into leverage (a jump ball), he does not throw the deep ball away
+                bool haveTake = bestIdx >= 0 && bestOpen > (shot ? SimTuning.ShotMin : takeMin);
+                float coverHold = hot ? 0f : SimTuning.CoverHold + 0.55f * (1f - aw);
+                bool timeUp = S.Time > holdMax + (haveTake ? 0f : coverHold);
+                bool bail = press >= 0.50f || timeUp;
                 if (!bail) return;
                 // 1) take what is there when the clock or the rush says so
-                if (bestIdx >= 0 && bestOpen > 0.04f && (S.Time > holdMax || press > 0.50f))
+                if (bestIdx >= 0 && ((haveTake && (S.Time > holdMax || press > 0.50f)) || (bestOpen > 0.04f && press > 0.85f)))
                 {
                     q.PendingOpen = bestOpen;
                     BeginThrow(q, S.Agents[_reads[bestIdx]], bestStyle, Vec2.Zero);
@@ -481,8 +492,8 @@ namespace PixFootball.Sim
                 // 2) leave the pocket
                 if (!hot && (press < 0.55f || q.R.Speed >= 80) && TryStartScramble(q, press)) return;
                 // 3) live to play another down
-                if (aw > 0.35f && S.State.Down < 4 && (press >= 0.50f || S.Time > holdMax + 0.05f)) { ThrowAway(q); return; }   // on fourth down nobody throws it away
-                if (bestIdx >= 0 && bestOpen > 0.2f && S.Time > holdMax + 0.6f) BeginThrow(q, S.Agents[_reads[bestIdx]], bestStyle, Vec2.Zero);
+                if (aw > 0.35f && S.State.Down < 4 && (press >= 0.50f || timeUp)) { ThrowAway(q); return; }   // on fourth down nobody throws it away
+                if (bestIdx >= 0 && bestOpen > 0.2f && S.Time > holdMax + coverHold + 0.6f) BeginThrow(q, S.Agents[_reads[bestIdx]], bestStyle, Vec2.Zero);
             }
             else
             {
@@ -674,11 +685,18 @@ namespace PixFootball.Sim
 
         // ---------------------------------------------------------------- pressure
 
+        /// <summary>A seven-step passer has stood in the pocket for 2.4 s and has seen the edge come (he feels it 0.55 x as late), a quick-game passer is looking at a short window and feels it 1.15 x as late.</summary>
+        private float SenseScale()
+        {
+            int steps = _qa != null ? _qa.DropbackSteps : 3;
+            return steps <= 3 ? SimTuning.SenseQuick : (steps <= 5 ? SimTuning.SenseFive : SimTuning.SenseSeven);
+        }
+
         public float PocketPressure(SimAgent q)
         {
             float p = 0f;
             // the passer feels pressure a beat late: less aware quarterbacks see where the rusher was a few ticks ago
-            float delay = 0.08f + Math.Max(0f, 0.6f - SimMath.Rating01(q.R.Awareness)) * 0.22f;   // v0.9.0 (E-324): only the green passer sees the rush late
+            float delay = 0.08f + SimTuning.SenseDelay * SenseScale() + Math.Max(0f, 0.6f - SimMath.Rating01(q.R.Awareness)) * 0.22f;   // v0.9.0 (E-324): only the green passer sees the rush late
             for (int j = 11; j < 22; j++)
             {
                 SimAgent d = S.Agents[j];
@@ -1012,6 +1030,7 @@ namespace PixFootball.Sim
 
         public void UserQbInput(SimAgent q, ControlInput input)
         {
+            QbSeqWatch(q);      // v0.10.0 QB
             if (!q.HasBall) return;
             // the dropback is automatic; a firm stick push after the exchange takes the quarterback off the script
             if (q.QbState == QbPhase.Dropback && input.Move.Length > 0.6f && S.Time > 1.0f && (_dropPoint - q.Pos).Length < 2.5f) q.QbState = QbPhase.Scramble;   // after he has dropped, not mid-drop

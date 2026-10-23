@@ -31,6 +31,8 @@ namespace PixFootball.EditorTools
         public float Rate = 30f;
         public string Note = "";
         public bool KeepRootFrame;                          // paired takes: both actors share one authored frame, never re-base
+        public List<Vector2> Windows;                       // v0.10.0: explicit (start, end) segments for a long take (both actors of a pair are cut with the same windows)
+        public bool Polish = true;                          // v0.10.0 ANIMLIB: QA-driven passes (torso / wrist limits, authored hands, foot lock) with a per-clip score
         public CleanPlan Copy() { return (CleanPlan)MemberwiseClone(); }
     }
 
@@ -77,7 +79,7 @@ namespace PixFootball.EditorTools
         }
 
         // ---------------------------------------------------------------------------------------------------- run
-        public sealed class Result { public float groundFix; public float heading, headingSpread; public string name, path, note; public float lenIn, lenOut; public int spikes, clamped; public float t0, t1; }
+        public sealed class Result { public float groundFix; public float heading, headingSpread; public string name, path, note; public float lenIn, lenOut; public int spikes, clamped; public float t0, t1; public QaRow qaBefore, qaAfter; public string polish = ""; }
 
         public static Result Clean(AnimRig rig, AnimationClip clip, CleanPlan plan, string outName = null)
         {
@@ -145,6 +147,15 @@ namespace PixFootball.EditorTools
             seq.Loop = plan.Loop || (plan.FindLoop);
             seq = seq.Resample(rate);
             res.lenOut = seq.Duration;
+            if (plan.Polish && seq.N > 8 && seq.Duration < 40f)
+            {
+                try
+                {
+                    var pr = ClipPolish.Run(rig, ref seq, plan.InPlace || plan.KeepRootFrame);
+                    res.qaBefore = pr.before; res.qaAfter = pr.after; res.polish = pr.notes;
+                }
+                catch (Exception ex) { Debug.LogWarning("[ClipCleaner] polish failed for " + clip.name + ": " + ex.Message); }
+            }
             return res.Save(seq);
         }
 
@@ -161,7 +172,7 @@ namespace PixFootball.EditorTools
             var list = new List<Result>();
             if (plan.Segment)
             {
-                var segs = FindSegments(clip, 0.9f, 10f, 4);
+                var segs = plan.Windows ?? FindSegments(clip, 0.9f, 10f, 4);
                 int n = 0;
                 foreach (var sg in segs)
                 {

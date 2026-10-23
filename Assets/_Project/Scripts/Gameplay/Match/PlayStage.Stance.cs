@@ -31,10 +31,19 @@ namespace PixFootball.Gameplay
         {
             h.Downfield = Frame.DirToUnity(new Vec2(0f, 1f));
             h.UnderCenter = !_shotgun;
+            h.QbHandoffPlan = Sim.Kind == PlayKind.Scrimmage && Sim.QbPlanIsHandoff;
+            h.QbMeshEta = -1f;
+            if (h.QbHandoffPlan && a.Side == SimSide.Offense && a.Slot == 0 && a.QbState == QbPhase.Mesh && Sim.QbHandoffTargetId > 0)
+            {
+                // the exchange happens when the runner is 1.3 yd away (OffenseAI.QbMesh): time to it from the closing speed
+                var tg = Sim.Agents[Sim.QbHandoffTargetId]; Vec2 dd = tg.Pos - a.Pos; float dist = dd.Length;
+                float closeSpeed = Mathf.Max(1.2f, (a.Vel - tg.Vel).Dot(dd.Norm()));
+                h.QbMeshEta = Mathf.Max(0f, (dist - 1.3f) / closeSpeed);
+            }
             if (a.PlayPos == Position.QB && a.Player != null && a.Player.Bio != null && a.Player.Bio.Hand == PixFootball.League.Handedness.Left) h.LeftHanded = true;
             if (a.Side == SimSide.Offense && a.Slot == 0 && Sim.Kind == PlayKind.Scrimmage)
             {
-                int tid = a.QbState == QbPhase.Fake ? Sim.QbFakeTargetId : Sim.QbLookTargetId;
+                int tid = a.QbState == QbPhase.Fake ? Sim.QbFakeTargetId : (a.QbState == QbPhase.Mesh && Sim.QbPlanIsHandoff ? Sim.QbHandoffTargetId : Sim.QbLookTargetId);
                 if (tid >= 0 && tid < 22) { h.LookPoint = WorldPos(tid) + Vector3.up * 1.75f; h.HasLook = true; Vector3 d = WorldPos(tid) - WorldPos(a.Id); d.y = 0f; h.TargetDir = d.sqrMagnitude > 1e-4f ? d.normalized : Vector3.zero; }
             }
             if (a.Side == SimSide.Offense && a.Slot == 0 && (Sim.Kind == PlayKind.Kneel || Sim.Kind == PlayKind.Spike)) { h.QbSpecial = Sim.Kind == PlayKind.Kneel ? 1 : 2; h.Qb = a.QbState; h.QbClock = a.QbClock; }
@@ -73,7 +82,7 @@ namespace PixFootball.Gameplay
                         var hb = _views[ci].Avatar.Animator.GetBoneTransform(HumanBodyBones.Hips);
                         if (hb != null) anchor = hb.position - v.Forward * 0.14f;
                     }
-                    if (b.State == BallState.Snap) anchor = new Vector3(ballW.x, ballW.y, ballW.z);
+                    // v0.10.0 QB: the hands STAY under the centre while the snap comes up into them (they used to chase the ball, which is why it was "in his hands" two frames before the catch)
                     d.Anchor = anchor; d.HasAnchor = true;
                     break;
                 }
@@ -85,6 +94,12 @@ namespace PixFootball.Gameplay
                         Vector3 chest = v.transform.position + Vector3.up * 1.2f;
                         float dist = (ballW - chest).magnitude;
                         d.Reach = ballW; d.ReachW = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(4.5f, 1.1f, dist));
+                    }
+                    else if (b.State == BallState.Held && b.Holder == a.Id && Ball != null)
+                    {
+                        // v0.10.0 QB: the caught snap rides in the hands as they bring it in (the hold socket and the extended hands used to be 26 cm apart for the first 8 frames)
+                        float since = Time.time - _holderSince;
+                        if (since < 0.28f) { d.Reach = Ball.Position; d.ReachW = 1f - Mathf.SmoothStep(0f, 1f, since / 0.28f); }
                     }
                     break;
                 }
@@ -108,13 +123,24 @@ namespace PixFootball.Gameplay
             Vector3 look = Vector3.zero; bool hasLook = false;
             if (a.Side == SimSide.Offense && a.Slot == 0 && Sim.Kind == PlayKind.Scrimmage)
             {
-                int tid = a.QbState == QbPhase.Fake ? Sim.QbFakeTargetId : Sim.QbLookTargetId;
+                int tid = a.QbState == QbPhase.Fake ? Sim.QbFakeTargetId : (a.QbState == QbPhase.Mesh && Sim.QbPlanIsHandoff ? Sim.QbHandoffTargetId : Sim.QbLookTargetId);
                 if (tid >= 0 && tid < 22) { look = WorldPos(tid) + Vector3.up * 1.75f; hasLook = true; }
             }
             bool lefty = a.Player != null && a.Player.Bio != null && a.Player.Bio.Hand == PixFootball.League.Handedness.Left && a.PlayPos == Position.QB;
             v.SetMotionInputs(Frame.VelToUnity(a.Vel), down, look, hasLook, lefty);
             if (a.Side == SimSide.Offense && a.Slot == 0 && Sim.Kind == PlayKind.Scrimmage && (a.QbState == QbPhase.Windup || Sim.Ball.State != BallState.Pass)) BallSpinHint.PassSpin = BallSpinHint.For(a.PendingStyle);
+            if (i == 0 && a.Side == SimSide.Offense && Sim.Kind == PlayKind.Scrimmage && (a.QbState == QbPhase.Mesh || a.QbState == QbPhase.Fake || a.QbState == QbPhase.Done))
+            {
+                // v0.10.0 QB: where the runner's pocket is (his belly, a hand's breadth toward the quarterback), handed to the quarterback's pose with a marker weight: his arms reach for it at the sync frame
+                int rid = a.QbState == QbPhase.Fake ? Sim.QbFakeTargetId : Sim.QbHandoffTargetId;
+                if (rid > 0 && rid < 22 && _views[rid] != null && _views[rid].Avatar != null && _views[rid].Avatar.Animator != null)
+                {
+                    var hb = _views[rid].Avatar.Animator.GetBoneTransform(HumanBodyBones.Hips);
+                    if (hb != null) { Vector3 toQ = v.transform.position - hb.position; toQ.y = 0f; toQ = toQ.sqrMagnitude > 1e-4f ? toQ.normalized : Vector3.back; d.Reach = hb.position + toQ * 0.12f + Vector3.up * 0.10f + Frame.VelToUnity(Sim.Agents[rid].Vel) * 0.02f; d.ReachW = 0.005f; }
+                }
+            }
             v.StanceInput = d;
+            KickTarget(i, a, v);      // v0.10.0 QB: the kick event (note 7)
         }
     }
 }

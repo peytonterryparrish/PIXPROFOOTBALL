@@ -13,7 +13,7 @@ namespace PixFootball.Gameplay
     [DefaultExecutionOrder(150)]
     public sealed partial class BallFollower : MonoBehaviour
     {
-        enum Mode { Free, Carry, QbHold, Tee, Hand, Catch, Exchange, Spot, Drop }
+        enum Mode { Free, Carry, QbHold, Tee, Hand, Catch, Exchange, Spot, Drop, Relaxed, Spike, Official }
 
         Transform _ball;
         Mode _mode = Mode.Free;
@@ -44,7 +44,7 @@ namespace PixFootball.Gameplay
         /// <summary>QA: the mode the ball is in right now.</summary>
         public string ModeName { get { return _mode.ToString(); } }
         /// <summary>The player the ball is attached to (null while free).</summary>
-        public SimAgentView Holder { get { return _mode == Mode.Free || _mode == Mode.Tee || _mode == Mode.Drop ? null : _holder; } }
+        public SimAgentView Holder { get { return _mode == Mode.Free || _mode == Mode.Tee || _mode == Mode.Drop || _mode == Mode.Spike || _mode == Mode.Official ? null : _holder; } }
 
         public static BallFollower Create(Transform parent)
         {
@@ -121,7 +121,7 @@ namespace PixFootball.Gameplay
             _mode = Mode.Tee; _pos = pos; _downfield = downfield; _holder = null;
         }
 
-        static bool IsHeld(Mode m) { return m == Mode.Carry || m == Mode.QbHold || m == Mode.Hand || m == Mode.Catch || m == Mode.Exchange; }
+        static bool IsHeld(Mode m) { return m == Mode.Carry || m == Mode.QbHold || m == Mode.Hand || m == Mode.Catch || m == Mode.Exchange || m == Mode.Relaxed || m == Mode.Official; }
 
         public void SetCarry(SimAgentView holder, int side)
         {
@@ -223,6 +223,13 @@ namespace PixFootball.Gameplay
                     _ball.SetPositionAndRotation(p, Quaternion.FromToRotation(Vector3.right, axis));
                     break;
                 }
+                case Mode.Spike: SpikeStep(dt); break;       // v0.10.0 BODIES: thrown down by the scorer, bounces and comes to rest
+                case Mode.Official:
+                {
+                    Vector3 po; Quaternion ro;
+                    if (PoseOfficial(out po, out ro)) ApplyAttach(po, ro, dt);
+                    break;
+                }
                 default:
                 {
                     if (_holder == null || _holder.Avatar == null) break;
@@ -232,6 +239,7 @@ namespace PixFootball.Gameplay
                     break;
                 }
             }
+            TrackBall(dt);      // v0.10.0 BODIES: the ball's own velocity (a spike leaves the hand with it)
         }
 
         // blends position AND orientation from where the ball was when it attached
@@ -262,7 +270,7 @@ namespace PixFootball.Gameplay
                 {
                     _modeT += dt;
                     Vector3 pc; Quaternion rc;
-                    if (!PoseCatch(_holder, out pc, out rc)) return false;
+                    if (!PoseCatch(_holder, _side, out pc, out rc)) return false;
                     Vector3 pk; Quaternion rk;
                     if (!PoseCarry(_holder, _side, out pk, out rk)) { pos = pc; rot = rc; return true; }
                     float u = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((_modeT - CatchHoldSeconds) / CatchTuckSeconds));
@@ -283,7 +291,9 @@ namespace PixFootball.Gameplay
                     if (_modeT >= _exchangeDur * 0.5f) _mode = Mode.Carry;
                     return true;
                 }
-                case Mode.Hand: return PoseHand(_holder, _side, out pos, out rot);
+                case Mode.Hand: return PoseRaised(_holder, _side, out pos, out rot);      // v0.10.0 BODIES: the ball rests on the palm, no longer inside the wrist
+                case Mode.Relaxed: return PoseRelaxed(_holder, _side, out pos, out rot);
+                case Mode.Official: return PoseOfficial(out pos, out rot);
                 case Mode.QbHold: return PoseQbHold(_holder, _throwing, _qbCarriage, out pos, out rot);
                 default: return PoseCarry(_holder, _side, out pos, out rot);
             }
@@ -317,13 +327,15 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>Both hands on the ball (the catch): the ball sits between the palms, the point up and forward.</summary>
-        static bool PoseCatch(SimAgentView holder, out Vector3 pos, out Quaternion rot)
+        public static float CatchBias = 1.0f;      // v0.10.0 CHOREO: how far the ball sits toward the carry-side hand instead of dead between the palms (0 = the v0.9 pose)
+        static bool PoseCatch(SimAgentView holder, int side, out Vector3 pos, out Quaternion rot)
         {
             pos = Vector3.zero; rot = Quaternion.identity;
             var av = holder.Avatar; Vector3 fwd = holder.Forward;
             if (av.RightHand == null || av.LeftHand == null) return false;
             Vector3 a = av.RightHand.position, b = av.LeftHand.position;
-            pos = (a + b) * 0.5f + fwd * 0.03f;
+            Vector3 mid = (a + b) * 0.5f; Vector3 near = side >= 0 ? a : b;
+            pos = Vector3.Lerp(mid, near, CatchBias) + fwd * 0.01f;      // the hands of a catch are 0.2 to 0.25 m apart: the ball dead between them read 0.12 m from either wrist; toward one hand it sits in that palm
             Vector3 along = (Vector3.up * 0.7f + fwd * 0.6f).normalized;
             rot = Quaternion.FromToRotation(Vector3.right, along);
             return true;
@@ -344,12 +356,12 @@ namespace PixFootball.Gameplay
             if (av.Chest != null)
             {
                 inward = av.Chest.position - mid; inward.y = 0f;
-                inward = inward.sqrMagnitude > 1e-4f ? inward.normalized * 0.065f : -side * right * 0.06f;
+                inward = inward.sqrMagnitude > 1e-4f ? inward.normalized * 0.10f : -side * right * 0.09f;
             }
-            else inward = -side * right * 0.06f;
+            else inward = -side * right * 0.09f;
             // tuck: the nose of the ball points a little forward and across the body
             Vector3 along = (axis * 0.7f + fwd * 0.5f - side * right * 0.15f).normalized;
-            pos = mid + inward + fwd * 0.03f; rot = Quaternion.FromToRotation(Vector3.right, along);
+            pos = mid + inward + fwd * 0.03f + Vector3.up * 0.03f;      // v0.10.0 BODIES: 10 cm in from the forearm axis (it was 6.5: the ball sat inside the forearm), a little higher: high and tight rot = Quaternion.FromToRotation(Vector3.right, along);
             return true;
         }
     }

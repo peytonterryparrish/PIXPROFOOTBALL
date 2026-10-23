@@ -62,6 +62,8 @@ namespace PixFootball.Gameplay
         public bool Enabled = true;
         /// <summary>1 = the locomotion layer owns the body (lean and foot lock apply); 0 = an authored take / clip does.</summary>
         public float LocomotionWeight = 1f;
+        /// <summary>v0.10.0 MOTION: the matcher plays the legs although a clip is still fading out (its legs were handed back): the planted-foot solver runs.</summary>
+        public bool ForceLoco;
         public static bool FootLockEnabled = true, LeanEnabled = true;
 
         // stiff arm
@@ -145,7 +147,7 @@ namespace PixFootball.Gameplay
             // ---- foot lock
             if (FootLockEnabled)
             {
-                if (FootPlant.Enabled && Plant != null && Plant.Ok) { if (!Plant.ActionClaim) { Plant.Late(dt, w > 0.5f); if (!Plant.Engaged) { LockFoot(_left, dt, w); LockFoot(_right, dt, w); } } }
+                if (FootPlant.Enabled && Plant != null && Plant.Ok) { if (!Plant.ActionClaim) { Plant.Late(dt, w > 0.5f || ForceLoco); if (!Plant.Engaged) { LockFoot(_left, dt, w); LockFoot(_right, dt, w); } } }
                 else { LockFoot(_left, dt, w); LockFoot(_right, dt, w); }
             }
             // ---- toe-out clamp (v0.7.0, A-001)

@@ -125,6 +125,8 @@ namespace PixFootball.Gameplay
         public bool Loop, Hold;
         /// <summary>Keep the legs of the locomotion layer while the player is running (throws, catches, hand-offs made on the move).</summary>
         public bool UpperBody;
+        /// <summary>v0.10.0 CHOREO: speed (m/s) above which an upper-body plan gives the legs to locomotion (0 = the default 2 m/s). Engagements and hand-offs use a low one so a pair that moves never treadmills.</summary>
+        public float MaskSpeed;
         /// <summary>Initial offset into the window for a looping clip (staggers a line of identical stances without moving the loop point).</summary>
         public float Phase;
         /// <summary>v0.9.0 CONNECT E-286: fade floor of this clip (0 = the default <see cref="ActionAnimator.MinFade"/>); impact takes (tackle, catch, hand-off) ask for a short one so they are fully in at the contact frame.</summary>
@@ -257,7 +259,7 @@ namespace PixFootball.Gameplay
         public static ClipPlan Handoff(AnimHints h)
         {
             AnimationClip a, b;
-            if (!TryPair("handoff", h.Seed, 6f, out a, out b)) { a = V("handoff", h.Seed); b = null; if (a == null) return default(ClipPlan); }
+            if (!TryHandoffPick(h, out a, out b) && !TryPair("handoff", h.Seed, 6f, out a, out b)) { a = V("handoff", h.Seed); b = null; if (a == null) return default(ClipPlan); }
             var c = h.Partner && b != null ? b : a;
             float t = ClipTimingTable.Moment(c, 0.4f);
             float rate = GamePace.AnimationRate;      // v0.9.0 CONNECT E-363: the exchange plays at the pace of the game, started early enough that its frame still lands on the simulated exchange
@@ -367,13 +369,14 @@ namespace PixFootball.Gameplay
         /// <summary>v0.5 sideline / end-zone reactions from the broadcast layer: teammates cheer ("cheer", "celebrate_td*"), defenders hang their heads ("frustration").</summary>
         public static ClipPlan Reaction(string key, int seed, bool loop)
         {
-            var c = V(key, seed);
+            var c = ReactionPool(key, seed) ?? V(key, seed);      // v0.10.0 ANIMLIB: wider pools (AnimKit.Extra2)
             if (c == null || c.length > 14f) return default(ClipPlan);
             return P(c, 0f, 0f, 1f, 0.2f, 0.3f, loop, !loop);
         }
 
         public static ClipPlan Celebrate(int seed)
         {
+            var cv = CelebrateVaried(seed); if (cv.Valid) return cv;      // v0.10.0 ANIMLIB: the whole touchdown set
             var c = (seed & 1) == 0 ? V("celebrate_td_2", seed) : V("celebrate_td_3", seed);
             if (c == null || c.length > 12f) c = V("celebrate_td_2", 0);
             return c == null ? default(ClipPlan) : P(c, 0f, 0f, 1f, 0.2f, 0.3f, c.isLooping, false);

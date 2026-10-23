@@ -7,10 +7,14 @@ namespace PixFootball.Sim
     /// Coverage-specific pre-snap alignment. The formations only fix where the base personnel stand; a real defense lines up for the call:
     /// press corners on the line, off corners eight yards away with inside leverage, Cover 2 safeties on the half-field hashes, Cover 3 / 1 free
     /// safeties in the middle of the field, quarters safeties over the inside receivers. Applied after the men are matched.
+    /// v0.10.0: the line aligns by technique for every front (Under, Over, Even, Odd, Bear...), the man linebackers walk out onto their receivers, and a disguised coverage shows another shell.
     /// </summary>
     internal static class DefenseAlignment
     {
         public const float PressDepth = 1.15f, OffCornerDepth = 6.4f, SlotOffDepth = 4.8f, DeepHalfDepth = 10.5f, DeepMiddleDepth = 12.0f, QuarterDepth = 9.0f, DeepHalfX = 9.0f;
+
+        /// <summary>The pre-snap depths of the shells (see <see cref="ShellLook"/>): two-high safeties on the hashes at 11, a one-high safety in the middle at 12.5 with the other down at 7, a zero shell at 5.5.</summary>
+        public const float ShellTwoHighDepth = ShellLayout.TwoHighDepth, ShellTwoHighX = ShellLayout.TwoHighX, ShellOneHighDepth = ShellLayout.OneHighDepth, ShellBoxDepth = ShellLayout.BoxDepth, ShellZeroDepth = ShellLayout.ZeroDepth;
 
         /// <summary>Half a lineman's shoulder width: how far an "outside shade" / "inside shade" sits from the head-up spot (yards).</summary>
         public const float ShadeYards = 0.6f;
@@ -25,22 +29,49 @@ namespace PixFootball.Sim
         /// <summary>Called by the simulation setup: aligns the line by technique when <see cref="UseTechniques"/> is on.</summary>
         public static void AlignLineIfEnabled(PlaySimulation s) { if (UseTechniques) AlignLine(s); }
 
+        /// <summary>The front of a formation: its <see cref="Formation.Front"/>, else by name ("4-3 Base", "Nickel", "Dime" = Under, "3-4 Base" = Odd).</summary>
+        public static string FrontOf(Formation f)
+        {
+            if (f == null) return "";
+            if (!string.IsNullOrEmpty(f.Front)) return f.Front;
+            if (f.Name == "4-3 Base" || f.Name == "Nickel" || f.Name == "Dime") return "Under";
+            if (f.Name == "3-4 Base") return "Odd";
+            return "";
+        }
+
+        /// <summary>The gap a down lineman of this technique is responsible for, on the side of the ball he lines up on (+1 right, -1 left).</summary>
+        public static RunGap GapOfTechnique(int tech, int side)
+        {
+            bool r = side >= 0;
+            switch (tech)
+            {
+                case 0: case 1: case 2: return r ? RunGap.ARight : RunGap.ALeft;
+                case 3: case 4: return r ? RunGap.BRight : RunGap.BLeft;
+                case 5: return r ? RunGap.CRight : RunGap.CLeft;
+                default: return r ? RunGap.DRight : RunGap.DLeft;   // 7 and 9: contain
+            }
+        }
+
         /// <summary>
-        /// v0.7 alignment techniques (Docs/QA/REFERENCE_Stances.md): the defensive line lines up relative to the ACTUAL offensive linemen, not at fixed x offsets.
+        /// Alignment techniques (Docs/QA/REFERENCE_Stances.md): the defensive line lines up relative to the ACTUAL offensive linemen, not at fixed x offsets.
         /// Even techniques are head-up (0 center, 2 guard, 4 tackle, 6 tight end), odd are the outside shade (1 center, 3 guard, 5 tackle, 7 tight end), "i" the inside shade.
-        /// A 4-3 under is a 1-tech nose to the strong side, a 3-tech tackle to the weak side, a 5-tech weak end and a 7-tech strong end (9-tech when there is no tight end);
-        /// a 3-4 is a 0-tech nose with a 4-tech strong end and a 5-tech weak end. Strong side = the side of the tight end (right when there is none).
-        /// Returns the technique number given to each lineman by slot (left to right) for tests and the film room.
+        /// Fronts (strong side = the side of the tight end, the right when there is none):
+        ///   Under (4-3 / nickel / dime): 5 - 3 - 1 - 7 (weak end, weak tackle, strong nose, strong end), the nose on the strong side;
+        ///   Over (4-3): 5 - 1 - 3 - 7, the three-technique on the strong side, the one-technique on the weak side;
+        ///   Even (4): 5 - 3 - 3 - 7;
+        ///   Bear (46): 5 - 2 - 2 - 7, the tackles head-up on the guards;
+        ///   Odd (3-4): 5 - 0 - 4, a nose head-up on the center, the strong end head-up on the tackle;
+        ///   Even3 (3-3-5): 5 - 0 - 7 (or 5).
+        /// Returns the technique number given to each lineman by slot (left to right) for tests and the film room, and records each man's technique and gap on his agent.
         /// </summary>
         public static int[] AlignLine(PlaySimulation s)
         {
-            string name = s.DefForm != null ? s.DefForm.Name : "";
-            bool four = name == "4-3 Base" || name == "Nickel" || name == "Dime";
-            bool three = name == "3-4 Base";
-            if (!four && !three) return null;
+            string front = FrontOf(s.DefForm);
+            if (front.Length == 0 || front == "Goal") return null;
+            bool three = front == "Odd" || front == "Even3";
             var dl = new System.Collections.Generic.List<SimAgent>();
             for (int i = 11; i < 22; i++) if (PositionGroup.IsDefensiveLine(s.Agents[i].PlayPos)) dl.Add(s.Agents[i]);
-            if (dl.Count != (four ? 4 : 3)) return null;
+            if (dl.Count != (three ? 3 : 4)) return null;
             dl.Sort((a, b) => a.StartPos.X.CompareTo(b.StartPos.X));
             // the offensive front, left to right
             var ol = new System.Collections.Generic.List<SimAgent>();
@@ -58,24 +89,29 @@ namespace PixFootball.Sim
             if (te != null && (te.StartPos.X < lt - 0.5f || te.StartPos.X > rt + 0.5f)) { } else te = null;   // only a tight end on the end of the line counts
             int strong = te != null ? (te.StartPos.X >= c ? 1 : -1) : 1;
             float sh = ShadeYards;
-            float[] x; int[] tech;
-            if (four)
+            float strongT = strong > 0 ? rt : lt, weakT = strong > 0 ? lt : rt, strongG = strong > 0 ? rg : lg, weakG = strong > 0 ? lg : rg;
+            float strongEnd = te != null ? te.StartPos.X + strong * sh : strongT + strong * sh;   // 7-tech outside the tight end, else the 5-tech outside the tackle
+            int strongEndTech = te != null ? 7 : 5;
+            float weakEnd = weakT - strong * sh;                                                    // 5-tech: outside shade of the weak tackle
+            float[] x; int[] tech;   // strong-right order, left to right (mirrored below when the strength is left)
+            switch (front)
             {
-                // weak DE, weak DT, strong DT, strong DE (left to right when strong is right); mirrored when strong is left
-                float strongEnd = te != null ? te.StartPos.X + strong * sh : (strong > 0 ? rt : lt) + strong * sh;   // 7-tech outside the tight end, else the 5-tech (a 9 would be wider still)
-                float weakEnd = (strong > 0 ? lt : rt) - strong * sh;                                              // 5-tech outside the weak tackle
-                float weakDt = (strong > 0 ? lg : rg) - strong * sh;                                              // 3-tech: outside shade of the weak guard
-                float strongNose = c + strong * sh;                                                               // 1-tech: outside shade of the center toward the strong side
-                if (strong > 0) { x = new[] { weakEnd, weakDt, strongNose, strongEnd }; tech = new[] { 5, 3, 1, te != null ? 7 : 5 }; }
-                else { x = new[] { strongEnd, strongNose, weakDt, weakEnd }; tech = new[] { te != null ? 7 : 5, 1, 3, 5 }; }
+                case "Over":
+                    // weak end 5, weak tackle 1 (weak shade of the center), strong tackle 3 (outside shade of the strong guard), strong end 7 / 5
+                    x = new[] { weakEnd, c - strong * sh, strongG + strong * sh, strongEnd }; tech = new[] { 5, 1, 3, strongEndTech }; break;
+                case "Even":
+                    x = new[] { weakEnd, weakG - strong * sh, strongG + strong * sh, strongEnd }; tech = new[] { 5, 3, 3, strongEndTech }; break;
+                case "Bear":
+                    x = new[] { weakEnd, weakG, strongG, strongEnd }; tech = new[] { 5, 2, 2, strongEndTech }; break;
+                case "Odd":
+                    x = new[] { weakEnd, c, strongT }; tech = new[] { 5, 0, 4 }; break;   // 4-tech: head-up on the strong tackle
+                case "Even3":
+                    x = new[] { weakEnd, c, strongEnd }; tech = new[] { 5, 0, strongEndTech }; break;
+                default:   // Under
+                    x = new[] { weakEnd, weakG - strong * sh, c + strong * sh, strongEnd }; tech = new[] { 5, 3, 1, strongEndTech }; break;
             }
-            else
-            {
-                float strongEnd = (strong > 0 ? rt : lt);                                      // 4-tech: head-up on the strong tackle
-                float weakEnd = (strong > 0 ? lt : rt) - strong * sh;                          // 5-tech: outside shade of the weak tackle
-                if (strong > 0) { x = new[] { weakEnd, c, strongEnd }; tech = new[] { 5, 0, 4 }; }
-                else { x = new[] { strongEnd, c, weakEnd }; tech = new[] { 4, 0, 5 }; }
-            }
+            // x / tech were built strong-side-last; with the strength to the left the line reads left to right strong first
+            if (strong < 0) { Array.Reverse(x); Array.Reverse(tech); }
             // v0.9.0: the user's line shift (pinch / spread) still applies on top of the technique alignment (it used to be overwritten, so a pinch moved nobody)
             float shift = s.DefAdjust != null ? (s.DefAdjust.Line == LineShift.Pinch ? 0.70f : (s.DefAdjust.Line == LineShift.Spread ? 1.28f : 1f)) : 1f;
             for (int i = 0; i < dl.Count; i++)
@@ -85,6 +121,9 @@ namespace PixFootball.Sim
                 Vec2 p = new Vec2(SimMath.Clamp(x[i], 0.8f, FieldGeometry.Width - 0.8f), a.StartPos.Y);
                 a.Body.Pos = p; a.StartPos = p; a.Body.Vel = Vec2.Zero;
                 a.ClearHistory(p);
+                a.Technique = tech[i];
+                int side = x[i] >= s.BallX0 + 0.05f ? 1 : (x[i] <= s.BallX0 - 0.05f ? -1 : strong);   // the nose gets the A gap on the strong side
+                a.TechGap = GapOfTechnique(tech[i], side); a.HasTechGap = true;
             }
             return tech;
         }
@@ -147,6 +186,8 @@ namespace PixFootball.Sim
                     float rx = r.StartPos.X - ballX;
                     float inside = rx > 0.5f ? -1f : (rx < -0.5f ? 1f : 0f);
                     bool onLine = r.StartPos.Y > s.LosY - 0.8f;
+                    bool backOrTe = r.PlayPos == Position.TE || r.PlayPos == Position.RB || r.PlayPos == Position.FB;
+                    float formationDepth = a.StartPos.Y - s.LosY;
                     if (a.PlayPos == Position.CB)
                     {
                         if (userPress) continue;
@@ -157,14 +198,24 @@ namespace PixFootball.Sim
                     }
                     else if (PositionGroup.IsSafety(a.PlayPos))
                     {
-                        // a safety on a tight end or back shades over to him; v0.9.0 (E-202) man safeties play 6.5 yd off a tight end or back and 8.5 yd off a receiver (not their 9-12 yd formation depth)
-                        bool backOrTe = r.PlayPos == Position.TE || r.PlayPos == Position.RB || r.PlayPos == Position.FB;
-                        rel = new Vec2(rx + inside * 0.4f, backOrTe ? 6.5f : 8.5f); set = true;
+                        // a safety on a tight end or back shades over to him; v0.9.0 (E-202) man safeties play 6.5 yd off a tight end or back and 8.5 yd off a receiver (not their 9-12 yd formation depth);
+                        // v0.10.0: a safety who is already walked up into the box (the 46's strong safety) stays down on his man
+                        float depth = backOrTe ? 6.5f : 8.5f;
+                        if (formationDepth <= 3.5f) depth = Math.Max(1.8f, formationDepth);
+                        rel = new Vec2(rx + inside * 0.4f, depth); set = true;
+                    }
+                    else if (PositionGroup.IsLinebacker(a.PlayPos))
+                    {
+                        // v0.10.0: a linebacker in man walks out onto his receiver (he used to stand at his base spot 10-15 yd from a slot receiver and chase from there): head-up-inside on a back or a tight end,
+                        // off and inside a slot receiver, never deeper than he stood
+                        float depth = Math.Min(Math.Max(formationDepth, 3.0f), backOrTe ? 4.8f : 5.8f);
+                        rel = new Vec2(rx + inside * (backOrTe ? 0.5f : 0.9f), depth); set = true;
                     }
                 }
                 else if (!cov.IsMan && cov.Zone != null)
                 {
                     ZoneRegion z = cov.Zone;
+                    if (!PositionGroup.IsDefensiveBack(a.PlayPos)) continue;   // v0.10.0: a linebacker who drops deep (the Tampa 2 Mike) lines up at his own spot; the deep alignments are for the secondary
                     switch (z.Kind)
                     {
                         case ZoneKind.DeepHalf:
@@ -185,9 +236,100 @@ namespace PixFootball.Sim
                     }
                 }
                 if (!set) continue;
-                Vec2 p = new Vec2(SimMath.Clamp(ballX + rel.X, 0.8f, FieldGeometry.Width - 0.8f), s.LosY + rel.Y);
-                a.Body.Pos = p; a.StartPos = p; a.Body.Vel = Vec2.Zero;
-                a.ClearHistory(p);
+                Place(s, a, new Vec2(ballX + rel.X, s.LosY + rel.Y));
+            }
+            ApplyShell(s);
+            SeparateBackers(s);
+        }
+
+        /// <summary>v0.10.0: two linebackers or backs walked onto neighbouring receivers no longer stand on top of each other: defenders at the same depth keep at least 1.5 yd apart (the line is not touched).</summary>
+        private static void SeparateBackers(PlaySimulation s)
+        {
+            const float need = 1.5f;
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool moved = false;
+                for (int i = 11; i < 22; i++)
+                {
+                    SimAgent a = s.Agents[i];
+                    if (PositionGroup.IsDefensiveLine(a.PlayPos)) continue;
+                    for (int j = i + 1; j < 22; j++)
+                    {
+                        SimAgent b = s.Agents[j];
+                        if (PositionGroup.IsDefensiveLine(b.PlayPos)) continue;
+                        float dx = b.StartPos.X - a.StartPos.X;
+                        if (Math.Abs(b.StartPos.Y - a.StartPos.Y) >= 1.2f || Math.Abs(dx) >= need - 0.01f) continue;
+                        float push = (need - Math.Abs(dx)) * 0.5f; float dir = dx >= 0f ? 1f : -1f;
+                        Place(s, a, new Vec2(a.StartPos.X - dir * push, a.StartPos.Y));
+                        Place(s, b, new Vec2(b.StartPos.X + dir * push, b.StartPos.Y));
+                        moved = true;
+                    }
+                }
+                if (!moved) break;
+            }
+        }
+
+        private static bool IsManDefender(SimAgent a) { var c = a.Assign as CoverageAssignment; return c != null && c.IsMan; }
+
+        private static void Place(PlaySimulation s, SimAgent a, Vec2 want)
+        {
+            Vec2 p = new Vec2(SimMath.Clamp(want.X, 0.8f, FieldGeometry.Width - 0.8f), want.Y);
+            a.Body.Pos = p; a.StartPos = p; a.Body.Vel = Vec2.Zero;
+            a.ClearHistory(p);
+        }
+
+        /// <summary>
+        /// v0.10.0: a coverage that names another shell (Cover 3 Sky from a two-high look, Cover 1 Robber from two-high, Cover 4 Match from one-high, Cover 0 Blitz Safety from two-high) puts its safeties where that
+        /// shell shows them. The rotation to the true landmarks starts at the snap (the zone drop); nothing is faked after the ball moves. The safeties of a blitz keep their spot (they come from where they stand).
+        /// </summary>
+        public static void ApplyShell(PlaySimulation s)
+        {
+            ShellLook shell = s.DefPlay != null ? s.DefPlay.Shell : ShellLook.Auto;
+            if (shell == ShellLook.Auto) return;
+            var safeties = new System.Collections.Generic.List<SimAgent>();
+            for (int i = 11; i < 22; i++)
+            {
+                SimAgent a = s.Agents[i];
+                if (!PositionGroup.IsSafety(a.PlayPos) || a.Assign is BlitzAssignment || a.Assign is RushAssignment || a.Assign is SpyAssignment) continue;
+                safeties.Add(a);
+            }
+            if (safeties.Count == 0) return;
+            safeties.Sort((p, q) => p.StartPos.X.CompareTo(q.StartPos.X));
+            float bx = s.BallX0, los = s.LosY;
+            switch (shell)
+            {
+                case ShellLook.TwoHigh:
+                    if (safeties.Count >= 2)
+                    {
+                        // a safety who plays man comes down from the shell at his man's depth (a safety 11 yd deep cannot cover a slot receiver): the shell moves him to the hash, not back
+                        SimAgent l = safeties[0], r = safeties[safeties.Count - 1];
+                        float dl = IsManDefender(l) ? Math.Min(ShellTwoHighDepth, l.StartPos.Y - los) : ShellTwoHighDepth, dr = IsManDefender(r) ? Math.Min(ShellTwoHighDepth, r.StartPos.Y - los) : ShellTwoHighDepth;
+                        Place(s, l, new Vec2(bx - ShellTwoHighX, los + dl));
+                        Place(s, r, new Vec2(bx + ShellTwoHighX, los + dr));
+                    }
+                    else
+                    {
+                        // one safety left (the other one blitzes): he takes the hash away from the blitzer so the look is still two-high
+                        float side = 0f;
+                        for (int i = 11; i < 22; i++) { SimAgent o = s.Agents[i]; if (PositionGroup.IsSafety(o.PlayPos) && o != safeties[0]) side = o.StartPos.X >= bx ? -1f : 1f; }
+                        Place(s, safeties[0], new Vec2(bx + (side == 0f ? 0f : side * ShellTwoHighX), los + ShellTwoHighDepth));
+                    }
+                    break;
+                case ShellLook.OneHigh:
+                {
+                    // the deep-middle player (the free safety, else the deepest) stays in the middle, the other is down in the box on the strong side
+                    SimAgent deep = null;
+                    foreach (SimAgent a in safeties) { var cz = a.Assign as CoverageAssignment; if (cz != null && !cz.IsMan && cz.Zone != null && (cz.Zone.Kind == ZoneKind.DeepMiddle || cz.Zone.Kind == ZoneKind.DeepThird && Math.Abs(cz.Zone.CenterX) < 1f)) { deep = a; break; } }
+                    if (deep == null) foreach (SimAgent a in safeties) if (a.PlayPos == Position.FS) { deep = a; break; }
+                    if (deep == null) deep = safeties[safeties.Count - 1];
+                    Place(s, deep, new Vec2(bx, los + ShellOneHighDepth));
+                    int strong = s.StrengthApplied == 0 ? 1 : s.StrengthApplied;
+                    foreach (SimAgent a in safeties) if (a != deep) Place(s, a, new Vec2(bx + strong * ShellLayout.BoxX, los + ShellBoxDepth));
+                    break;
+                }
+                case ShellLook.Zero:
+                    for (int k = 0; k < safeties.Count; k++) Place(s, safeties[k], new Vec2(bx + (safeties.Count == 1 ? 0f : (k == 0 ? -ShellLayout.ZeroX : ShellLayout.ZeroX)), los + ShellZeroDepth));
+                    break;
             }
         }
     }

@@ -116,9 +116,9 @@ namespace PixFootball.Tests
         public void RunBlockingRatingsMoveTheYardage()
         {
             int pHi, pEven, pLo;
-            float hi = RunYards(97, 45, 250, 3000, out pHi);
-            float even = RunYards(75, 75, 250, 3000, out pEven);
-            float lo = RunYards(45, 97, 250, 3000, out pLo);
+            float hi = RunYards(97, 45, 700, 3000, out pHi);
+            float even = RunYards(75, 75, 700, 3000, out pEven);
+            float lo = RunYards(45, 97, 700, 3000, out pLo);
             TestContext.WriteLine("inside zone yards: OL>>DL=" + hi + " even=" + even + " DL>>OL=" + lo + "; pancakes " + pHi + "/" + pEven + "/" + pLo);
             Assert.Greater(hi, even + 0.4f);
             Assert.Greater(even, lo + 0.4f);

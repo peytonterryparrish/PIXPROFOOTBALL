@@ -33,6 +33,40 @@ namespace PixFootball.EditorTools
         // v0.8: the BGS / Yan mocap (BoNES_Yan folder) and the cleaned / derived clips. Processed BEFORE ClipRules (the first rule that claims a clip wins).
         static readonly Rule[] NewClipRules =
         {
+            // ---- v0.10.0 ANIMLIB: the unimported Draft Fever takes (kickoff line idles, real centre / long-snapper mocap, 4-point DL, QB cadences / snaps, crowd, draft night ...). String keys: no ArtKeys constant needed.
+            new Rule(ArtKeys.Snapper, @"^ls_snap_00$", null, 4),                       // the real long-snap mocap (the derived long_snap_00 stays as an extra variant)
+            new Rule(ArtKeys.StanceSnapper, @"^ls_idle_00$", null, 6),
+            new Rule(ArtKeys.StanceCenter, @"^c_idle_00$", null, 6),
+            new Rule("center_snap", @"^c_undercentersnap_00$", null, 2),
+            new Rule(ArtKeys.StanceDl4pt, @"^dline4pt_idle_00$", null, 6),
+            new Rule("dl_getoff_4pt", @"^dlinetransition4ptrtorunfwd0deg", null, 2),
+            new Rule("qb_drop_walk", @"^qb_[357]stepdropback_walk$", null, 6),
+            new Rule("qb_drop_settle", @"^qb_[357]stepdropback_settle$", null, 6),
+            new Rule("qb_snap_dropback", @"^qb_snaptodropback_transition$|^qb_snap_1stepdropback$|^qb_shotgun_snap_catch_00$", null, 4),
+            new Rule("qb_cadence_under", @"^scrim_qbundrctr_cadence", null, 8),
+            new Rule("qb_cadence_shotgun", @"^scrim_qbshotgun_cadence", null, 8),
+            new Rule("qb_snap_hands", @"^qb_undercenter_snap_00", null, 6),
+            new Rule("qb_snap_drop_under", @"^qb_undercener_catch_to_", null, 8),
+            new Rule("qb_throw_on_run", @"^run_fthrow", null, 2),
+            new Rule("qb_throw_tackled", @"^qb_offbalanace_tackle", null, 2),
+            new Rule("kickoff_att_idle", @"^kickoff_att_idle_0\d(_closeup)?$", null, 12),      // the loopable stands (the stance layer loops them)
+            new Rule("kickoff_att_fidget", @"^kickoff_att_idle", null, 16),                        // helmet fix, stretches, head turn, pointing: one-shots
+
+            new Rule("kickoff_def_run", @"^kickoff_def_\d\d_idletorun", null, 4),
+            new Rule("kickoff_def_idle", @"^kickoff_def_\d\d_idle$", null, 6),
+            new Rule("kickoff_def_fidget", @"^kickoff_def_\d\d_", null, 12),
+            new Rule("trench_atk", @"^trench_00_atk", null, 6),
+            new Rule("trench_def", @"^trench_00_def", null, 6),
+            new Rule("takedown", @"^get_takedown", null, 2),
+            new Rule("truck_alt", @"^truck_(a_)?0\d", null, 6),
+            new Rule("ankle_breaker", @"ankle_breaker_right_success", null, 4),
+            new Rule("crowd_stand_happy", @"^mc_stand_happy", null, 6),
+            new Rule("crowd_stand_sad", @"^mc_stand_sad", null, 6),
+            new Rule("crowd_sit_happy", @"^mc_sit_happy", null, 6),
+            new Rule("crowd_sit_sad", @"^mc_sit_sad", null, 6),
+            new Rule("crowd_posture", @"^mc_(sit_to_stand|stand_to_sit)", null, 2),
+            new Rule("draft_night", @"^draft_night_\d+(_s\d+)?_(a|b)$", null, 24),
+            new Rule("endzone_save", @"^endzone_save_\d+(_s\d+)?_(a|b)$", null, 24),
             // kicking (Yan "QB-Kickers-Rework")
             new Rule(ArtKeys.KickReturnCatch, @"^kickoff_catch|^kr_touchback", null, 4),
             new Rule(ArtKeys.KickOff, @"^k_kickoff_kick", null, 4),
@@ -274,6 +308,10 @@ namespace PixFootball.EditorTools
         // Secondary keys: a clip that already won a primary rule can also be offered under these (gameplay-facing synonyms).
         static readonly Rule[] AliasRules =
         {
+            // v0.10.0 ANIMLIB: wider pools for the variety slots (additional keys; the clips keep their original key as well)
+            new Rule("celebrate_big", @"^celebration(big|fumble|interception|swat|blockkick|downpunt)(?!.*remap)", null, 24),
+            new Rule("celebrate_td_all", @"^celebrationtouchdown(?!.*remap)", null, 24),
+            new Rule("react_frustration", @"^frustration|^loosing_frustration", null, 16),
             // v0.4 contact pairs: all authored two-actor takes (the A actor under the key, the B actor under <key>_b)
             new Rule(ArtKeys.ContactTackle, @"^tackle(wrap|broken)", null, 400),
             new Rule(ArtKeys.ContactSack, @"^sack(wrap|broken)", null, 400),
@@ -443,6 +481,9 @@ namespace PixFootball.EditorTools
                 candidates.RemoveAll(k => !k.Key.Contains("/Clean/") && cleanMap.ContainsKey(ClipCleaner.TaggedName(k.Value.name, "_s01")));
                 foreach (var kv in cleanMap) if (!used.Contains(kv.Key)) candidates.Add(kv.Value);
             }
+            // v0.10.0 ANIMLIB: clips the QA score rejected (Docs/QA/v0100/animlib_rejects.txt) are not registered
+            var rejects = LoadRejects();
+            if (rejects.Count > 0) candidates.RemoveAll(k => rejects.Contains(k.Value.name));
             // order: source priority, then name
             candidates = candidates.OrderBy(k => SourcePriority(k.Key)).ThenBy(k => NormalizeClip(k.Value.name), StringComparer.Ordinal).ToList();
             var count = new Dictionary<string, int>();
@@ -501,6 +542,15 @@ namespace PixFootball.EditorTools
                     lib.clips.Add(new ArtLibrary.ClipEntry { key = akey, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping });
                 }
             }
+        }
+
+        static HashSet<string> LoadRejects()
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            const string path = "Docs/QA/v0100/animlib_rejects.txt";
+            if (File.Exists(path))
+                foreach (string l in File.ReadAllLines(path)) { string t = l.Split('	')[0].Trim(); if (t.Length > 0 && !t.StartsWith("#")) set.Add(t); }
+            return set;
         }
 
         static void BuildPrefabs(ArtLibrary lib)

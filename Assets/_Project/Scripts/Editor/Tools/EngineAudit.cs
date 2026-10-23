@@ -265,7 +265,7 @@ namespace PixFootball.EditorTools
         // ------------------------------------------------------------------------------------------ metric plays
         IEnumerator MetricPlays(int n)
         {
-            _csv.AppendLine("play,t,agent,pos,simAction,clip,rigW,speedMs,hipsY,lowToeY,footLslide,footRslide,plantedL,plantedR,hipsRotDegS,chestRotDegS,headRotDegS,bodyYawErrFace,bodyYawErrVel,ballDistHand");
+            _csv.AppendLine("play,t,agent,pos,simAction,clip,rigW,speedMs,hipsY,lowToeY,footLslide,footRslide,plantedL,plantedR,hipsRotDegS,chestRotDegS,headRotDegS,bodyYawErrFace,bodyYawErrVel,ballDistHand,mmLayer,mmClip,mmRow,fpL,fpR,hintL,hintR,mmWarp,mmRate");
             var offense = _book.AllPlays.Where(p => p.Side == PlaySide.Offense && p.Category != PlayCategory.Kneel && p.Category != PlayCategory.Spike && p.Name != "Hail Mary").ToList();
             var rnd = new System.Random(4242);
             var chosen = new List<Play>();
@@ -404,7 +404,7 @@ namespace PixFootball.EditorTools
                     Add("ball to nearest hand m, holder " + g + " " + act, ballD);
                     if (ballD > 0.45f) Hist("ball >45cm from both hands while held " + g + " " + act);
                 }
-                _csv.Append(play).Append(',').Append(t.ToString("0.000")).Append(',').Append(i).Append(',').Append(a.PlayPos).Append(',').Append(act).Append(',').Append(clip).Append(',').Append(F(rigW)).Append(',').Append(F(speedMs)).Append(',').Append(F(hipsY)).Append(',').Append(F(lowToe)).Append(',').Append(F(slideL)).Append(',').Append(F(slideR)).Append(',').Append(plantL ? 1 : 0).Append(',').Append(plantR ? 1 : 0).Append(',').Append(F(hipsRot)).Append(',').Append(F(chestRot)).Append(',').Append(F(headRot)).Append(',').Append(F(errFace)).Append(',').Append(F(errVel)).Append(',').Append(F(ballD)).AppendLine();
+                _csv.Append(play).Append(',').Append(t.ToString("0.000")).Append(',').Append(i).Append(',').Append(a.PlayPos).Append(',').Append(act).Append(',').Append(clip).Append(',').Append(F(rigW)).Append(',').Append(F(speedMs)).Append(',').Append(F(hipsY)).Append(',').Append(F(lowToe)).Append(',').Append(F(slideL)).Append(',').Append(F(slideR)).Append(',').Append(plantL ? 1 : 0).Append(',').Append(plantR ? 1 : 0).Append(',').Append(F(hipsRot)).Append(',').Append(F(chestRot)).Append(',').Append(F(headRot)).Append(',').Append(F(errFace)).Append(',').Append(F(errVel)).Append(',').Append(F(ballD)).Append(',').Append(v.Mm != null ? F(v.Mm.Layer) : "-").Append(',').Append(v.Mm != null ? v.Mm.ClipName : "-").Append(',').Append(v.Mm != null ? v.Mm.Row : -1).Append(',').Append(v.Motion != null && v.Motion.Plant.PlantedLeft ? 1 : 0).Append(',').Append(v.Motion != null && v.Motion.Plant.PlantedRight ? 1 : 0).Append(',').Append(v.Motion != null ? v.Motion.Plant.HintLeft : -1).Append(',').Append(v.Motion != null ? v.Motion.Plant.HintRight : -1).Append(',').Append(v.Mm != null ? F(v.Mm.Warp) : "-").Append(',').Append(v.Mm != null ? F(v.Mm.Rate) : "-").AppendLine();
                 b.PrevLT = ltP; b.PrevRT = rtP; b.PrevHipsRot = b.Hips.rotation; b.PrevChestRot = b.Chest != null ? b.Chest.rotation : Quaternion.identity; b.PrevHeadRot = b.Head != null ? b.Head.rotation : Quaternion.identity;
                 b.PrevHipsLocal = v.transform.InverseTransformPoint(b.Hips.position);
                 b.PrevLF = b.LF.position; b.PrevRF = b.RF.position;

@@ -303,7 +303,7 @@ namespace PixFootball.Sim
             float momentum = SimMath.Clamp(-closing * 0.012f, -0.05f, 0.05f) * (e.Age < 0.35f ? 1f : 0f);
 
             // v0.9.0 (E-178): the run bias was 0.30 (+0.22 against linebackers), an equilibrium Lev of +1.12 for equal ratings: an even matchup was a pancake in about 3 s. 0.14 / +0.10 keeps the run game honest.
-            float bias = run ? 0.20f : -0.22f;
+            float bias = run ? 0.20f : -0.22f + SimTuning.PassBias;
             if (run && !d.IsDefensiveLineman && b0Side(e) == SimSide.Offense) bias += 0.12f; // climbing blockers get angle and leverage on linebackers who are already moving downhill
             // v0.9.0 (E-180): the contest has geometry: a blocker whose man has gotten a shoulder past him (reached / hooked) loses ground, a blocker square in front of his man gains it
             if (run)
@@ -429,7 +429,9 @@ namespace PixFootball.Sim
             Vec2 focus = S.Carrier != null ? S.Carrier.Pos : S.Qb.Pos;
             float near = (e.Defender.Pos - focus).Length;
             if (near > 7f) return;
-            float p = scale * 0.062f * (1.25f - SimMath.Rating01(blocker.R.Awareness)) * (1.1f - 0.5f * SimMath.Rating01(blocker.R.PassBlocking));
+            // v0.10.0: 0.062 -> 0.0545. The passer holds the ball a beat longer now (covered quarterbacks, the sack work), so the line loses more blocks per play and was drawing 114 holds in 3,500 plays (91 before);
+            // the per-tick chance is scaled back to keep the overall flag rate at about 10 percent with holding still leading
+            float p = scale * 0.0545f * (1.25f - SimMath.Rating01(blocker.R.Awareness)) * (1.1f - 0.5f * SimMath.Rating01(blocker.R.PassBlocking));
             if (S.Rng.NextFloat() < p)
                 S.Flag(PenaltyType.OffensiveHolding, blocker, blocker.Pos.Y - S.LosY);
         }

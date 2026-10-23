@@ -55,14 +55,14 @@ namespace PixFootball.EditorTools
         static UniformSet Kit(TeamColors c, bool home) { var u = new UniformSet(); u.Uniform = c; u.Helmet = c; u.Home = home; return u; }
 
         // ---------------------------------------------------------------------------------------- foot log and metrics
-        public sealed class Frm { public float T, Speed, Hips; public Vector3 AL, TL, AR, TR; public float SoleL, SoleR, HeelL, BallL, HeelR, BallR, Hand; public bool Carry; public string Clip; }
+        public sealed class Frm { public float T, Speed, Hips; public Vector3 AL, TL, AR, TR; public float SoleL, SoleR, HeelL, BallL, HeelR, BallR, Hand, AnkHL, AnkHR, ToeHL, ToeHR; public bool Carry; public string Clip; }
 
         public sealed class Stats
         {
             public List<float> WinSpeed = new List<float>(), InnerSpeed = new List<float>(), WinHeight = new List<float>(), HeightMin = new List<float>();
-            public List<float> Cadence = new List<float>(), Bob = new List<float>(), Fwd = new List<float>(), Swing = new List<float>();
+            public List<float> Cadence = new List<float>(), Bob = new List<float>(), Fwd = new List<float>(), Swing = new List<float>(), QbSlide = new List<float>();
             public int Windows;
-            public void Add(Stats o) { WinSpeed.AddRange(o.WinSpeed); InnerSpeed.AddRange(o.InnerSpeed); Fwd.AddRange(o.Fwd); WinHeight.AddRange(o.WinHeight); HeightMin.AddRange(o.HeightMin); Cadence.AddRange(o.Cadence); Bob.AddRange(o.Bob); Swing.AddRange(o.Swing); Windows += o.Windows; }
+            public void Add(Stats o) { QbSlide.AddRange(o.QbSlide); WinSpeed.AddRange(o.WinSpeed); InnerSpeed.AddRange(o.InnerSpeed); Fwd.AddRange(o.Fwd); WinHeight.AddRange(o.WinHeight); HeightMin.AddRange(o.HeightMin); Cadence.AddRange(o.Cadence); Bob.AddRange(o.Bob); Swing.AddRange(o.Swing); Windows += o.Windows; }
         }
 
         static float Mean(List<float> l) { return l.Count == 0 ? float.NaN : l.Average(); }
@@ -117,6 +117,23 @@ namespace PixFootball.EditorTools
                     i0 = i1 + 1;
                 }
             }
+            // the QB audit's contact slide: toe below 3 cm and ankle below 14.5 cm, 6+ frames, core frames (two in from each end), net toe displacement over the core
+            for (int foot = 0; foot < 2; foot++)
+            {
+                int i = 0;
+                while (i < n)
+                {
+                    Func<int, bool> pl = k2 => (foot == 0 ? f[k2].ToeHL : f[k2].ToeHR) < 0.03f && (foot == 0 ? f[k2].AnkHL : f[k2].AnkHR) < 0.145f;
+                    if (!pl(i)) { i++; continue; }
+                    int j = i; while (j + 1 < n && pl(j + 1)) j++;
+                    if (j - i + 1 >= 6 && i > 0 && j < n - 1)
+                    {
+                        int a = i + 2, b = j - 2;
+                        if (b > a) { Vector3 pa = foot == 0 ? f[a].TL : f[a].TR, pb = foot == 0 ? f[b].TL : f[b].TR; pa.y = 0f; pb.y = 0f; st.QbSlide.Add((pb - pa).magnitude / ((b - a) * dt)); }
+                    }
+                    i = j + 1;
+                }
+            }
             if (dur > 0.3) st.Cadence.Add((float)(contacts / dur));
             float bmin = 9, bmax = -9; foreach (var x in f) { bmin = Mathf.Min(bmin, x.Hips); bmax = Mathf.Max(bmax, x.Hips); }
             st.Bob.Add(bmax - bmin);
@@ -126,9 +143,9 @@ namespace PixFootball.EditorTools
 
         static string Row(string name, Stats s)
         {
-            return "| " + name + " | " + s.Windows + " | " + Mean(s.WinSpeed).ToString("0.00") + " | " + Pct(s.WinSpeed, 0.9f).ToString("0.00") + " | " + Mean(s.InnerSpeed).ToString("0.00") + " | " + Mean(s.WinHeight).ToString("0.000") + " | " + Pct(s.WinHeight, 0.9f).ToString("0.000") + " | " + (s.WinHeight.Count > 0 ? (100f * s.WinHeight.Count(x => x > 0.03f) / s.WinHeight.Count).ToString("0") + "%" : "-") + " | " + Mean(s.Cadence).ToString("0.0") + " | " + Mean(s.Bob).ToString("0.000") + " | " + Mean(s.Swing).ToString("0.00") + " |";
+            return "| " + name + " | " + s.Windows + " | " + Mean(s.WinSpeed).ToString("0.00") + " | " + Pct(s.WinSpeed, 0.9f).ToString("0.00") + " | " + Mean(s.InnerSpeed).ToString("0.00") + " | " + Mean(s.WinHeight).ToString("0.000") + " | " + Pct(s.WinHeight, 0.9f).ToString("0.000") + " | " + (s.WinHeight.Count > 0 ? (100f * s.WinHeight.Count(x => x > 0.03f) / s.WinHeight.Count).ToString("0") + "%" : "-") + " | " + Mean(s.Cadence).ToString("0.0") + " | " + Mean(s.Bob).ToString("0.000") + " | " + Mean(s.Swing).ToString("0.00") + " | " + Mean(s.QbSlide).ToString("0.00") + " / " + Pct(s.QbSlide, 0.5f).ToString("0.00") + " (" + s.QbSlide.Count + ") |";
         }
-        const string Head = "| gait | stance windows | planted speed mean (m/s) | p90 | inner 60% mean | contact height mean (m) | p90 | windows > 3 cm | contacts/s (both feet) | hips bob (m) | arm swing (m) |\n|---|---|---|---|---|---|---|---|---|---|---|";
+        const string Head = "| gait | stance windows | planted speed mean (m/s) | p90 | inner 60% mean | contact height mean (m) | p90 | windows > 3 cm | contacts/s (both feet) | hips bob (m) | arm swing (m) | toe slide QB metric mean / p50 (n) |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
 
         Frm Capture(SimAgentView v, float t, float speed, bool carry)
         {
@@ -141,6 +158,7 @@ namespace PixFootball.EditorTools
             { Transform rh = an.GetBoneTransform(HumanBodyBones.RightHand); f.Hand = rh != null ? Vector3.Dot(rh.position - hp.position, v.Forward) : 0f; }
             f.HeelL = f.AL.y - gy - rAL; f.BallL = f.TL.y - gy - rTL; f.HeelR = f.AR.y - gy - rAR; f.BallR = f.TR.y - gy - rTR;
             f.SoleL = Mathf.Min(f.HeelL, f.BallL); f.SoleR = Mathf.Min(f.HeelR, f.BallR);
+            f.AnkHL = f.AL.y - gy; f.AnkHR = f.AR.y - gy; f.ToeHL = f.TL.y - gy; f.ToeHR = f.TR.y - gy;
             return f;
         }
 
@@ -171,6 +189,7 @@ namespace PixFootball.EditorTools
             yield return null;
             var modes = LocoShots.Arg("-pixLocoModes", "treadmill,plays,strips").Split(',');
             if (modes.Contains("learn")) yield return Learn();
+            if (modes.Contains("mmlearn")) yield return MmLearn();
             if (modes.Contains("calibrate")) { FootPlant.Enabled = false; yield return Calibrate(); FootPlant.Enabled = !LocoShots.Off; }
             if (modes.Contains("treadmill")) yield return Treadmill();
             if (modes.Contains("legs")) yield return Legs();
@@ -232,7 +251,7 @@ namespace PixFootball.EditorTools
         {
             const float dt = 1f / 60f;
             var root = new GameObject("Man").transform;
-            var sb = new StringBuilder("## manoeuvres (treadmill; stance windows over the whole manoeuvre)\n\n| manoeuvre | stance windows | planted speed mean (m/s) | inner 60% | p90 | contact height mean (m) |\n|---|---|---|---|---|---|\n");
+            var sb = new StringBuilder("## manoeuvres (treadmill; stance windows over the whole manoeuvre)\n\n| manoeuvre | stance windows | planted speed mean (m/s) | inner 60% | p90 | contact height mean (m) | toe slide QB metric mean / p50 (n) |\n|---|---|---|---|---|---|\n");
             foreach (var spec in new[] { new { Name = "stop from 4 m/s", V = 4f, Cut = false, Film = false }, new { Name = "stop from 6 m/s", V = 6f, Cut = false, Film = true }, new { Name = "stop from 8 m/s", V = 8f, Cut = false, Film = false }, new { Name = "cut 90 deg at 6 m/s", V = 6f, Cut = true, Film = true }, new { Name = "cut 90 deg at 8 m/s", V = 8f, Cut = true, Film = false } })
             {
                 var all = new Stats(); var tiles = new List<Texture2D>();
@@ -245,7 +264,20 @@ namespace PixFootball.EditorTools
                     Vector3 pos = Vector3.zero; float sp = 0f; var h = new AnimHints { Seed = 5 + rep, Side = 'C' };
                     Vector3 dir = Vector3.forward, face = Vector3.forward; float yaw = 0f;
                     var frames = new List<Frm>(); float t = 0f; int shot = 0; float next = 0f;
+                    var mtrace = (rep == 0 && LocoShots.Arg("-pixLocoManTrace", "0") == "1") ? new StringBuilder("tm,speed,layer,clip,hintL,hintR,plantL,plantR,soleL,soleR,aL_spd,tL_spd,aR_spd,tR_spd,yaw\n") : null;
                     int total = 360 + 120 + rep * 7;      // run-up, the manoeuvre, a second of aftermath
+                    // the scripted motion, simulated once: the simulation knows where the runner will be (the matcher is given the planned path, +0.33 / +0.66 / +1.0 s)
+                    int pre = total + 80; var pArr = new Vector3[pre]; var vArr = new Vector3[pre]; var fArr = new Vector3[pre]; var sArr = new float[pre];
+                    { Vector3 pp = Vector3.zero, dd = Vector3.forward; float ss = 0f, yy = 0f;
+                      for (int f = 0; f < pre; f++)
+                      {
+                        float tm0 = f * dt - (360 + rep * 7) * dt;
+                        if (tm0 < 0f) ss = Mathf.MoveTowards(ss, spec.V, 8f * dt);
+                        else if (!spec.Cut) ss = Mathf.MoveTowards(ss, 0f, 10f * dt);
+                        else { float a0 = Mathf.Clamp01(tm0 / 0.45f) * 90f; dd = Quaternion.Euler(0f, a0, 0f) * Vector3.forward; ss = Mathf.MoveTowards(ss, spec.V * 0.7f, spec.V * 0.3f / 0.3f * dt); }
+                        float tg = Mathf.Atan2(dd.x, dd.z) * Mathf.Rad2Deg; yy = Mathf.MoveTowardsAngle(yy, tg, 720f * dt);
+                        Vector3 vv = dd * ss; pp += vv * dt; pArr[f] = pp; vArr[f] = vv; sArr[f] = ss; fArr[f] = new Vector3(Mathf.Sin(yy * Mathf.Deg2Rad), 0f, Mathf.Cos(yy * Mathf.Deg2Rad));
+                      } }
                     for (int f = 0; f < total; f++)
                     {
                         float tm = f * dt - (360 + rep * 7) * dt;       // time since the manoeuvre started
@@ -260,11 +292,13 @@ namespace PixFootball.EditorTools
                         float target = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
                         yaw = Mathf.MoveTowardsAngle(yaw, target, 720f * dt); face = new Vector3(Mathf.Sin(yaw * Mathf.Deg2Rad), 0f, Mathf.Cos(yaw * Mathf.Deg2Rad));
                         Vector3 vel = dir * sp; pos += vel * dt; t += dt;
+                        view.SetMotionPlan(pArr[Mathf.Min(f + 20, pre - 1)] - pArr[f], pArr[Mathf.Min(f + 40, pre - 1)] - pArr[f], pArr[Mathf.Min(f + 60, pre - 1)] - pArr[f]);      // v0.10.0: the planned path
                         view.ApplyMatch(pos, vel, face, spec.Cut ? AgentAction.Run : (sp > 0.5f ? AgentAction.Run : AgentAction.Idle), h, 0f, false, false, dt);
                         yield return null;
                         if (tm >= 0f && tm < 0.8f)
                         {
                             var fr = Capture(view, t, sp, false); frames.Add(fr);
+                            if (mtrace != null && frames.Count > 1) { var pl = view.Motion != null ? view.Motion.Plant : null; var gp = view.Mm; var c1 = frames[frames.Count - 2]; Func<Vector3, Vector3, float> sx = (u, w) => new Vector2(u.x - w.x, u.z - w.z).magnitude / dt; mtrace.AppendLine(tm.ToString("0.000") + "," + sp.ToString("0.00") + "," + (gp != null ? gp.Layer.ToString("0.00") + "/" + gp.ClipName : "-") + "," + fr.Clip + "," + (pl != null ? pl.HintLeft + "," + pl.HintRight + "," + (pl.PlantedLeft ? 1 : 0) + "," + (pl.PlantedRight ? 1 : 0) : "-,-,-,-") + "," + fr.SoleL.ToString("0.000") + "," + fr.SoleR.ToString("0.000") + "," + sx(fr.AL, c1.AL).ToString("0.00") + "," + sx(fr.TL, c1.TL).ToString("0.00") + "," + sx(fr.AR, c1.AR).ToString("0.00") + "," + sx(fr.TR, c1.TR).ToString("0.00") + "," + yaw.ToString("0")); }
                             if (spec.Film && rep == 0 && tm >= next && shot < 12)
                             {
                                 Vector3 right = Vector3.Cross(Vector3.up, Vector3.forward);
@@ -274,9 +308,10 @@ namespace PixFootball.EditorTools
                         }
                     }
                     all.Add(Measure(frames, dt));
+                    if (mtrace != null) File.WriteAllText(_out + "/trace_man_" + spec.Name.Replace(" ", "_").Replace("/", "") + ".csv", mtrace.ToString());
                     Destroy(view.gameObject); yield return null;
                 }
-                sb.AppendLine("| " + spec.Name + " | " + all.Windows + " | " + Mean(all.WinSpeed).ToString("0.00") + " | " + Mean(all.InnerSpeed).ToString("0.00") + " | " + Pct(all.WinSpeed, 0.9f).ToString("0.00") + " | " + Mean(all.WinHeight).ToString("0.000") + " |");
+                sb.AppendLine("| " + spec.Name + " | " + all.Windows + " | " + Mean(all.WinSpeed).ToString("0.00") + " | " + Mean(all.InnerSpeed).ToString("0.00") + " | " + Pct(all.WinSpeed, 0.9f).ToString("0.00") + " | " + Mean(all.WinHeight).ToString("0.000") + " | " + Mean(all.QbSlide).ToString("0.00") + " / " + Pct(all.QbSlide, 0.5f).ToString("0.00") + " (" + all.QbSlide.Count + ") |");
                 if (tiles.Count > 0) Sheet(tiles, 4, _out + "/strip_maneuver_" + spec.Name.Replace(" ", "_").Replace("/", "") + ".png");
             }
             _maneuverText = sb.ToString();
@@ -407,6 +442,43 @@ namespace PixFootball.EditorTools
             Destroy(root.gameObject);
         }
 
+        // ---------------------------------------------------------------------------------------- v0.10.0 MOTION: learning the true ground speed of every database take
+        /// <summary>Plays every looping take of the motion database alone on the treadmill at its estimated ground speed with the foot planting on: the planted foot's slide teaches the matcher the speed the take really moves at
+        /// (<see cref="MotionMatcher.Trim"/>). Writes D:/PIXFootball/anim_loco/mm_calibration.csv (name, size, trim); <c>MotionDbBuilder.Build</c> bakes the trims into the database.</summary>
+        IEnumerator MmLearn()
+        {
+            var db = MotionDb.Load(); if (db == null) yield break;
+            var root = new GameObject("MmLearn").transform;
+            const float dt = 1f / 60f;
+            var sb = new StringBuilder("name,size,trim,events,speed\n");
+            MotionMatcher.Trim.Clear();
+            for (int round = 0; round < 2; round++)
+                for (int ci = 0; ci < db.clips.Count; ci++)
+                {
+                    var c = db.clips[ci]; if (!c.loop) continue;
+                    var view = SimAgentView.CreateForMatch(root, PlayerSize.Medium, "Ml");
+                    view.Role = PlayerRole.WR; view.AgentId = 3; view.Avatar.Animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                    view.ResetForPlay(Vector3.zero, 0f);
+                    yield return null; yield return null;
+                    var mm = view.Mm; if (mm == null) { Destroy(view.gameObject); break; }
+                    mm.ForceClip = ci;
+                    var h = new AnimHints { Seed = 5, Side = 'C' };
+                    Vector3 dir = Quaternion.Euler(0f, c.angle, 0f) * Vector3.forward; float target = Mathf.Max(2.0f, c.speed * view.GaitLegScale), sp = 0f; Vector3 pos = Vector3.zero;
+                    for (int f = 0; f < 720; f++)
+                    {
+                        sp = Mathf.MoveTowards(sp, target, 7f * dt); Vector3 vel = dir * sp; pos += vel * dt;
+                        view.ApplyMatch(pos, vel, Vector3.forward, AgentAction.Run, h, 0f, false, false, dt);
+                        yield return null;
+                    }
+                    sb.AppendLine(c.name + ",1,0,0," + c.speed.ToString("0.00"));
+                    Destroy(view.gameObject); yield return null;
+                }
+            var sb2 = new StringBuilder("name,size,trim,events\n");
+            foreach (var kv in MotionMatcher.Trim) sb2.AppendLine(kv.Key + ",1," + kv.Value[1].ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) + "," + MotionMatcher.Trim.Count);
+            File.WriteAllText("D:/PIXFootball/anim_loco/mm_calibration.csv", sb2.ToString());
+            Destroy(root.gameObject);
+        }
+
         // ---------------------------------------------------------------------------------------- treadmill
         struct Gait { public string Name; public float Angle; public float Speed; public bool Carry; public AgentAction Action; }
         string _treadText = "";
@@ -434,7 +506,7 @@ namespace PixFootball.EditorTools
                 Vector3 pos = Vector3.zero; float sp = 0f;
                 var h = new AnimHints { Seed = 5, Side = 'C', Carrying = g.Carry };
                 Vector3 dir = Quaternion.Euler(0f, g.Angle, 0f) * Vector3.forward;
-                var frames = new List<Frm>(); StringBuilder trace = (g.Name == "free forward" && (g.Speed == 4.5f || g.Speed == 5.0f || g.Speed == 7.0f)) ? new StringBuilder("f,speed,layer,warp,rate,phase,hintL,hintR,plantL,plantR,wL,wR,corrL,corrR,hipDrop,soleL,soleR,liftL,pressL,heelL_spd,ballL_spd,heelR_spd,ballR_spd,cycles\n") : null;
+                var frames = new List<Frm>(); StringBuilder trace = (g.Name == "free forward" && (g.Speed == 3.0f || g.Speed == 4.5f || g.Speed == 5.0f || g.Speed == 7.0f)) ? new StringBuilder("f,speed,layer,warp,rate,phase,hintL,hintR,plantL,plantR,wL,wR,corrL,corrR,hipDrop,soleL,soleR,liftL,pressL,heelL_spd,ballL_spd,heelR_spd,ballR_spd,cycles\n") : null;
                 float t = 0f;
                 for (int f = 0; f < 480; f++)
                 {
@@ -443,7 +515,7 @@ namespace PixFootball.EditorTools
                     view.ApplyMatch(pos, vel, Vector3.forward, g.Action, h, 0f, false, false, dt);
                     yield return null;
                     if (f >= 150) frames.Add(Capture(view, t, sp, g.Carry));
-                    if (trace != null && f >= 150) { var gp = view.Gait; var pp = view.Motion.Plant; var c0 = frames[frames.Count - 1]; var c1 = frames.Count > 1 ? frames[frames.Count - 2] : c0; Func<Vector3, Vector3, float> sx = (a, b) => new Vector2(a.x - b.x, a.z - b.z).magnitude / dt; trace.AppendLine(f + "," + sp.ToString("0.00") + "," + (gp != null ? gp.Layer.ToString("0.00") : "-") + "," + (gp != null ? gp.Warp.ToString("0.00") : "-") + "," + (gp != null ? gp.Rate.ToString("0.00") + "/mix" + gp.MixSpeed.ToString("0.00") : "-") + "," + (gp != null ? gp.Phase.ToString("0.000") : "-") + "," + pp.HintLeft + "," + pp.HintRight + "," + (pp.PlantedLeft ? 1 : 0) + "," + (pp.PlantedRight ? 1 : 0) + "," + pp.WeightLeft.ToString("0.00") + "," + pp.WeightRight.ToString("0.00") + "," + Vector2.Dot(pp.CorrVecLeft, new Vector2(dir.x, dir.z)).ToString("0.000") + "," + Vector2.Dot(pp.CorrVecRight, new Vector2(dir.x, dir.z)).ToString("0.000") + "," + pp.HipDrop.ToString("0.000") + "," + c0.SoleL.ToString("0.000") + "," + c0.SoleR.ToString("0.000") + "," + pp.LiftLeft.ToString("0.000") + "," + pp.PressLeft.ToString("0.000") + "," + sx(c0.AL, c1.AL).ToString("0.00") + "," + sx(c0.TL, c1.TL).ToString("0.00") + "," + sx(c0.AR, c1.AR).ToString("0.00") + "," + sx(c0.TR, c1.TR).ToString("0.00") + "," + (gp != null ? gp.DebugCycles : "")); }
+                    if (trace != null && f >= 150) { var gp = view.Gait; var mmv = view.Mm; var pp = view.Motion.Plant; var c0 = frames[frames.Count - 1]; var c1 = frames.Count > 1 ? frames[frames.Count - 2] : c0; Func<Vector3, Vector3, float> sx = (a, b) => new Vector2(a.x - b.x, a.z - b.z).magnitude / dt; trace.AppendLine(f + "," + sp.ToString("0.00") + "," + (mmv != null && mmv.Layer > 0f ? mmv.Layer.ToString("0.00") + "/" + mmv.ClipName : (gp != null ? gp.Layer.ToString("0.00") : "-")) + "," + (mmv != null && mmv.Layer > 0f ? mmv.Warp.ToString("0.00") : (gp != null ? gp.Warp.ToString("0.00") : "-")) + "," + (mmv != null && mmv.Layer > 0f ? mmv.Rate.ToString("0.00") + "/row" + mmv.Row : (gp != null ? gp.Rate.ToString("0.00") + "/mix" + gp.MixSpeed.ToString("0.00") : "-")) + "," + (gp != null ? gp.Phase.ToString("0.000") : "-") + "," + pp.HintLeft + "," + pp.HintRight + "," + (pp.PlantedLeft ? 1 : 0) + "," + (pp.PlantedRight ? 1 : 0) + "," + pp.WeightLeft.ToString("0.00") + "," + pp.WeightRight.ToString("0.00") + "," + Vector2.Dot(pp.CorrVecLeft, new Vector2(dir.x, dir.z)).ToString("0.000") + "," + Vector2.Dot(pp.CorrVecRight, new Vector2(dir.x, dir.z)).ToString("0.000") + "," + pp.HipDrop.ToString("0.000") + "," + c0.SoleL.ToString("0.000") + "," + c0.SoleR.ToString("0.000") + "," + pp.LiftLeft.ToString("0.000") + "," + pp.PressLeft.ToString("0.000") + "," + sx(c0.AL, c1.AL).ToString("0.00") + "," + sx(c0.TL, c1.TL).ToString("0.00") + "," + sx(c0.AR, c1.AR).ToString("0.00") + "," + sx(c0.TR, c1.TR).ToString("0.00") + "," + (gp != null ? gp.DebugCycles : "") + "," + pp.ResidLeft.ToString("0.000") + "," + pp.ResidRight.ToString("0.000") + "," + pp.HipDrop.ToString("0.000")); }
                 }
                 if (g.Name == "free forward" && (g.Speed == 5.0f || g.Speed == 7.0f)) Verbose = new StringBuilder();
                 var st = Measure(frames, dt);
@@ -458,7 +530,7 @@ namespace PixFootball.EditorTools
         }
 
         // ---------------------------------------------------------------------------------------- leg quality (round 3, LOCO-016)
-        string _legText = "";
+        string _legText = "", _muscleText = "";
         struct LegCase { public string Name; public float Speed; public float Angle; public bool Carry; public AgentAction Action; public bool Film; }
 
         IEnumerator Legs()
@@ -485,7 +557,14 @@ namespace PixFootball.EditorTools
                 new LegCase { Name = "jog 3.2 free", Speed = 3.2f, Action = AgentAction.Run, Film = true },
                 new LegCase { Name = "run 4.5 free", Speed = 4.5f, Action = AgentAction.Run },
                 new LegCase { Name = "run 6.0 free (WR)", Speed = 6.0f, Action = AgentAction.Run, Film = true },
-                new LegCase { Name = "sprint 7.5 free", Speed = 7.5f, Action = AgentAction.Sprint },
+                new LegCase { Name = "sprint 7.5 free", Speed = 7.5f, Action = AgentAction.Sprint, Film = true },
+                new LegCase { Name = "shuffle right 3.0", Speed = 3.0f, Angle = 90, Action = AgentAction.Shuffle, Film = true },
+                new LegCase { Name = "backpedal 3.5 at 150", Speed = 3.5f, Angle = 150, Action = AgentAction.Backpedal },
+                new LegCase { Name = "backpedal 3.5 at 125", Speed = 3.5f, Angle = 125, Action = AgentAction.Backpedal },
+                new LegCase { Name = "shuffle 3.0 at 60", Speed = 3.0f, Angle = 60, Action = AgentAction.Shuffle },
+                new LegCase { Name = "shuffle 3.0 at 120", Speed = 3.0f, Angle = 120, Action = AgentAction.Shuffle },
+                new LegCase { Name = "run 5.0 at 30", Speed = 5.0f, Angle = 30, Action = AgentAction.Run },
+                new LegCase { Name = "run 5.0 at -30", Speed = 5.0f, Angle = -30, Action = AgentAction.Run },
                 new LegCase { Name = "carry 4.0", Speed = 4.0f, Carry = true, Action = AgentAction.Carry },
                 new LegCase { Name = "carry sprint 7.5 (RB)", Speed = 7.5f, Carry = true, Action = AgentAction.Carry, Film = true },
                 new LegCase { Name = "backpedal 2.5", Speed = 2.5f, Angle = 180, Action = AgentAction.Backpedal },
@@ -503,6 +582,8 @@ namespace PixFootball.EditorTools
                 view.ResetForPlay(Vector3.zero, 0f);
                 yield return null; yield return null;
                 var probe = new LegProbe(view.Avatar.Animator, view.Motion != null ? view.Motion.Plant : null); var acc = new LegProbe.Acc(); rows[g.Name] = acc;
+                HumanPoseHandler hph = null; HumanPose hp = default(HumanPose); var overN = new Dictionary<int, int>(); var overMax = new Dictionary<int, float>(); int poseFrames = 0, anyOver = 0;
+                try { hph = new HumanPoseHandler(view.Avatar.Animator.avatar, view.Avatar.Animator.transform); } catch { }
                 Vector3 pos = Vector3.zero; float sp = 0f; var h = new AnimHints { Seed = 5, Side = 'C', Carrying = g.Carry };
                 Vector3 dir = Quaternion.Euler(0f, g.Angle, 0f) * Vector3.forward;
                 var views = new Dictionary<string, List<Texture2D>> { { "side", new List<Texture2D>() }, { "front", new List<Texture2D>() }, { "behind", new List<Texture2D>() } };
@@ -514,6 +595,7 @@ namespace PixFootball.EditorTools
                     view.ApplyMatch(pos, vel, Vector3.forward, g.Action, h, 0f, false, false, dt);
                     yield return null;
                     if (f >= 150) probe.Sample(acc, view.Forward, vel, sp, view.transform.position.y);
+                    if (f >= 150 && hph != null) { hph.GetHumanPose(ref hp); poseFrames++; bool any = false; for (int mi = 0; mi < hp.muscles.Length; mi++) if (Mathf.Abs(hp.muscles[mi]) > 1f && !MuscleReport.IsFinger(HumanTrait.MuscleName[mi])) { any = true; int cnt; overN.TryGetValue(mi, out cnt); overN[mi] = cnt + 1; float om; overMax.TryGetValue(mi, out om); overMax[mi] = Mathf.Max(om, Mathf.Abs(hp.muscles[mi])); } if (any) anyOver++; }
                     if (film && g.Film && f >= 260 && (f - 260) % 6 == 0 && shot < 12)
                     {
                         Vector3 aim = view.transform.position + Vector3.up * 0.78f; const float d = 3.1f;
@@ -526,11 +608,13 @@ namespace PixFootball.EditorTools
                         shot++;
                     }
                 }
+                _muscleText += "| " + g.Name + " | " + poseFrames + " | " + anyOver + " | " + overN.Count + " | " + string.Join(", ", overN.OrderByDescending(x => x.Value).Take(4).Select(x => HumanTrait.MuscleName[x.Key] + " " + x.Value + " (max " + overMax[x.Key].ToString("0.00") + ")")) + " |\n";
                 if (film && g.Film) foreach (var kv in views) Sheet(kv.Value, 6, _out + "/strip_legs_" + g.Name.Split(' ')[0] + (g.Carry ? "_carry" : "") + "_" + kv.Key + ".png");
                 Destroy(view.gameObject); yield return null;
             }
             foreach (var kv in swapped) kv.Key.clip = kv.Value;
             _legText = "## leg quality (treadmill, final pose, frames 150-480; tag " + _tag + ")\n\n" + LegProbe.Table(rows) + "\n";
+            _legText += "## humanoid muscles beyond +-1 in the final pose\n\n| case | frames | frames with any muscle beyond | muscles beyond | worst |\n|---|---|---|---|---|\n" + _muscleText + "\n";
             Destroy(root.gameObject);
         }
 

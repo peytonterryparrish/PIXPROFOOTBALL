@@ -39,7 +39,7 @@ namespace PixFootball.Gameplay
         readonly float _seed;
         /// <summary>Hips height of the standing bind pose (m) and the ankle height above the turf (m): the body scale of this avatar.</summary>
         public readonly float StandHips, RestAnkle;
-        readonly Vector3 _headLocalFwd;
+        readonly Vector3 _headLocalFwd, _chestLocalFwd;
         /// <summary>Pitch (radians, + = toes down) of the ankle-to-toes vector of a foot flat on the turf in the bind pose: the stance foot keeps it (the ball of the foot is lower than the ankle).</summary>
         readonly float _footPitch;
         // arm / leg lengths (bone distances never change)
@@ -65,6 +65,7 @@ namespace PixFootball.Gameplay
             Vector3 across = _rul.position - _lul.position; across.y = 0f;
             Vector3 bindFwd = across.sqrMagnitude > 1e-6f ? Vector3.Cross(across.normalized, Vector3.up) : Vector3.forward;
             _headLocalFwd = Quaternion.Inverse(_head.rotation) * bindFwd;
+            _chestLocalFwd = Quaternion.Inverse(_chest.rotation) * bindFwd;
             if (_lt != null && _rt != null) { Vector3 tl = _lt.position - _lf.position, tr = _rt.position - _rf.position; _footPitch = 0.5f * (Mathf.Asin(Mathf.Clamp(-tl.y / Mathf.Max(0.02f, tl.magnitude), -1f, 1f)) + Mathf.Asin(Mathf.Clamp(-tr.y / Mathf.Max(0.02f, tr.magnitude), -1f, 1f))); }
             _armLen = Vector3.Distance(_rua.position, _rla.position) + Vector3.Distance(_rla.position, _rh.position);
             _ok = StandHips > 0.4f;
@@ -80,6 +81,23 @@ namespace PixFootball.Gameplay
         public float Scale { get { return StandHips / 1.06f; } }
 
         public void Cancel() { _w = 0f; }
+
+        /// <summary>QA: how far the head's face direction is tilted up from the chest's front, in the sagittal plane (degrees, + = extended / looking up). Anatomy: up to about 60.</summary>
+        public float NeckExtensionDeg()
+        {
+            if (!_ok || _head == null || _chest == null) return 0f;
+            Vector3 hf = _head.rotation * _headLocalFwd, cf = _chest.rotation * _chestLocalFwd;
+            Vector3 side = Vector3.Cross(Vector3.up, new Vector3(cf.x, 0f, cf.z).sqrMagnitude > 1e-4f ? new Vector3(cf.x, 0f, cf.z).normalized : Vector3.forward);
+            return Vector3.SignedAngle(cf, hf, side) * -1f;
+        }
+
+        /// <summary>QA: elevation of the face direction above the horizon (degrees; 0 = eyes level).</summary>
+        public float HeadFacePitchDeg()
+        {
+            if (!_ok || _head == null) return 0f;
+            Vector3 hf = _head.rotation * _headLocalFwd;
+            return Mathf.Asin(Mathf.Clamp(hf.y, -1f, 1f)) * Mathf.Rad2Deg;
+        }
 
         /// <summary>Segment alignment: rotates <paramref name="b"/> (and everything below it) so the vector to <paramref name="c"/> points along the lean direction, by <paramref name="w"/>.</summary>
         static void Align(Transform b, Transform c, Vector3 fwd, float angleDeg, float w)
@@ -134,7 +152,7 @@ namespace PixFootball.Gameplay
             if (dyn.GaitOn) { rAnkle = dyn.RFoot; lAnkle = dyn.LFoot; }
 
             // ---- trunk: lay the spine out hips to head; a hand on the turf deepens the lean until the shoulder can reach it
-            bool rGround = p.RHand == HandMode.Ground, lGround = p.LHand == HandMode.Ground;
+            bool rGround = p.RHand == HandMode.Ground || (p.RHand == HandMode.Anchor && dyn.HasAnchor && p.RY < 0.45f), lGround = p.LHand == HandMode.Ground || (p.LHand == HandMode.Anchor && dyn.HasAnchor && p.LY < 0.45f);
             float lean = p.Lean + dyn.LeanAdd + breath * 0.5f;
             float rY = gy + p.RY, lY = gy + p.LY;
             Lay(fwd, lean, p, w);
@@ -142,25 +160,42 @@ namespace PixFootball.Gameplay
             {
                 // the down hand has to reach the turf: deepen the lean until the shoulder is low enough (a short body, a tall body, a deep hips setting all settle by themselves)
                 float reach = _armLen * 0.97f;
-                float hipToShoulder = (_chest.position - _hips.position).magnitude * 1.15f;
-                for (int i = 0; i < 4; i++)
+                // v0.10.0 BODIES: bisection between the authored lean and the largest lean (the old step loop overshot to the maximum: every lineman ended folded over with the head at knee height)
+                Vector3 rT = ReachXZ(p.RHand, p.RPos, rootPos, right, fwd, S, dyn), lT = ReachXZ(p.LHand, p.LPos, rootPos, right, fwd, S, dyn);
+                float need0 = 0f;
+                if (rGround) need0 = Mathf.Max(need0, ReachDeficit(_rua, rT, rY, reach));
+                if (lGround) need0 = Mathf.Max(need0, ReachDeficit(_lua, lT, lY, reach));
+                if (need0 > 0.006f && lean < p.MaxLean)
                 {
-                    float need = 0f;
-                    if (rGround) need = Mathf.Max(need, ReachDeficit(_rua, rootPos + right * (p.RPos.x * S) + fwd * (p.RPos.z * S), rY, reach));
-                    if (lGround) need = Mathf.Max(need, ReachDeficit(_lua, rootPos + right * (p.LPos.x * S) + fwd * (p.LPos.z * S), lY, reach));
-                    if (need <= 0.006f || lean >= p.MaxLean) break;
-                    float dLean = Mathf.Clamp(need / (hipToShoulder * Mathf.Max(0.35f, Mathf.Sin(lean * Mathf.Deg2Rad))) * Mathf.Rad2Deg, 0.5f, 14f);
-                    lean = Mathf.Min(p.MaxLean, lean + dLean);
+                    float lo = lean, hi = p.MaxLean;
+                    Lay(fwd, hi, p, w);
+                    float needHi = 0f;
+                    if (rGround) needHi = Mathf.Max(needHi, ReachDeficit(_rua, rT, rY, reach));
+                    if (lGround) needHi = Mathf.Max(needHi, ReachDeficit(_lua, lT, lY, reach));
+                    if (needHi > 0.006f) lean = hi;
+                    else
+                    {
+                        for (int i = 0; i < 6; i++)
+                        {
+                            float mid = 0.5f * (lo + hi);
+                            Lay(fwd, mid, p, w);
+                            float n = 0f;
+                            if (rGround) n = Mathf.Max(n, ReachDeficit(_rua, rT, rY, reach));
+                            if (lGround) n = Mathf.Max(n, ReachDeficit(_lua, lT, lY, reach));
+                            if (n > 0.006f) lo = mid; else hi = mid;
+                        }
+                        lean = hi;
+                    }
                     Lay(fwd, lean, p, w);
                 }
                 // still too high (a tall body in a high-hips stance): sink the hips (at most 14 cm) so the hand reaches
-                float sunk = 0f;
+                float sunk = 0f, maxSink = (p.RHand == HandMode.Anchor || p.LHand == HandMode.Anchor) ? 0.10f : 0.24f;      // a hand on the ball: a little, never a squat
                 for (int i = 0; i < 3; i++)
                 {
                     float need = 0f;
-                    if (rGround) need = Mathf.Max(need, ReachDeficit(_rua, rootPos + right * (p.RPos.x * S) + fwd * (p.RPos.z * S), rY, reach));
-                    if (lGround) need = Mathf.Max(need, ReachDeficit(_lua, rootPos + right * (p.LPos.x * S) + fwd * (p.LPos.z * S), lY, reach));
-                    float drop = Mathf.Min(need, 0.16f - sunk);
+                    if (rGround) need = Mathf.Max(need, ReachDeficit(_rua, ReachXZ(p.RHand, p.RPos, rootPos, right, fwd, S, dyn), rY, reach));
+                    if (lGround) need = Mathf.Max(need, ReachDeficit(_lua, ReachXZ(p.LHand, p.LPos, rootPos, right, fwd, S, dyn), lY, reach));
+                    float drop = Mathf.Min(need, maxSink - sunk);
                     if (need <= 0.006f || drop <= 0.002f) break;
                     _hips.position += Vector3.down * drop; sunk += drop;
                 }
@@ -202,17 +237,38 @@ namespace PixFootball.Gameplay
             ApplyHead(p, rootPos, fwd, right, yaw, dyn, w);
         }
 
-        /// <summary>Lays the spine out hips to head for a trunk lean (degrees from vertical).</summary>
+        /// <summary>
+        /// Lays the spine out hips to head for a trunk lean (degrees from vertical). v0.10.0 BODIES (note 9): the neck angle used to be applied to the chest -> upper chest segment, so a deep stance (lean 110 to 125) bent the
+        /// upper back upward at about 50 degrees from vertical: a hunchback with the shoulders thrown up and the head in the sky. Now the thoracic spine stays on the trunk line for a deep lean and only the neck rises from it,
+        /// no further than <see cref="NeckExtMax"/> beyond the trunk line; an upright stance keeps the old straightening of the upper back (blend over a lean of 45 to 75 degrees).
+        /// </summary>
         void Lay(Vector3 fwd, float lean, in StancePose p, float w)
         {
             float bend = p.Bend;
-            Align(_hips, _spine, fwd, lean - bend, w);
+            // a hip hinge is about two thirds pelvis tilt and one third lumbar flexion: a pelvis tipped the whole way over the thighs makes the seat of the pants balloon (the hip joint folds 100 degrees)
+            float pelvis = Mathf.Lerp(lean - bend, 0.64f * lean, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(40f, 90f, lean)));
+            Align(_hips, _spine, fwd, pelvis, w);
             Transform up1 = _upperChest != null ? _upperChest : (_neck != null ? _neck : _head);
             Align(_spine, _chest, fwd, lean + bend, w);
             float neck = Mathf.Min(p.Neck + Mathf.Max(0f, lean - p.Lean) * 0.2f, 70f);
-            Align(_chest, up1, fwd, neck, w);
-            if (_upperChest != null) Align(_upperChest, _neck != null ? _neck : _head, fwd, neck, w);
-            if (_neck != null) Align(_neck, _head, fwd, neck * 0.8f, w);
+            float k = Mathf.Clamp01((75f - lean) / 30f);          // 1 = an upright stance (the old shape), 0 = a bent-over lineman
+            // a bent-over lineman also arches the upper back a little (extension of the thoracic spine, up to 18 degrees) so the neck and head do not have to make up the whole 90 degrees
+            float arch = 18f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(60f, 95f, lean)) * (1f - k);
+            float upper = Mathf.Lerp(lean, neck, k) - arch;
+            float cerv = Mathf.Max(neck, lean - NeckExtMax);      // axis of the neck from vertical: at most NeckExtMax degrees of extension against the trunk line
+            Align(_chest, up1, fwd, upper, w);
+            if (_upperChest != null) Align(_upperChest, _neck != null ? _neck : _head, fwd, upper, w);
+            if (_neck != null) Align(_neck, _head, fwd, Mathf.Lerp(cerv, neck * 0.8f, k), w);
+        }
+
+        /// <summary>Largest neck extension (degrees) against the trunk line in a bent-over stance (the head bone adds the rest of the look).</summary>
+        public static float NeckExtMax = 50f;
+
+        /// <summary>Where a low hand goes on the ground plane: the pose offset from the player (a hand on the turf) or from the anchor (a hand on the ball).</summary>
+        static Vector3 ReachXZ(HandMode mode, Vector3 pos, Vector3 rootPos, Vector3 right, Vector3 fwd, float S, in StanceDyn dyn)
+        {
+            if (mode == HandMode.Anchor && dyn.HasAnchor) return dyn.Anchor + right * (pos.x * S);
+            return rootPos + right * (pos.x * S) + fwd * (pos.z * S);
         }
 
         /// <summary>How far (m) the shoulder is too high for the arm to reach the target wrist height.</summary>

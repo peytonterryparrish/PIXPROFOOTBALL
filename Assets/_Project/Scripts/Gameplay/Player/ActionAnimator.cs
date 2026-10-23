@@ -25,6 +25,10 @@ namespace PixFootball.Gameplay
             public int Input = 1; public AvatarMask Mask;
             // v0.9.0 CONNECT: facing offset of the clip (degrees), plan asked for an upper-body mask, mask currently upper-body, fade-in floor used
             public float Yaw; public bool UpperPlan, MaskUpper;
+            // v0.10.0 CHOREO: speed (m/s) above which this plan hands the legs to locomotion (0 = the default <see cref="UpperBodySpeed"/>)
+            public float MaskSpeed;
+            // v0.10.0 CHOREO: seconds since the mask last changed (a mask flip is a pose pop: a slot keeps its mask for at least 0.4 s)
+            public float MaskT;
             public float Eff { get { return Smooth(W); } }
         }
 
@@ -40,6 +44,8 @@ namespace PixFootball.Gameplay
         AnimationLayerMixerPlayable _locoMix;
         /// <summary>v0.9.0 LOCOMOTION: the gait synthesizer layered over the animator controller (null when the cycle library is missing).</summary>
         public GaitPlayer Gait { get; private set; }
+        /// <summary>v0.10.0 MOTION: the locomotion motion matcher (replaces the gait player unless -pixLocoLegacy; null without the database).</summary>
+        public MotionMatcher Mm { get; private set; }
         readonly Slot[] _s = { new Slot(), new Slot() };
         int _cur = -1;                // index of the newest slot
         bool _created;
@@ -59,6 +65,19 @@ namespace PixFootball.Gameplay
                 float a = _s[0].Active ? _s[0].Eff : 0f, b = _s[1].Active ? _s[1].Eff : 0f;
                 return 1f - (1f - a) * (1f - b);
             }
+        }
+        /// <summary>v0.10.0 MOTION: the clip layer is fading out while the motion matcher plays the legs: the outgoing clips give the legs to the matcher at once (it inertializes the change), so the feet are not
+        /// dragged between two leg poses for the length of the fade. Returns true when a mask was changed this call.</summary>
+        public bool LegsToLoco()
+        {
+            bool any = false;
+            for (int i = 0; i < _s.Length; i++)
+            {
+                var s = _s[i];
+                if (s == null || !s.Active || !s.Ending || s.MaskUpper) continue;
+                s.MaskUpper = true; s.Mask = UpperMask(); _mixer.SetLayerMaskFromAvatarMask((uint)s.Input, s.Mask); any = true;
+            }
+            return any;
         }
         public float Time01 { get { var s = Cur; return s != null && s.End > s.Start ? Mathf.Clamp01((s.T - s.Start) / (s.End - s.Start)) : 0f; } }
         public float ClipTime { get { var s = Cur; return s != null ? s.T : 0f; } }
@@ -106,8 +125,9 @@ namespace PixFootball.Gameplay
             _graph.Connect(_loco, 0, _locoMix, 0);
             _locoMix.SetInputWeight(0, 1f);
             _graph.Connect(_locoMix, 0, _mixer, 0);
-            if (Gait == null) { var lib = LocoCycleLibrary.Load(); if (lib != null && lib.cycles.Count > 0 && !DisableGait) Gait = new GaitPlayer(lib, gameObject.GetHashCode()); }
-            if (Gait != null) Gait.Attach(_graph, _locoMix, 1);
+            if (Mm == null && !DisableGait) Mm = MotionMatcher.TryCreate();      // v0.10.0 MOTION
+            if (Mm == null && Gait == null) { var lib = LocoCycleLibrary.Load(); if (lib != null && lib.cycles.Count > 0 && !DisableGait) Gait = new GaitPlayer(lib, gameObject.GetHashCode()); }
+            if (Mm != null) Mm.Attach(_graph, _locoMix, 1); else if (Gait != null) Gait.Attach(_graph, _locoMix, 1);
             _mixer.SetInputWeight(0, 1f);
             _mixer.SetInputWeight(1, 0f);
             _mixer.SetInputWeight(2, 0f);
@@ -140,11 +160,13 @@ namespace PixFootball.Gameplay
             return _fullMask;
         }
 
-        public void Play(in ClipPlan p) { Play(p.Clip, p.Start, p.End, p.Speed, p.FadeIn, p.FadeOut, p.Loop, p.Hold, p.UpperBody, p.Phase, p.FadeFloor); }
+        public void Play(in ClipPlan p) { NextMaskSpeed = p.MaskSpeed; Play(p.Clip, p.Start, p.End, p.Speed, p.FadeIn, p.FadeOut, p.Loop, p.Hold, p.UpperBody, p.Phase, p.FadeFloor); NextMaskSpeed = 0f; }
 
         // v0.9.0 CONNECT E-266: a third request while the hidden slot is still visibly fading out is deferred (the older clip finishes a short fade first) instead of recycling the slot with a pop
-        struct PendingPlay { public AnimationClip Clip; public float Start, End, Speed, FadeIn, FadeOut, Phase, Floor, ScrubT; public bool Loop, Hold, Upper, Scrub; }
+        struct PendingPlay { public AnimationClip Clip; public float Start, End, Speed, FadeIn, FadeOut, Phase, Floor, ScrubT, MaskSpeed; public bool Loop, Hold, Upper, Scrub; }
         PendingPlay _pend; bool _hasPend;
+        /// <summary>v0.10.0 CHOREO: mask speed of the next Play call (set by <see cref="Play(in ClipPlan)"/>, consumed by the slot it creates).</summary>
+        public float NextMaskSpeed;
         /// <summary>Counts every clip start and stop (the pop filter and the audit read it: a new value means the pose source changed this frame).</summary>
         public int Transitions { get; private set; }
         /// <summary>Speed (m/s) used to decide whether an upper-body plan keeps the legs of the locomotion layer: set by the view (the animator's smoothed speed otherwise).</summary>
@@ -172,7 +194,7 @@ namespace PixFootball.Gameplay
                 if (n.Active && n.Eff > 0.12f)
                 {
                     // defer: finish the hidden clip's fade quickly, start the new one when the slot is free
-                    _pend = new PendingPlay { Clip = clip, Start = start, End = end, Speed = speed, FadeIn = fadeIn, FadeOut = fadeOut, Phase = phase, Floor = floor, Loop = loop, Hold = hold, Upper = upperBody };
+                    _pend = new PendingPlay { Clip = clip, Start = start, End = end, Speed = speed, FadeIn = fadeIn, FadeOut = fadeOut, Phase = phase, Floor = floor, Loop = loop, Hold = hold, Upper = upperBody, MaskSpeed = NextMaskSpeed }; NextMaskSpeed = 0f;
                     _hasPend = true;
                     if (!n.Ending) { n.Ending = true; n.EndingT = 0f; n.EndingFade = 0.1f; n.EndW = n.W; }
                     else if (n.EndingFade - n.EndingT > 0.1f) n.EndingFade = n.EndingT + 0.1f;
@@ -211,7 +233,8 @@ namespace PixFootball.Gameplay
             _cur = n == _s[0] ? 0 : 1;
             // upper-body plans keep the legs of the locomotion layer while the player is moving (re-decided every frame in Update: E-260)
             n.UpperPlan = upperBody;
-            bool mask = upperBody && MoveSpeed() > UpperBodySpeed;
+            n.MaskSpeed = NextMaskSpeed; NextMaskSpeed = 0f; n.MaskT = 1f;      // v0.10.0 CHOREO
+            bool mask = upperBody && MoveSpeed() > (n.MaskSpeed > 0f ? n.MaskSpeed : UpperBodySpeed);
             var m = mask ? UpperMask() : FullMask();
             _mixer.SetLayerMaskFromAvatarMask((uint)n.Input, m);
             n.Mask = m; n.MaskUpper = mask;
@@ -259,6 +282,10 @@ namespace PixFootball.Gameplay
         }
         /// <summary>Weight of the newest clip alone (0..1, smoothstepped).</summary>
         public float NewestWeight { get { var s = Cur; return s != null ? s.Eff : 0f; } }
+        /// <summary>v0.10.0 CHOREO: the newest clip is masked to the upper body right now (the legs belong to locomotion).</summary>
+        public bool UpperBodyActive { get { var s = Cur; return s != null && s.MaskUpper; } }
+        /// <summary>v0.10.0 CHOREO: playback speed of the newest clip.</summary>
+        public float PlaySpeed { get { var s = Cur; return s != null ? s.Speed : 1f; } }
 
         void DropSlot(Slot s)
         {
@@ -314,8 +341,10 @@ namespace PixFootball.Gameplay
                 if (s.UpperPlan)
                 {
                     float sp = MoveSpeed();
-                    bool wantUpper = s.MaskUpper ? sp > 1.2f : sp > UpperBodySpeed;
-                    if (wantUpper != s.MaskUpper) { s.MaskUpper = wantUpper; s.Mask = wantUpper ? UpperMask() : FullMask(); _mixer.SetLayerMaskFromAvatarMask((uint)s.Input, s.Mask); }
+                    float hiSp = s.MaskSpeed > 0f ? s.MaskSpeed : UpperBodySpeed, loSp = s.MaskSpeed > 0f ? s.MaskSpeed * 0.6f : 1.2f;
+                    s.MaskT += dt;
+                    bool wantUpper = s.MaskUpper ? sp > loSp : sp > hiSp;
+                    if (wantUpper != s.MaskUpper && s.MaskT >= 0.4f) { s.MaskT = 0f; s.MaskUpper = wantUpper; s.Mask = wantUpper ? UpperMask() : FullMask(); _mixer.SetLayerMaskFromAvatarMask((uint)s.Input, s.Mask); }
                 }
                 float mw = s.Eff;
                 // v0.9.0 CONNECT E-262: an outgoing full-body clip under an upper-body-masked newcomer gives the legs back to the locomotion layer over the same fade (no pop when it is dropped)
@@ -329,7 +358,9 @@ namespace PixFootball.Gameplay
                 if (hid == null || !hid.Active || hid.Eff <= 0.12f)
                 {
                     var p = _pend; _hasPend = false;
+                    NextMaskSpeed = p.MaskSpeed;
                     Play(p.Clip, p.Start, p.End, p.Speed, p.FadeIn, p.FadeOut, p.Loop, p.Hold, p.Upper, p.Phase, p.Floor);
+                    NextMaskSpeed = 0f;
                     if (p.Scrub) { var ns = Cur; if (ns != null) { ns.Scrub = true; ns.T = Mathf.Clamp(p.ScrubT, ns.Start, ns.End); } }
                 }
             }
@@ -345,7 +376,7 @@ namespace PixFootball.Gameplay
         // a pooled player is deactivated between plays: Unity drops the animator binding, so the graph is rebuilt when he is switched back on
         bool _needRebuild;
         void OnEnable() { if (_wantGraph && !Valid) _needRebuild = true; }
-        void OnDisable() { if (Gait != null) Gait.Detach(); if (_created && _graph.IsValid()) _graph.Destroy(); _created = false; foreach (var s in _s) { s.Active = false; s.W = 0f; } _cur = -1; }
+        void OnDisable() { if (Mm != null) Mm.Detach(); if (Gait != null) Gait.Detach(); if (_created && _graph.IsValid()) _graph.Destroy(); _created = false; foreach (var s in _s) { s.Active = false; s.W = 0f; } _cur = -1; }
         void OnDestroy() { if (_created && _graph.IsValid()) _graph.Destroy(); _created = false; }
     }
 }

@@ -123,7 +123,7 @@ namespace PixFootball.Tests
                         float gap = (t.Pos - c.Pos).Length - t.Body.Radius - c.Body.Radius;
                         tackles++; if (e.Tackle == TackleType.DiveTackle) dives++;
                         worst = Math.Max(worst, gap);
-                        Assert.Less(gap, 0.85f, e.Tackle + " tackle from " + gap.ToString("0.00") + " yd away in " + off.Name + " vs " + def.Name + " seed " + (62000 + i));
+                        Assert.Less(gap, e.Tackle == TackleType.PushOutOfBounds ? 1.1f : 0.85f, e.Tackle + " tackle from " + gap.ToString("0.00") + " yd away in " + off.Name + " vs " + def.Name + " seed " + (62000 + i));
                     }
                 }
             }

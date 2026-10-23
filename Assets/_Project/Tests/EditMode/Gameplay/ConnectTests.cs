@@ -101,7 +101,7 @@ namespace PixFootball.Tests
         {
             Assert.AreEqual(0.30f, KickGeometry.TeeHeightYd, 1e-4f);
             Assert.Greater(KickGeometry.PuntDropSeconds, 0.2f);
-            Assert.Less(KickGeometry.HolderSpotHeightYd, KickGeometry.TeeHeightYd);
+            Assert.That(KickGeometry.HolderSpotHeightYd, Is.InRange(0.15f, 0.35f));      // v0.10.0 QB: the holder's spot (the ball tilted on the turf at his knee)
             Assert.Less(KickGeometry.SnapStartHeightYd, 0.5f);
         }
 

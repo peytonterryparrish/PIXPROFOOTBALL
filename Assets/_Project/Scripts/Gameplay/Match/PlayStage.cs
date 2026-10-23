@@ -290,8 +290,10 @@ namespace PixFootball.Gameplay
                 }
                 if (_anyWalk && _walks[i].Active) StepWalk(i, dt, ref pos, ref vel, ref face);
                 UpdateStanceInput(i, a, v, dt);      // v0.9.0 QBSTANCE
+                MotionPlanHook(a, v);      // v0.10.0 MOTION: the planned path for the locomotion matcher
                 v.ApplyMatch(pos, vel, face, viewAction, h, lat, specials, _shotgun, dt);
             }
+            ServiceChoreo(dt);      // v0.10.0 CHOREO
             if (Contacts != null) Contacts.Tick(dt);
             if (Look != null) Look.Tick(dt);
             ApplyContacts();
@@ -317,6 +319,7 @@ namespace PixFootball.Gameplay
                 Pull(vc, vt, Mathf.Min(ac.ActionTime, at.ActionTime), 0.8f, 0.18f, false, true);
             }
             ApplyEngagementPulls(_presentDt);      // v0.9.0 CONNECT E-173 / E-174
+            QbMeshPull();      // v0.10.0 QB: the hand-off reach
         }
 
         static void Pull(SimAgentView a, SimAgentView b, float t, float distance, float over, bool turnA, bool turnB)
@@ -389,6 +392,7 @@ namespace PixFootball.Gameplay
                 h.Partner = a.Id == carrier;
             }
             ConnectHints(ref h, a, v, act);      // v0.9.0 CONNECT: pair seeds, block style, catch situation
+            ChoreoHints(ref h, a, act);      // v0.10.0 CHOREO: the booked catch
             return h;
         }
 
@@ -410,6 +414,7 @@ namespace PixFootball.Gameplay
                     bool qbPass = h.Side == SimSide.Offense && h.Slot == 0 && !Sim.PassIsThrown && Sim.Kind == PlayKind.Scrimmage
                                   && (h.QbState == QbPhase.Set || h.QbState == QbPhase.Windup || h.QbState == QbPhase.Dropback || h.QbState == QbPhase.Scramble || h.QbState == QbPhase.Mesh || h.QbState == QbPhase.Fake);
                     if (ConnectHeld(h, v, qbPass)) return;      // v0.9.0 CONNECT: quarterback / holder / punter holds, catch hold, hand-off exchange (E-124 E-126 E-247 E-253 E-256)
+                    if (BallFlowHeld(h, v)) return;      // v0.10.0 BODIES: the ball after the whistle (relaxed hold, spike, official), see PlayStage.BallFlow.cs
                     if (h.Action == AgentAction.Celebrate && !SimAgentView.DebugNoFlow) { Ball.SetHand(v, CelebrateHand(h, v)); return; }      // v0.7.0 (note 29): the ball stays in one hand through the whole celebration
                     // carry arm: away from the nearest defender, with hysteresis
                     if (Time.time - _carrySideAt[h.Id] > 1.0f)
@@ -433,7 +438,8 @@ namespace PixFootball.Gameplay
                     return;
                 }
             }
-            Vector3 wp = MagnetBall(SampleBallPos(), b.State);      // v0.9.0 CONNECT E-006 / E-125: interpolated, and drawn into the catcher's hands at the end of its flight
+            Vector3 wp = MagnetBall(QbSnapBall(SampleBallPos(), b), b.State);      // v0.10.0 QB: the snap is drawn into his hands at the catch frame
+            //      // v0.9.0 CONNECT E-006 / E-125: interpolated, and drawn into the catcher's hands at the end of its flight
             if (ConnectTeeNow()) { Ball.SetTee(Frame.ToUnity(new Vec2(b.Pos.X, b.Pos.Y)), down); return; }
             Ball.Kind = Sim.Kind;   // GFX-310: spiral punts, tumbling kickoffs / field goals
             // GFX-437: the landing ring for the returner (punts and kickoffs in the air, the 2K8 cue)

@@ -51,6 +51,8 @@ namespace PixFootball.Gameplay
         public float Tell;
         /// <summary>Extra body yaw of the stance in degrees (+ = clockwise from above): the wide-9 edge tilts toward the quarterback.</summary>
         public float Tilt;
+        /// <summary>v0.10.0 BODIES: the offensive line slot, 0 = none, 1 = tackle (upright, forearms on the thighs), 2 = guard (lower, forearm on the thigh), 3 = centre (down over the ball).</summary>
+        public byte Ol;
     }
 
     /// <summary>
@@ -103,6 +105,7 @@ namespace PixFootball.Gameplay
             if (PositionGroup.IsOffensiveLine(pos))
             {
                 s.Kind = pos == Position.C ? StanceKind.CenterSnap : StanceKind.ThreePoint;
+                s.Ol = kind != PlayKind.Scrimmage ? (byte)0 : (byte)(pos == Position.C ? 3 : (pos == Position.LT || pos == Position.RT ? 1 : 2));      // v0.10.0: the per-position line stances are for scrimmage downs (kicks and the goal line keep the low three-point)
                 return s;
             }
             if (PositionGroup.IsDefensiveLine(pos))
@@ -167,13 +170,13 @@ namespace PixFootball.Gameplay
                 case StanceKind.CornerPress: return new[] { ArtKeys.PixStanceCbPress, ArtKeys.StanceCbPress, ArtKeys.StanceSafety };
                 case StanceKind.CornerOff: return new[] { ArtKeys.PixStanceCbOff, ArtKeys.StanceCbOff, ArtKeys.StanceSafety };
                 case StanceKind.SafetyDeep: return new[] { ArtKeys.StanceS, ArtKeys.StanceSafety };
-                case StanceKind.KickoffRunner: return new[] { ArtKeys.StanceLb, ArtKeys.Stance2pt };
+                case StanceKind.KickoffRunner: return new[] { "kickoff_att_idle", ArtKeys.StanceLb, ArtKeys.Stance2pt };      // v0.10.0 ANIMLIB: the studio's kickoff line-up idles
                 case StanceKind.Returner: return new[] { ArtKeys.StanceS, ArtKeys.Stance2pt };
                 case StanceKind.Kicker: return new[] { ArtKeys.StanceKicker };
                 case StanceKind.Holder: return new[] { ArtKeys.KickHolder };
                 case StanceKind.OlTwoPoint: return new[] { ArtKeys.StanceLb, ArtKeys.Stance2pt, ArtKeys.IdleAlt };
                 case StanceKind.LinebackerBlitz: return new[] { ArtKeys.StanceLb, ArtKeys.IdleAlt };
-                case StanceKind.KickoffReceive: return new[] { ArtKeys.StanceLb, ArtKeys.Stance2pt };
+                case StanceKind.KickoffReceive: return new[] { "kickoff_def_idle", ArtKeys.StanceLb, ArtKeys.Stance2pt };      // v0.10.0 ANIMLIB
                 case StanceKind.Punter: return new[] { ArtKeys.StanceKicker };
                 case StanceKind.LongSnapper: return new[] { ArtKeys.StanceSnapper, ArtKeys.StanceCenter, ArtKeys.StanceOl3ptR };
                 case StanceKind.QbPocket: case StanceKind.QbDrop: return new[] { ArtKeys.QbStanceShotgun };

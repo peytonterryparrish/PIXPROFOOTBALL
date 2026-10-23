@@ -120,6 +120,7 @@ namespace PixFootball.Sim
                 if (d.CoverTarget >= 0) continue;
                 d.Zone = ZoneRegion.HookMiddle();
                 d.Landmark = S.Rel(new Vec2(0f, 8f));
+                d.IsFree = true; d.FreeSince = 0f;   // v0.10.0: a man defender with no man is a free defender (rat / Cover 0 rusher), not a statue at the hook
             }
         }
 
@@ -195,7 +196,7 @@ namespace PixFootball.Sim
             float t = S.Time;
             if (t < a.DefReadAt) return false;
             SimAgent c = S.Carrier;
-            bool carrierRuns = c != null && c.Side == SimSide.Offense && (c.Slot != 0 || S.QbHasCrossedLos || c.QbState == QbPhase.Scramble || QbDrawRunning(c));
+            bool carrierRuns = c != null && c.Side == SimSide.Offense && (c.Slot != 0 || S.QbHasCrossedLos || ScrambleCommitted(c) || QbDrawRunning(c));
             if (c != null && c.Slot == 0 && c.Side == SimSide.Offense && c.Pos.Y > S.LosY + 0.5f) carrierRuns = true;
             if (_playIsPlayAction)
             {
@@ -251,7 +252,7 @@ namespace PixFootball.Sim
             SimAgent c = S.Carrier;
             if (c != null && c.Side == SimSide.Offense)
             {
-                bool running = c.Slot != 0 || S.QbHasCrossedLos || c.QbState == QbPhase.Scramble || QbDrawRunning(c);
+                bool running = c.Slot != 0 || S.QbHasCrossedLos || ScrambleCommitted(c) || QbDrawRunning(c);
                 if (running)
                 {
                     // the ball is out and moving: everyone fits the run once he has read it
@@ -272,13 +273,20 @@ namespace PixFootball.Sim
             if (a.Assign is BlitzAssignment) { BlitzUpdate(a, (BlitzAssignment)a.Assign); return; }
             if (a.Assign is SpyAssignment) { SpyUpdate(a); return; }
             var cov = a.Assign as CoverageAssignment;
-            if (cov != null && cov.IsMan && a.CoverTarget >= 0) { ManUpdate(a, cov); return; }
+            if (cov != null && cov.IsMan && (a.CoverTarget >= 0 || a.IsFree)) { ManUpdate(a, cov); return; }
             ZoneUpdate(a);
         }
 
         // =====================================================================================
         // Pass rush
         // =====================================================================================
+
+        /// <summary>v0.10.0: the gap a down lineman is responsible for: the one his alignment technique gives him (a 3-technique has the B gap, a 1-technique the A gap), except in a stunt, where the stunt's swapped gap rules.</summary>
+        internal static RunGap GapOf(SimAgent a, RushAssignment ra)
+        {
+            if (ra.Stunt != StuntKind.None || !a.HasTechGap) return ra.Gap;
+            return a.TechGap;
+        }
 
         private Vec2 GapPoint(SimAgent a, RunGap gap)
         {
@@ -315,7 +323,7 @@ namespace PixFootball.Sim
             Vec2 aim;
             if (S.Time < 0.22f)
             {
-                aim = GapPoint(a, ra.Gap);
+                aim = GapPoint(a, GapOf(a, ra));
                 if (ra.Stunt != StuntKind.None && S.Time < 0.35f) aim = new Vec2(S.BallX0 + GapOffset(ra.Gap) * 0.8f, S.LosY - 0.2f);
             }
             else if (ra.Stunt != StuntKind.None && ra.StuntPartnerSlot >= 0 && S.Time < 0.85f && !(S.Carrier != null && S.Carrier != S.Qb && S.Carrier.Side == SimSide.Offense))
@@ -343,7 +351,7 @@ namespace PixFootball.Sim
                 }
                 else
                 {
-                    float lane = (S.BallX0 + GapOffset(ra.Gap) - target.X) * 0.25f;
+                    float lane = (S.BallX0 + GapOffset(GapOf(a, ra)) - target.X) * 0.25f;
                     aim = new Vec2(target.X + lane, target.Y);
                     if ((a.Pos - target).Length < 3f) aim = target;
                 }
@@ -408,7 +416,7 @@ namespace PixFootball.Sim
             SimAgent qb = S.Qb;
             float vmax = a.Body.EffectiveVMax;
             bool qbRuns = qb.HasBall && (S.QbHasCrossedLos || qb.QbState == QbPhase.Scramble || qb.Pos.Y > S.LosY - 0.5f && qb.Speed > 2.0f);
-            if (qbRuns || S.Carrier != null && S.Carrier != qb)
+            if (qbRuns || S.Carrier != null && S.Carrier != qb && !DrawHold(a))   // v0.10.0: the spy bites on the dropback of a draw like everybody else
             {
                 PursueTarget(a, S.Carrier != null ? S.Carrier : qb);
                 return;
@@ -425,28 +433,26 @@ namespace PixFootball.Sim
 
         private void ManUpdate(SimAgent a, CoverageAssignment cov)
         {
+            if (a.IsFree || a.CoverTarget < 0) { FreeDefenderUpdate(a, cov); return; }
             SimAgent r = S.Agents[a.CoverTarget];
-            // his man stays in to block: sit in the underneath hook zone instead of following him into the quarterback
-            if (S.OffAI.IsPassPlay && r.Side == SimSide.Offense && (r.Assign is BlockAssignment || (r.Assign is CarryAssignment && r.Intent == AgentAction.Block && S.Time > 0.6f) || (r.State == AgentState.Engaged && !(r.Assign is RouteAssignment))))
+            // v0.10.0: his man stays in to block: the defender is FREE (see FreeDefenderUpdate). He is released by a rule, not on the first tick: the man must really be blocking (assignment to block, not a route),
+            // and the defender has stayed on him for 0.9 s (a back checks for the rush before he releases) or he is already locked up with a rusher
+            if (S.OffAI.IsPassPlay && r.Side == SimSide.Offense)
             {
-                // QA-418: first look for an uncovered route runner close by (the checkdown); only then sit in the hook zone
-                SimAgent pick = null; float pd = 13f;
-                for (int oi = 1; oi < 11; oi++)
+                var rb = r.Assign as BlockAssignment;
+                bool blocking = (rb != null && rb.Block != BlockKind.Chip) || (r.Assign is CarryAssignment && r.Intent == AgentAction.Block && S.Time > 0.6f);   // a chip releases into a route: he is still a receiver
+                bool tiedUp = r.State == AgentState.Engaged && !(r.Assign is RouteAssignment) && !(rb != null && rb.Block == BlockKind.Chip);
+                if (blocking || tiedUp)
                 {
-                    SimAgent o = S.Agents[oi];
-                    if (!o.IsReceiverEligible || o == r || !(o.Assign is RouteAssignment) || o.RouteDone || o.Body.FallenTime > 0f) continue;
-                    bool covered = false;
-                    for (int di = 11; di < 22; di++) if (di != a.Id && S.Agents[di].CoverTarget == o.Id) { covered = true; break; }
-                    if (covered) continue;
-                    float dd = (o.Pos - a.Pos).Length;
-                    if (dd < pd) { pd = dd; pick = o; }
+                    if (S.Time >= (blocking ? 0.9f : 0.5f))
+                    {
+                        a.OriginalCoverTarget = a.CoverTarget;
+                        a.IsFree = true; a.FreeSince = S.Time; a.CoverTarget = -1; a.RuleReleases++;
+                        FreeDefenderUpdate(a, cov);
+                    }
+                    else HoldOnBlocker(a, r);
+                    return;
                 }
-                if (pick != null) { a.CoverTarget = pick.Id; ManUpdate(a, cov); return; }
-                a.CoverTarget = -1;
-                a.Zone = ZoneRegion.HookMiddle();
-                a.Landmark = S.Rel(new Vec2(SimMath.Clamp(a.Pos.X - S.BallX0, -6f, 6f), 8f));
-                ZoneUpdate(a);
-                return;
             }
             a.Intent = AgentAction.Run;
             float vmax = a.Body.EffectiveVMax;
@@ -557,7 +563,7 @@ namespace PixFootball.Sim
         public const float ShadowHipPerPoint = 0.025f, ShadowSpeedPerPoint = 0.002f;
 
         /// <summary>Yards a zone defender widens his reaction window per point of ZoneRange ability.</summary>
-        public const float ZoneRangeYardsPerPoint = 0.15f;
+        public const float ZoneRangeYardsPerPoint = 0.22f;
 
         private void PressJam(SimAgent d, SimAgent r)
         {
@@ -631,6 +637,11 @@ namespace PixFootball.Sim
                 if (score > bestScore) { bestScore = score; tgt = r; }
             }
 
+            // v0.10.0: quarters pattern-match: the corner and the safety key the receivers who go vertical, wherever they are
+            bool matched = false;
+            if ((z.Kind == ZoneKind.Quarter || (a.Assign is CoverageAssignment && ((CoverageAssignment)a.Assign).Match)) && S.Time > 0.5f) { SimAgent m = QuartersMatch(a, z); if (m != null) { tgt = m; matched = true; } }
+            if (!matched) { SimAgent bm = BracketMatch(a); if (bm != null) { tgt = bm; matched = true; } }
+
             Vec2 desired;
             a.ZoneTargetId = tgt != null ? tgt.Id : -1;
             float zx = ZoneX(z);
@@ -642,7 +653,7 @@ namespace PixFootball.Sim
                     float cushion = 2.2f + 0.4f * Math.Max(0f, tgt.Vel.Y);
                     float y = Math.Max(lm.Y, rp.Y + cushion);
                     float x = SimMath.Clamp(rp.X, zx - halfW, zx + halfW);
-                    desired = new Vec2(x * 0.7f + rp.X * 0.3f, y);
+                    desired = matched ? new Vec2(rp.X, y) : new Vec2(x * 0.7f + rp.X * 0.3f, y);
                 }
                 else
                 {
@@ -653,13 +664,16 @@ namespace PixFootball.Sim
                     float tight = SimMath.Clamp01((3.4f - dc) / 3.4f);
                     float cushion = SimMath.Lerp(2.8f, 1.0f, tight);
                     desired = rp + toQb * cushion;
+                    if (matched) desired = rp + toQb * 2.2f;   // v0.10.0: a bracket / match plays the receiver, not the zone
+                    if (!matched) {
                     desired = new Vec2(SimMath.Lerp(lm.X, desired.X, 0.55f + 0.45f * tight), SimMath.Lerp(lm.Y, desired.Y, 0.30f + 0.70f * tight));
                     if (rp.Y > lm.Y + z.Height * 0.5f + 1.5f) desired = new Vec2(desired.X, Math.Max(lm.Y, desired.Y));
+                    }
                 }
             }
             else
             {
-                desired = lm;
+                desired = new Vec2(lm.X + ZoneShade(z, qb), lm.Y);   // v0.10.0: the zone flows with the ball a yard or two (never a still statue at the landmark)
                 // v0.9.0 (E-196 / E-197): the deep middle safety cheats toward the most vertical receiver on his side of the field (help over the top), and a quarters safety reads the
                 // number two receiver: if he goes vertical within 7 yd he is the safety's man, otherwise the safety helps over the outside receiver
                 if (deep && S.Time > 0.7f && (z.Kind == ZoneKind.DeepMiddle || z.Kind == ZoneKind.DeepHalf || z.Kind == ZoneKind.Quarter))
@@ -826,9 +840,9 @@ namespace PixFootball.Sim
                 return;
             }
             // linemen and blitzers attack their gap first
-            if ((ra != null || a.Assign is BlitzAssignment) && a.Pos.Y > S.LosY - 0.2f && (carrier.Pos - a.Pos).Length > 3.5f && carrier.Pos.Y > S.LosY - 3f)
+            if ((ra != null || a.Assign is BlitzAssignment) && a.Pos.Y > S.LosY - 0.2f && (carrier.Pos - a.Pos).Length > 3.5f && carrier.Pos.Y > S.LosY - 3f && carrier.Pos.Y < S.LosY + 2.5f)   // v0.10.0: the gap hold ends when the ball is through the line (a lineman did not stand at his gap while a catch went 20 yd)
             {
-                RunGap g = ra != null ? ra.Gap : ((BlitzAssignment)a.Assign).Gap;
+                RunGap g = ra != null ? GapOf(a, ra) : ((BlitzAssignment)a.Assign).Gap;
                 Vec2 gp = GapPoint(a, g);
                 // v0.9.0 (E-357): he drives to the gap point and then HOLDS it (squared up, reading the ball), he does not run through it into the backfield; a nose / end with no gap plays two-gap
                 float dgp = (gp - a.Pos).Length;
@@ -1069,9 +1083,10 @@ namespace PixFootball.Sim
                 ZoneRegion z = d.Zone;
                 float cx = ZoneX(z), cy = S.LosY + z.CenterY;
                 bool deep = IsDeep(z);
-                float dx = Math.Abs(T.X - cx) - (z.Width * 0.5f + 3.0f);
+                float zr = d.Fx != null ? Math.Max(0f, d.Fxv(SimHook.ZoneRange)) * ZoneRangeYardsPerPoint : 0f;   // v0.10.0: Sideline To Sideline / Range Rover widen the area he owns when the ball is in the air too
+                float dx = Math.Abs(T.X - cx) - (z.Width * 0.5f + 3.0f + zr);
                 float dy;
-                if (deep) dy = (cy - 4f) - T.Y; else dy = Math.Abs(T.Y - cy) - (z.Height * 0.5f + 3.0f);
+                if (deep) dy = (cy - 4f - zr) - T.Y; else dy = Math.Abs(T.Y - cy) - (z.Height * 0.5f + 3.0f + zr);
                 float outside = Math.Max(0f, Math.Max(dx, dy));
                 if (outside <= 0f) return 1f;
                 float w = 1f - outside / 6f;
@@ -1093,7 +1108,7 @@ namespace PixFootball.Sim
         {
             if (!_playIsDraw || _exchangeAt < 0f) return false;
             float aw = SimMath.Rating01(a.R.Awareness);
-            float hold = PositionGroup.IsDefensiveLine(a.PlayPos) ? 0.10f : (_qbDraw ? 0.02f + 0.15f * (1f - aw) : 0.30f + 0.30f * (1f - aw));
+            float hold = PositionGroup.IsDefensiveLine(a.PlayPos) ? 0.10f : (_qbDraw ? 0.02f + 0.15f * (1f - aw) : 0.30f + 0.30f * (1f - aw) + SimTuning.DrawHoldExtra);
             return S.Time < _exchangeAt + hold;
         }
     }

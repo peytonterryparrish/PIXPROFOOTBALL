@@ -20,7 +20,7 @@ namespace PixFootball.Sim
     public enum QbPhase { PreSnap, WaitSnap, Dropback, Mesh, Fake, Set, Windup, Scramble, Done, Kneel, Spike }
 
     /// <summary>One of the 22 players on the field (offense 0-10, defense 11-21) plus all per-play AI state.</summary>
-    public sealed class SimAgent
+    public sealed partial class SimAgent
     {
         // ---- identity ----
         public int Id;

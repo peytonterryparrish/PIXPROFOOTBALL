@@ -594,7 +594,7 @@ namespace PixFootball.Gameplay
                     if (t > cpuDelay && _ps == PsMode.None) snap = true;
                 }
                 if (Autopilot && t > AutopilotSnapDelay) snap = true;
-                if (snap && Stage != null && Stage.BreakInProgress && Sim.Kind == PlayKind.Scrimmage && playClock > 2f) snap = false;      // v0.9.0 CONNECT E-252: nobody snaps the ball while the team is still breaking to the line
+                if (snap && Stage != null && Stage.BreakInProgress && Sim.Kind == PlayKind.Scrimmage && playClock > 2f) { snap = false; Stage.QbSeqHurry(); }      // v0.9.0 CONNECT E-252: nobody snaps the ball while the team is still breaking to the line
                 if (playClock <= 0f && !snap)
                 {
                     // delay of game: the user's offense let the clock run out

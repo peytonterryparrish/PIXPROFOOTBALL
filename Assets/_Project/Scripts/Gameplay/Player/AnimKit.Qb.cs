@@ -24,7 +24,7 @@ namespace PixFootball.Gameplay
                 var mir = ClipFacingTable.MirrorOf(oc);
                 if (mir != null && oc.length < 9f) { plan = TimedKick(mir, h.EventEta); if (plan.Valid) return plan; }
             }
-            plan = Kick(h.Kind, h.Seed, false, h.EventEta);
+            plan = Kick(h.Kind, h.Seed, false, h.EventEta > 0f ? h.EventEta + KickEtaBias(h.Kind) : h.EventEta);      // v0.10.0 QB: the measured foot-contact frame of the take, not the table moment
             if (!plan.Valid) return plan;
             return RightFooted(plan);
         }
@@ -95,5 +95,15 @@ namespace PixFootball.Gameplay
             var m = ClipFacingTable.MirrorOf(c);
             return m != null ? m : c;
         }
+    }
+}
+
+namespace PixFootball.Gameplay
+{
+    public static partial class AnimKit
+    {
+        /// <summary>v0.10.0 QB (note 7): seconds added to the time-to-contact the kick take is planned with, so the take's measured foot contact (the frame the instep meets the ball: foot speed peak and the ball gap in the audit's frame log) is the simulated contact frame.
+        /// The punt take's table moment is 0.042 s later than its real contact (measured 3 frames late); the kickoff and field goal takes land within one frame.</summary>
+        public static float KickEtaBias(PlayKind kind) { return kind == PlayKind.Punt ? 0.042f : (kind == PlayKind.Kickoff ? -0.0167f : (kind == PlayKind.FieldGoal ? 0.042f : 0f)); }
     }
 }

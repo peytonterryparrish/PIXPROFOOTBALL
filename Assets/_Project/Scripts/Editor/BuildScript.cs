@@ -28,6 +28,8 @@ namespace PixFootball.EditorTools
             "celebrate_td", "celebrate_td_2", "celebrate_td_3", "celebrate_qb", "cheer", "frustration", "salute", "dance", "idle_conversation", "fumble",
             // v0.4 contact: every authored two-actor take (A = carrier, B = tackler) plus the pair clips the carrier moves and catches use
             "contact_tackle", "contact_tackle_b", "contact_sack", "contact_sack_b", "contact_bighit", "contact_bighit_b", "contact_collision", "contact_collision_b",
+            // v0.10.0 ANIMLIB / QB keys that are string literals in AnimKit.Extra2 (not ArtKeys constants); without them the player build would drop the kickoff, cadence, snap and celebration takes
+            "kickoff_att_idle", "kickoff_def_idle", "kickoff_def_run", "qb_cadence_under", "qb_cadence_shotgun", "center_snap", "dl_getoff_4pt", "qb_drop_settle", "celebrate_big", "celebrate_td_all", "react_frustration", "draft_night", "draft_night_b", "endzone_save", "endzone_save_b", "trench_atk", "trench_def", "takedown", "truck_alt", "ankle_breaker", "ankle_breaker_b", "crowd_posture", "crowd_stand_happy", "crowd_stand_sad", "crowd_sit_happy", "crowd_sit_sad",
             "stiff_arm", "stiff_arm_b", "spin_move", "spin_move_b", "truck", "truck_b", "juke_right", "juke_right_b", "juke_tempo", "juke_tempo_b", "juke_box", "juke_box_b", "rocker_step", "rocker_step_b", "catch_contested", "catch_contested_b"
         };
 

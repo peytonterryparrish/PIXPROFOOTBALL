@@ -83,6 +83,7 @@ namespace PixFootball.Gameplay
             bool huddle = NextBeginHuddle && sim.Kind == PlayKind.Scrimmage && sim.Phase == PlayPhase.PreSnap && GlideEnabled;
             NextBeginHuddle = false;
             if (huddle) PlaceHuddle(sim, frame);
+            QbSeqBegin(sim, frame, huddle);      // v0.10.0 QB: walk, survey, step in, crouch
         }
 
         void ConnectEnd()
@@ -135,6 +136,7 @@ namespace PixFootball.Gameplay
         {
             h.Live = Sim.Phase == PlayPhase.Live;
             // ---- pre-snap: walk the change instead of teleporting
+            QbViewAction(i, a, ref viewAction);      // v0.10.0 QB: no mocap hand-off take over a quarterback who has dropped back or booted
             bool gliding = GlideStep(i, a, v, ref pos, ref vel, ref face, dt);
             if (gliding) viewAction = vel.sqrMagnitude > 0.25f ? AgentAction.Run : AgentAction.Idle;
             // ---- the quarterback reads ahead of the exchange: the ball starts travelling to the back half a window before the simulated exchange
@@ -148,7 +150,7 @@ namespace PixFootball.Gameplay
                 reach = true; rp = SampleBallPos();
                 one = h.Diving && ((h.Seed & 1) == 1);
             }
-            else if (Time.time - _catchAt[i] < 0.22f && b.State == BallState.Held && b.Holder == i) { reach = true; rp = Ball != null ? Ball.Position : SampleBallPos(); }
+            else if ((Time.time - _catchAt[i] < 0.22f || _lastHolder != i) && b.State == BallState.Held && b.Holder == i)      // v0.10.0 CHOREO: also on the very frame the catch is made (_catchAt is set later in the frame): the reach IK no longer drops for one frame and ramps back in (the 0.5 m hand pop) { reach = true; rp = Ball != null ? Ball.Position : SampleBallPos(); }
             v.ReachBall(rp, reach ? 1f : 0f, one);
             v.SetTuck(0f, _carrySide[i]);
         }
@@ -174,6 +176,7 @@ namespace PixFootball.Gameplay
                 _g[i] = g; return true;
             }
             if (v.Huddle) v.SetHuddle(false, 0);
+            { bool qbWalk; if (QbSeqStep(i, ref g, target, ref pos, ref vel, ref face, dt, v, out qbWalk)) { _g[i] = g; return qbWalk; } }      // v0.10.0 QB
             Vector3 to = target - g.Shown; to.y = 0f;
             float d = to.magnitude;
             if (!g.Active && d < 0.06f) { g.Shown = target; _g[i] = g; return false; }
@@ -345,7 +348,7 @@ namespace PixFootball.Gameplay
             {
                 var v = _views[i]; if (v == null) { _pullW[i] = 0f; continue; }
                 if (!_pullTouched[i]) _pullW[i] = Mathf.MoveTowards(_pullW[i], 0f, dt / 0.2f);
-                if (_pullW[i] > 0.001f && !v.ContactDriven) v.ApplyContact(_pullOff[i], _pullYaw[i], _pullW[i], true);
+                if (_pullW[i] > 0.001f && !v.ContactDriven) v.ApplyContact(_pullOff[i], _pullYaw[i], _pullW[i], true, dt);
             }
         }
 
@@ -364,7 +367,8 @@ namespace PixFootball.Gameplay
             {
                 if (_magEta[j] > 0.3f) continue;
                 var vj = _views[j]; if (vj == null || vj.Avatar == null || vj.Avatar.RightHand == null || vj.Avatar.LeftHand == null) continue;
-                Vector3 m = (vj.Avatar.RightHand.position + vj.Avatar.LeftHand.position) * 0.5f;
+                Vector3 ra = vj.Avatar.RightHand.position, la = vj.Avatar.LeftHand.position;
+                Vector3 m = Vector3.Lerp((ra + la) * 0.5f, _carrySide[j] >= 0 ? ra : la, BallFollower.CatchBias) + vj.Forward * 0.03f;      // v0.10.0 CHOREO: the same point the held ball takes (BallFollower.PoseCatch), so the catch frame is already there
                 float dj = (m - wp).magnitude; if (dj < bestD) { bestD = dj; pick = j; hm = m; pickEta = _magEta[j]; }
             }
             if (pick < 0) return wp;
@@ -379,7 +383,7 @@ namespace PixFootball.Gameplay
         PlayPhase _lastPhase = PlayPhase.PreSnap;
 
         /// <summary>True while a tackled player is still going down or getting up (ragdoll, take or get-up): the post-play window waits for him (E-216).</summary>
-        public bool PostPlayBusy { get { return Contacts != null && Contacts.Busy; } }
+        public bool PostPlayBusy { get { return (Contacts != null && Contacts.Busy) || BallFlowBusy; } }
 
         /// <summary>E-271: after the whistle the players do not freeze in the whistle pose: the ones near the pile gather round it at a walk, the rest drift toward it; the touchdown and kick plays keep their own choreography.</summary>
         void PostWhistleStart()
@@ -429,19 +433,19 @@ namespace PixFootball.Gameplay
         {
             float since = Time.time - _holderSince;
             bool kickPlay = Sim.Kind == PlayKind.FieldGoal || Sim.Kind == PlayKind.Punt;
-            bool kickerRole = kickPlay && !Sim.KickStruck && ((h.Side == SimSide.Offense && h.Slot == 0) || Sim.KickerSlot == h.Id);      // E-124: the returners carry the ball like carriers
+            bool kickerRole = kickPlay && !Sim.KickStruck && ((h.Side == SimSide.Offense && h.Slot == 0) || Sim.KickerSlot == h.Id || h.Id == Sim.KickHolderId);      // E-124: the returners carry the ball like carriers
             Vector3 down = Frame.DirToUnity(new Vec2(0f, 1f));
             var carriage = v.Motion != null ? v.Motion.ShownCarriage : BodyMotion.Carriage.None;
-            if (kickerRole && Sim.Kind == PlayKind.FieldGoal && h.Slot == 0 && since > 0.32f && !SimAgentView.DebugNoConnect)
+            if (kickerRole && Sim.Kind == PlayKind.FieldGoal && (h.Slot == 0 || h.Id == Sim.KickHolderId) && since > 0.32f && !SimAgentView.DebugNoConnect)
             {
-                Ball.SetSpot(Frame.ToUnity(new Vec3(h.Pos.X, h.Pos.Y + 0.4f, KickGeometry.HolderSpotHeightYd)), down); return true;       // E-253
+                Ball.SetSpot(Frame.ToUnity(new Vec3(h.Pos.X + KickGeometry.FgSpotSideYd, h.Pos.Y + KickGeometry.FgSpotAheadYd, KickGeometry.HolderSpotHeightYd)), down); return true;       // E-253
             }
             if (kickerRole && Sim.Kind == PlayKind.Punt && Sim.KickerSlot == h.Id && Sim.KickContactTime > 0f && !SimAgentView.DebugNoConnect)
             {
                 float left = Sim.KickContactTime - Sim.Time;
                 if (left <= KickGeometry.PuntDropSeconds)
                 {
-                    Ball.SetDrop(Frame.ToUnity(new Vec3(h.Pos.X, h.Pos.Y + KickGeometry.PuntContactAheadYd, KickGeometry.PuntContactHeightYd)), Mathf.Max(0.02f, left), down); return true;   // E-256
+                    Ball.SetDrop(Frame.ToUnity(new Vec3(h.Pos.X + KickGeometry.PuntContactAsideYd, h.Pos.Y + KickGeometry.PuntContactAheadYd, KickGeometry.PuntContactHeightYd)), Mathf.Max(0.02f, left), down); return true;   // E-256
                 }
             }
             if (!SimAgentView.DebugNoConnect && h.Id == 0 && _preExTgt > 0 && _preExTgt < 22 && _views[_preExTgt] != null) { Ball.SetExchange(v, _views[_preExTgt], _carrySide[_preExTgt], -_preExEta, 0.24f); return true; }

@@ -13,7 +13,7 @@ namespace PixFootball.Gameplay
     /// frozen statues, gang tacklers matched in time and place, impacts at the contact moment, contested catches and jams as short pairs, pancake finish, stagger before the ragdoll, QB hit
     /// flinch, fumble recovery, classified get-ups and a catch-up walk instead of a glide.
     /// </summary>
-    public sealed class ContactDirector
+    public sealed partial class ContactDirector
     {
         readonly PlayStage _stage;
         readonly List<ContactSession> _sessions = new List<ContactSession>();
@@ -35,7 +35,7 @@ namespace PixFootball.Gameplay
         {
             get
             {
-                if (_sessions.Count > 0 || _solo.Count > 0 || _joiners.Count > 0 || _oneShots.Count > 0 || _knocks.Count > 0) return true;
+                if (_sessions.Count > 0 || _solo.Count > 0 || _joiners.Count > 0 || _oneShots.Count > 0 || _knocks.Count > 0 || _bookedSolo.Count > 0) return true;
                 for (int i = 0; i < 22; i++) { var v = View(i); if (v != null && v.Ragdoll != null && v.Ragdoll.Active) return true; }
                 return false;
             }
@@ -110,6 +110,7 @@ namespace PixFootball.Gameplay
             foreach (var j in _joiners) Release(j.Agent, -1);
             foreach (var kv in _solo) Release(kv.Key, -1);
             foreach (var o in _oneShots) Release(o.Agent, -1);
+            ResetBooked();      // v0.10.0 CHOREO
             _sessions.Clear(); _joiners.Clear(); _solo.Clear(); _stiff.Clear(); _oneShots.Clear(); _knocks.Clear(); _impacts.Clear();
         }
 
@@ -154,6 +155,9 @@ namespace PixFootball.Gameplay
                 case SimEventType.Jam:
                     if (e.AgentA >= 0 && e.AgentB >= 0 && e.AgentA < 22 && e.AgentB < 22) OnJam(e);
                     break;
+                case SimEventType.PileOn:
+                    if (e.AgentA >= 0 && e.AgentB >= 0 && e.AgentA < 22 && e.AgentB < 22) OnPileOnBooked(e);      // v0.10.0 CHOREO
+                    break;
                 case SimEventType.QbHit:
                     if (e.AgentB >= 0 && e.AgentB < 22) OnQbHit(e);
                     break;
@@ -189,6 +193,7 @@ namespace PixFootball.Gameplay
             if (vc == null || vt == null) return;
             var existing = SessionOf(carrier);
             bool drag = e.Tackle == TackleType.Drag;
+            if (!drag && existing != null && HasUnstartedBooking(carrier, tackler)) { EndSession(existing, false); existing = null; }      // v0.10.0 CHOREO: the booked take replaces the drag struggle (the simulation moves both bodies along it now)
             if (existing != null && existing.CarrierRunsOn && !existing.ReleasedA)
             {
                 // E-206: a second tackler on a carrier who is still in a broken take brings him down: the broken take ends (blended into the wrap) and a real tackle starts
@@ -212,6 +217,7 @@ namespace PixFootball.Gameplay
             ContactKind kind = TackleVariants.KindFor(e.Tackle, sackFollows);
             // shoestrings that do not bring the carrier down: the tackler goes for his legs and the carrier stumbles on
             if (e.Tackle == TackleType.Shoestring) kind = ContactKind.Broken;
+            if (!drag && TryStartBooked(tackler, carrier, e)) return;      // v0.10.0 CHOREO: the simulation booked this take and moves both bodies along it
             StartSession(kind, tackler, carrier, e, drag);
         }
 
@@ -230,10 +236,12 @@ namespace PixFootball.Gameplay
             int tackler = e.AgentA, carrier = e.AgentB;
             if (tackler >= 22 || carrier >= 22) return;
             var existing = SessionOf(carrier);
+            if (existing != null && HasUnstartedBooking(carrier, tackler)) { EndSession(existing, false); existing = null; }      // v0.10.0 CHOREO
             if (existing != null && existing.Held) EndSession(existing, false);   // a dragger the carrier shook off: the take blends straight into the broken take (E-241)
             if (InSession(tackler) || InSession(carrier)) return;
             var sim = _stage.Sim;
             bool qb = carrier == 0 && sim.Kind == PlayKind.Scrimmage && !sim.PassIsThrown;
+            if (TryStartBooked(tackler, carrier, e)) return;      // v0.10.0 CHOREO
             StartSession(qb ? ContactKind.SackBroken : ContactKind.Broken, tackler, carrier, e, false);
         }
 
@@ -277,6 +285,7 @@ namespace PixFootball.Gameplay
         /// <summary>True when this receiver's catch is a duel in traffic (defender within a yard, receiver nearly stationary, ball low): the stage then waits for the pair instead of playing the plain catch.</summary>
         public bool IsContestedCandidate(int receiver)
         {
+            { var ch0 = _stage.Sim != null ? _stage.Sim.Choreo : null; if (ch0 != null && !SimAgentView.DebugNoChoreo && !Choreographer.DebugNoDuel) return ch0.DuelOutcomeOf(receiver) == 1; }      // v0.10.0 CHOREO: only a duel the receiver wins is the pair
             int d; return Candidate(receiver, out d);
         }
 
@@ -304,6 +313,14 @@ namespace PixFootball.Gameplay
             if (!Enabled || _stage.Sim == null) return false;
             var sim = _stage.Sim;
             if (InSession(receiver)) return true;
+            if (sim.Choreo != null && !SimAgentView.DebugNoChoreo && !Choreographer.DebugNoDuel)
+            {
+                // v0.10.0 CHOREO: the simulation rolled the duel and booked the pair: play it (its contact frame is the arrival); until it is booked the receiver waits
+                var bk = sim.Choreo.DuelBookingOf(receiver);
+                if (bk == null || bk.Phase != ChoreoPhase.Playing) return false;
+                if (bk.ViewStarted) return true;
+                return TryStartBooked(bk.B, receiver, new PlayEvent { Type = SimEventType.Catch, AgentA = receiver, AgentB = bk.B, Value = 0f });
+            }
             var r = sim.Agents[receiver];
             int best;
             if (!Candidate(receiver, out best)) return false;
@@ -570,6 +587,7 @@ namespace PixFootball.Gameplay
         public void Tick(float dt)
         {
             if (!Enabled || _stage.Sim == null) return;
+            TickBooked(dt);      // v0.10.0 CHOREO
             float rate = Rate;
             // ---- delayed knocks (the stagger before the ragdoll)
             for (int i = _knocks.Count - 1; i >= 0; i--)
@@ -629,12 +647,13 @@ namespace PixFootball.Gameplay
                 // the simulation's positions this frame (ApplyMatch just set them)
                 Vector3 pc = vc.transform.position, pt = vt.transform.position;
                 ContactActorPose a, b;
-                s.Evaluate(Ground(pc), vc.Yaw, Ground(pt), vt.Yaw, out a, out b);
+                float bookedYaw = s.Booked ? BookedYaw(s.Booking) : 0f;      // v0.10.0 CHOREO: a booked pair is drawn where the simulation has it, at the yaw of its placement
+                s.Evaluate(Ground(pc), s.Booked ? bookedYaw : vc.Yaw, Ground(pt), s.Booked ? bookedYaw : vt.Yaw, out a, out b);
                 if (!s.ReleasedA) vc.SetContactPose(new Vector3(a.Root.x, pc.y, a.Root.y), a.Yaw);
                 if (!s.ReleasedB) vt.SetContactPose(new Vector3(b.Root.x, pt.y, b.Root.y), b.Yaw);
                 // E-215 / E-123: each actor is let go when HIS take ends (or at the early release of a contested catch / jam), the other keeps playing
-                if (!s.ReleasedA && !s.Held && ((s.ReleaseAAfter > 0f && s.Time >= s.Contact + s.ReleaseAAfter) || s.Time >= s.EndA)) ReleaseActor(s, true, a.Root, pc);
-                if (!s.ReleasedB && !s.Held && ((s.ReleaseBAfter > 0f && s.Time >= s.Contact + s.ReleaseBAfter) || s.Time >= s.EndB)) ReleaseActor(s, false, b.Root, pt);
+                if (!s.ReleasedA && !s.Held && (s.Booked ? !s.Booking.OwnsA : (s.ReleaseAAfter > 0f && s.Time >= s.Contact + s.ReleaseAAfter)) || (!s.ReleasedA && !s.Held && s.Time >= s.EndA)) ReleaseActor(s, true, a.Root, pc);
+                if (!s.ReleasedB && !s.Held && (s.Booked ? !s.Booking.OwnsB : (s.ReleaseBAfter > 0f && s.Time >= s.Contact + s.ReleaseBAfter)) || (!s.ReleasedB && !s.Held && s.Time >= s.EndB)) ReleaseActor(s, false, b.Root, pt);
                 if (s.Finished) EndSession(s);
             }
             for (int i = _joiners.Count - 1; i >= 0; i--)

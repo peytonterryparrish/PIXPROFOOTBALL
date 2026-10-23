@@ -28,21 +28,25 @@ namespace PixFootball.Sim
         private void QbDropFacing(SimAgent q, Vec2 dir)
         {
             if (_qbDropClock0 < 0f || q.QbClock < _qbDropClock0 - 0.01f) _qbDropClock0 = q.QbClock;
-            float t = q.QbClock - _qbDropClock0;
             Vec2 down = new Vec2(0f, 1f);
             q.HasFace = true;
             if (_shotgun) { q.FaceDir = down; return; }
-            // reverse pivot: the body turns from the line to the drop direction in about a quarter second (clockwise when he drops straight back)
-            float ang = SignedAngle(down, dir);
-            if (ang > 2.6f) ang -= 2f * (float)Math.PI;
-            float k = SimMath.Clamp01(t / 0.24f); k = k * k * (3f - 2f * k);
-            q.FaceDir = RotateDir(down, ang * k);
+            // v0.10.0 QB: the reverse pivot opens the hips about 72 degrees to the side the drop travels (not all the way round: he never turns his back on the field),
+            // holds the open stance through the first half of the drop and brings the hips back square to the line over the second half, so he SETS with his chest north
+            float el = S.Time - _dropT0;           // seconds since the secure ended (the drop clock starts after it)
+            if (el <= 0f) { q.FaceDir = down; return; }
+            float open = QbSeqTiming.OpenDegrees * (float)Math.PI / 180f * (dir.X > 0.15f ? -1f : (dir.X < -0.15f ? 1f : -1f));
+            float k = SimMath.Clamp01(el / QbSeqTiming.PivotSeconds); k = k * k * (3f - 2f * k);
+            float tail = Math.Max(0.4f, _dropDur * 0.5f);
+            float u = SimMath.Clamp01((el - (_dropDur - tail - 0.1f)) / tail); u = u * u * (3f - 2f * u);
+            q.FaceDir = RotateDir(down, open * k * (1f - u));
         }
 
         /// <summary>The way the passer faces in the pocket: toward his current read, within 35 degrees of the line, so the shoulders track the progression.</summary>
         private Vec2 QbSetFacing(SimAgent q)
         {
             Vec2 down = new Vec2(0f, 1f);
+            if (!_rolling) return down;      // v0.10.0 QB: the chest faces north (downfield) in the pocket; the HEAD scans the reads (the presentation turns it), the feet shuffle
             if (_reads == null || _reads.Count == 0 || S.Options.QbHoldsBall) return down;
             SimAgent r = S.Agents[_reads[Math.Min(Math.Max(0, q.ReadIdx), _reads.Count - 1)]];
             Vec2 to = r.Pos - q.Pos;
@@ -117,6 +121,71 @@ namespace PixFootball.Sim
             Vec2 to = S.Agents[q.ThrowTarget].Pos - q.Pos;
             if (to.LenSq() < 0.04f) return true;
             return SimMath.AngleBetween(q.Facing, to.Norm()) < 0.35f;
+        }
+    }
+}
+
+namespace PixFootball.Sim
+{
+    internal sealed partial class OffenseAI
+    {
+        private QbPhase _seqPrev = QbPhase.PreSnap;
+        private float _seqScrambleAt = -1f;
+
+        /// <summary>
+        /// v0.10.0 QB: the simulation plans around the quarterback's choreographed segments (see <see cref="QbSeqTiming"/>). Called every tick from the quarterback update:
+        /// the snap in his hands is SECURED first (the body holds still while the ball is pulled to the belly, the drop clock starts after it), and pocket-to-scramble is a transition with a tuck and a first drive step
+        /// (the body is held to a fraction of his speed for 0.34 s) instead of a full-speed start from the plant.
+        /// </summary>
+        private void QbSeqWatch(SimAgent q)
+        {
+            QbPhase st = q.QbState;
+            if (st != _seqPrev)
+            {
+                if (st == QbPhase.Dropback && (_seqPrev == QbPhase.WaitSnap || _seqPrev == QbPhase.PreSnap) && _dropT0 < 0f)
+                {
+                    float sec = QbSeqTiming.Secure(_shotgun);
+                    _dropT0 = S.Time + sec; _dropFrom = q.Pos;
+                    q.CommitUntil = S.Time + sec; q.CommitSpeedFrac = 0f;
+                }
+                if (st == QbPhase.Scramble && (_seqPrev == QbPhase.Set || _seqPrev == QbPhase.Dropback || _seqPrev == QbPhase.Windup) && q.Speed < 1.6f) _seqScrambleAt = S.Time;      // the transition is for a quarterback who stands in the pocket; one who is still moving off his drop runs on (a brake to 30 percent was a hard stop)
+                _seqPrev = st;
+            }
+            if (st == QbPhase.Mesh && _qa != null && _qa.Action != QbAction.Toss && !_shotgun && S.Time < QbSeqTiming.MeshOpenSeconds)
+            {
+                // the open step toward the runner (a hand-off from under centre): the body is held to 45 percent of his speed for 0.40 s, the exchange is the runner's to meet
+                q.CommitUntil = S.Time + 0.03f; q.CommitSpeedFrac = QbSeqTiming.MeshOpenSpeed;
+            }
+            if (_rolling && st == QbPhase.Dropback && _qa != null)
+            {
+                // a rolling passer runs with his shoulders turned upfield (eyes on the field), not square to the way he runs
+                q.HasFace = true; int rdir = _qa.RollDirection >= 0 ? 1 : -1; q.FaceDir = new Vec2(rdir * 0.55f, 0.84f).Norm();
+            }
+            if (st == QbPhase.Scramble && _seqScrambleAt >= 0f)
+            {
+                float t = S.Time - _seqScrambleAt;
+                if (t < QbSeqTiming.ScrambleStartSeconds)
+                {
+                    q.CommitUntil = S.Time + 0.03f;
+                    q.CommitSpeedFrac = t < QbSeqTiming.ScrambleFirstSeconds ? QbSeqTiming.ScrambleFirstSpeed : QbSeqTiming.ScrambleSecondSpeed;
+                }
+            }
+        }
+    }
+}
+
+namespace PixFootball.Sim
+{
+    internal sealed partial class OffenseAI
+    {
+        /// <summary>v0.10.0 QB: on a hand-off the quarterback pivots toward the runner but his body never turns more than 150 degrees from the line (a reverse pivot to the back behind him) (the runner behind him is reached with the arms and the open step, not by spinning his back to the field).</summary>
+        private void QbSeqMeshFace(SimAgent q)
+        {
+            if (!q.HasFace || _qa == null || _qa.Action == QbAction.Toss) return;
+            Vec2 down = new Vec2(0f, 1f);
+            float ang = SignedAngle(down, q.FaceDir);
+            const float lim = 150f * (float)Math.PI / 180f;
+            if (Math.Abs(ang) > lim) q.FaceDir = RotateDir(down, ang > 0f ? lim : -lim);
         }
     }
 }

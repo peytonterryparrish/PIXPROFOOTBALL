@@ -93,7 +93,7 @@ namespace PixFootball.Sim
                     S.Blocks.ForcePassMode = true;
                     S.Blocks.HasAnchor = true;
                     S.Blocks.AnchorOverride = _holder.Pos;
-                    { Vec2 ks = _holder.Pos + new Vec2(-1.8f, -2.6f); _kicker.Body.Pos = ks; _kicker.StartPos = ks; _kicker.Body.Vel = Vec2.Zero; _kicker.ClearHistory(ks); }   // v0.7: room for a 2-3 step approach
+                    { Vec2 ks = _holder.Pos + new Vec2(-0.9f, -1.45f); _kicker.Body.Pos = ks; _kicker.StartPos = ks; _kicker.Body.Vel = Vec2.Zero; _kicker.ClearHistory(ks); }   // v0.7: room for a 2-3 step approach
                     _returner = null;
                     for (int i = 11; i < 22; i++) if (S.Agents[i].Assign is ReturnerAssignment) _returner = S.Agents[i];
                     break;
@@ -369,7 +369,7 @@ namespace PixFootball.Sim
             BeginApproach(a);
             a.Intent = AgentAction.Run;
             // 5-7 steps on a curved line that ends at the plant spot beside the ball at the contact frame
-            Vec2 plant = tee + new Vec2(-0.40f, -0.70f);   // v0.9.0 (E-303): left plant foot beside the ball, the RIGHT leg swings through
+            Vec2 plant = tee + new Vec2(-0.50f, -0.70f);   // v0.10.0 QB: the kick take's instep passes 0.22 m right of the plant line, so the plant is 0.24 yd further left; v0.9.0 (E-303): left plant foot beside the ball, the RIGHT leg swings through
             float u = SimMath.Clamp01((S.Time - _approachAt) / Math.Max(0.1f, _kickTime - _approachAt));
             float shape = 1.6f;   // v0.9.0 (E-309): the last two steps shorten
             Vec2 target = _approachFrom + (plant - _approachFrom) * (float)Math.Pow(u, shape);
@@ -584,7 +584,7 @@ namespace PixFootball.Sim
             _kicked = true;
             SimAgent k = _kicker;
             float kp = SimMath.Rating01(k.R.KickPower), acc = SimMath.Rating01(k.R.KickAccuracy);
-            Vec3 from = new Vec3(k.Pos + new Vec2(0f, KickGeometry.PuntContactAheadYd), KickGeometry.PuntContactHeightYd);      // v0.9.0 CONNECT E-256: the foot meets a ball that fell from the hands (the view drops it for PuntDropSeconds)
+            Vec3 from = new Vec3(k.Pos + new Vec2(KickGeometry.PuntContactAsideYd, KickGeometry.PuntContactAheadYd), KickGeometry.PuntContactHeightYd);      // v0.9.0 CONNECT E-256: the foot meets a ball that fell from the hands (the view drops it for PuntDropSeconds)
             RushJumps(from.XY);
             // rush pressure shortens the punt and can block it
             float pressure = 0f;
@@ -604,7 +604,7 @@ namespace PixFootball.Sim
                 if (S.Rng.NextFloat() < pBlock) { BlockKick(k, blocker, from); return; }
             }
             KickMods mods = Mods();
-            float flight = (44f + 22f * kp) * (1f - 0.25f * pressure) * mods.Power + S.Rng.Gaussian(0f, (2.5f + 4f * (1f - acc)) * mods.Spread);
+            float flight = (41.2f + 21f * kp) * (1f - 0.25f * pressure) * mods.Power + S.Rng.Gaussian(0f, (2.5f + 4f * (1f - acc)) * mods.Spread);
             float hang = (3.75f + 1.1f * kp) * (1f - 0.12f * pressure);
             var ka = (KickAssignment)S.OffPlay.Assignments[0];
             float aimX = S.BallX0 + ka.AimX + mods.AimYards;
@@ -694,7 +694,7 @@ namespace PixFootball.Sim
             UserTrigger();
             if (_kicked) { a.Intent = AgentAction.Run; a.Want = Vec2.Zero; return; }
             a.HasFace = true;
-            Vec2 spot = _holder.Pos + new Vec2(0f, 0.4f);
+            Vec2 spot = _holder.Pos + new Vec2(KickGeometry.FgSpotSideYd, KickGeometry.FgSpotAheadYd);
             if (!_ballInHands || _approachAt < 0f || S.Time < _approachAt)
             {
                 // on his mark beside the holder, watching the ball come back
@@ -707,14 +707,14 @@ namespace PixFootball.Sim
             BeginApproach(a);
             a.Intent = AgentAction.Run;
             // 2-3 steps in, planting beside the ball at the contact frame
-            Vec2 plant = _holder.Pos + new Vec2(-0.66f, -0.50f);   // v0.9.0 (E-305): left plant foot beside the ball, right leg through; E-307: the plant is outside the holder body (0.66 yd left, 0.5 behind: the kicker no longer passes through the holder)
+            Vec2 plant = _holder.Pos + new Vec2(-0.30f, -0.47f);   // v0.9.0 (E-305): left plant foot beside the ball, right leg through; E-307: the plant is outside the holder body (0.66 yd left, 0.5 behind: the kicker no longer passes through the holder)
             float span = Math.Max(0.1f, _kickTime - _approachAt);
-            float u = SimMath.Clamp01((S.Time - _approachAt) / span);
+            float u = SimMath.Clamp01((S.Time - _approachAt + 0.08f) / span);      // v0.10.0 QB: the path leads the body by 0.08 s so he is ON the plant spot at the contact frame (he lagged 0.15 m behind it)
             const float shape = 1.15f;
             Vec2 target = _approachFrom + (plant - _approachFrom) * (float)Math.Pow(u, shape);
             Vec2 ff = (plant - _approachFrom) * (shape * (float)Math.Pow(Math.Max(u, 0.02f), shape - 1f) / span);
             Vec2 want = (target - a.Pos) * 7f + ff;
-            float cap = a.Body.EffectiveVMax * 0.78f;      // v0.9.0 (E-305): the three-step approach reaches the plant spot beside the ball
+            float cap = a.Body.EffectiveVMax * 0.92f;      // v0.10.0 QB: he arrives on the plant spot at the contact frame; v0.9.0 (E-305): the three-step approach reaches the plant spot beside the ball
             if (want.Length > cap) want = want.Norm() * cap;
             a.Want = want;
             a.FaceDir = u > 0.6f ? (spot - a.Pos).Norm() : (want.LenSq() > 0.04f ? want.Norm() : new Vec2(0f, 1f));
@@ -749,7 +749,7 @@ namespace PixFootball.Sim
             _kicked = true;
             SimAgent k = _kicker;
             float kp = SimMath.Rating01(k.R.KickPower), acc = SimMath.Rating01(k.R.KickAccuracy);
-            Vec3 from = new Vec3(_holder.Pos.X, _holder.Pos.Y + 0.4f, KickGeometry.HolderSpotHeightYd);      // v0.9.0 CONNECT E-253: the holder's spot on the turf
+            Vec3 from = new Vec3(_holder.Pos.X + KickGeometry.FgSpotSideYd, _holder.Pos.Y + KickGeometry.FgSpotAheadYd, KickGeometry.HolderSpotHeightYd);      // v0.9.0 CONNECT E-253: the holder's spot on the turf
             RushJumps(from.XY);
             S.KickDistance = GoalPostY - from.Y + 0f;
             // pressure from the rush

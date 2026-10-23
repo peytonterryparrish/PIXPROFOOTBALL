@@ -31,6 +31,7 @@ namespace PixFootball.EditorTools
 
         public static AnimationClip FindClip(string name)
         {
+            if (name.StartsWith("path:")) return AssetDatabase.LoadAssetAtPath<AnimationClip>(name.Substring(5));
             if (name.StartsWith("clean:")) return AssetDatabase.LoadAssetAtPath<AnimationClip>(ClipCleaner.PathOf(name.Substring(6)));
             var lib = ArtLibrary.Load();
             var c = lib != null ? lib.ClipByName(name) : null;
@@ -82,6 +83,35 @@ namespace PixFootball.EditorTools
                 Debug.Log("[StickSheet] " + path + " (" + group.Count + " clips)");
             }
             rig.Dispose();
+        }
+
+        /// <summary>v0.10.0 ANIMLIB: one PNG with a grid of clip strips (cols columns, frames poses per clip over the first maxSeconds), clip names as labels.</summary>
+        public static void RenderGrid(List<string> clipNames, string path, int cols, int frames, float maxSeconds)
+        {
+            var rig = AnimRig.CreateMedium(); if (rig == null) return;
+            var strips = new List<Texture2D>();
+            foreach (string cn in clipNames)
+            {
+                var clip = FindClip(cn);
+                if (clip == null) { Debug.LogWarning("[StickSheet] missing " + cn); continue; }
+                float t1 = Mathf.Min(clip.length, maxSeconds);
+                strips.Add(Strip(rig, clip, frames, 0f, t1));
+            }
+            rig.Dispose();
+            if (strips.Count == 0) return;
+            int rows = (strips.Count + cols - 1) / cols, W = strips.Max(t => t.width), H = strips.Max(t => t.height);
+            var tex = new Texture2D(W * cols + (cols + 1) * 6, H * rows + (rows + 1) * 6, TextureFormat.RGB24, false);
+            Fill(tex, 0, 0, tex.width, tex.height, Bg);
+            for (int i = 0; i < strips.Count; i++)
+            {
+                int r = i / cols, c = i % cols;
+                Blit(tex, strips[i], 6 + c * (W + 6), tex.height - (r + 1) * (H + 6) + (H - strips[i].height));
+                UnityEngine.Object.DestroyImmediate(strips[i]);
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(tex);
+            Debug.Log("[StickSheet] grid " + path + " (" + clipNames.Count + " clips)");
         }
 
         static Texture2D Strip(AnimRig rig, AnimationClip clip, int n, float t0, float t1)

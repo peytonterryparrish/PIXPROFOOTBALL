@@ -54,6 +54,16 @@ namespace PixFootball.Gameplay
             if (Sim.Phase != PlayPhase.Live || SimAgentView.DebugNoFlow) return act;
             // ---- the kicker: the clip starts at the approach and its contact frame is the ball launch
             if (act == AgentAction.Kick && Sim.KickContactTime > 0f) _flowEta = Mathf.Max(0.05f, Sim.KickContactTime - Sim.Time);
+            // ---- v0.10.0 CHOREO: a booked catch (receiver, interception, swat) starts with its take and is timed by the booking: the hand-close frame is the simulated catch
+            if (Sim.Choreo != null && !SimAgentView.DebugNoChoreo && Sim.Ball.State == BallState.Pass && Loco(act) && !a.IsDown)
+            {
+                var cbk = Sim.Choreo.CatchBookingOf(i);
+                if (cbk != null && cbk.Phase == ChoreoPhase.Playing && Sim.Choreo.Clock >= cbk.StartSim - 0.02f && Sim.Choreo.Clock <= cbk.SyncSim + 0.35f)
+                {
+                    _flowEta = Mathf.Max(0.02f, cbk.SyncSim - Sim.Choreo.Clock); Magnet(i, _flowEta);
+                    return AgentAction.Catch;
+                }
+            }
             // ---- the intended receiver reaches for the pass
             var b = Sim.Ball;
             if (b.State == BallState.Pass && b.Intended == i && a.Side == SimSide.Offense && Loco(act) && !a.IsDown)

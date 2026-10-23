@@ -20,6 +20,9 @@ namespace PixFootball.Core
         public bool Press;
         public bool Deep;
         public DefVariant Variant;
+        public ShellLook Shell;
+        public string Note = "";
+        public bool Match;
     }
 
     internal sealed class DefBuilder
@@ -286,9 +289,9 @@ namespace PixFootball.Core
                 case CoverageScheme.Cover3:
                 {
                     int left = FirstFree(Resolve("CBL"), _s.Count > 0 ? _s[0] : -1);
-                    if (left >= 0) Zone(left, ZoneRegion.DeepThirdLeft(depth));
+                    if (left >= 0) { Zone(left, ZoneRegion.DeepThirdLeft(depth)); if (c.Match) ((CoverageAssignment)_a[left]).Match = true; }
                     int right = FirstFree(Resolve("CBR"), _s.Count > 0 ? _s[_s.Count - 1] : -1);
-                    if (right >= 0) Zone(right, ZoneRegion.DeepThirdRight(depth));
+                    if (right >= 0) { Zone(right, ZoneRegion.DeepThirdRight(depth)); if (c.Match) ((CoverageAssignment)_a[right]).Match = true; }
                     int mid = FirstFree(Resolve("FS"), Resolve("SS"));
                     if (mid >= 0) Zone(mid, ZoneRegion.DeepThirdMiddle(depth));
                     if (c.Variant == DefVariant.Cloud)
@@ -358,7 +361,9 @@ namespace PixFootball.Core
                 Category = c.Cat,
                 Scheme = c.Scheme,
                 Assignments = _a,
-                Tags = new[] { "defense" }
+                Tags = new[] { "defense" },
+                Shell = c.Shell,
+                Note = c.Note
             };
         }
 
@@ -389,8 +394,13 @@ namespace PixFootball.Core
 
     public static partial class DefaultPlaybooks
     {
-        public const string Base43 = "4-3 Base", Base34 = "3-4 Base", Nickel = "Nickel", Dime = "Dime", GoalLineD = "Goal Line Defense";
+        public const string Base43 = "4-3 Base", Base34 = "3-4 Base", Nickel = "Nickel", Dime = "Dime", GoalLineD = "Goal Line Defense",
+            Over43 = "4-3 Over", Nickel335 = "3-3-5", Bear46 = "46 Bear";
 
+        /// <summary>
+        /// The defensive formations. Alignments (yards from the ball): a line spot at 1.45 yd depth is a hand off the offensive line; the actual spots of the down linemen are set at the snap from the offense's real line by technique (0 / 1 / 2 / 3 / 4 / 5 / 7 / 9, see
+        /// <c>DefenseAlignment.AlignLine</c> and <see cref="Formation.Front"/>); linebackers stand 4.5 yd deep (2-3 when they are walked up), corners 7 (press 1), safeties 9-12.
+        /// </summary>
         public static List<Formation> DefensiveFormations()
         {
             Func<Position, float, float, SlotSpec> d = (p, x, y) => new SlotSpec(p, x, y, "");
@@ -398,36 +408,66 @@ namespace PixFootball.Core
             list.Add(new Formation(Base43, PlaySide.Defense, "4-3", new[] {
                 d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
                 d(Position.LOLB, -6f, 4.5f), d(Position.MLB, 0f, 4.5f), d(Position.ROLB, 6f, 4.5f),
-                d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
+                d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }) { Front = "Under" });
             list.Add(new Formation(Base34, PlaySide.Defense, "3-4", new[] {
                 d(Position.LE, -2.5f, 1.45f), d(Position.DT, 0f, 1.45f), d(Position.RE, 2.5f, 1.45f),
                 d(Position.LOLB, -6f, 2f), d(Position.MLB, -2f, 4.5f), d(Position.MLB, 2f, 4.5f), d(Position.ROLB, 6f, 2f),
-                d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
+                d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }) { Front = "Odd" });
             list.Add(new Formation(Nickel, PlaySide.Defense, "4-2-5", new[] {
                 d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
                 d(Position.LOLB, -3.5f, 4.5f), d(Position.MLB, 3.5f, 4.5f),
-                d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }));
+                d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }) { Front = "Under" });
             list.Add(new Formation(Dime, PlaySide.Defense, "4-1-6", new[] {
                 d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
                 d(Position.MLB, 0f, 4.5f),
                 d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 9f, 5f), d(Position.CB, 17f, 7f),
-                d(Position.FS, -5f, 12f), d(Position.SS, 5f, 12f) }));
+                d(Position.FS, -5f, 12f), d(Position.SS, 5f, 12f) }) { Front = "Under" });
             list.Add(new Formation(GoalLineD, PlaySide.Defense, "4-4-3", new[] {
                 d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
                 d(Position.LOLB, -6f, 2.5f), d(Position.MLB, -2f, 3.2f), d(Position.MLB, 2f, 3.2f), d(Position.ROLB, 6f, 2.5f),
-                d(Position.CB, -14f, 3f), d(Position.CB, 14f, 3f), d(Position.FS, 0f, 6f) }));
+                d(Position.CB, -14f, 3f), d(Position.CB, 14f, 3f), d(Position.FS, 0f, 6f) }) { Front = "Goal" });
+            // ---- v0.10.0 fronts ----
+            // 4-3 Over: the strong-side tackle is a 3-technique, the weak-side tackle a 1-technique, the strong-side linebacker walks up on the tight end
+            list.Add(new Formation(Over43, PlaySide.Defense, "4-3", new[] {
+                d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
+                d(Position.LOLB, -4.5f, 4.5f), d(Position.MLB, 0.5f, 4.5f), d(Position.ROLB, 6.5f, 2.6f),
+                d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, -4f, 12f), d(Position.SS, 8f, 9f) }) { Front = "Over" });
+            // 3-3-5: three down linemen (5 - 0 - 5), three linebackers, five defensive backs
+            list.Add(new Formation(Nickel335, PlaySide.Defense, "3-3-5", new[] {
+                d(Position.LE, -2.5f, 1.45f), d(Position.DT, 0f, 1.45f), d(Position.RE, 2.5f, 1.45f),
+                d(Position.LOLB, -5f, 4.5f), d(Position.MLB, 0f, 4.5f), d(Position.ROLB, 5f, 4.5f),
+                d(Position.CB, -17f, 7f), d(Position.CB, -9f, 5f), d(Position.CB, 17f, 7f), d(Position.FS, -5f, 12f), d(Position.SS, 7f, 9f) }) { Front = "Even3" });
+            // 46 Bear: four linemen with the tackles head-up on the guards and eight men in the box (the strong safety walks down onto the tight end)
+            list.Add(new Formation(Bear46, PlaySide.Defense, "4-6", new[] {
+                d(Position.LE, -3.75f, 1.45f), d(Position.DT, -1.25f, 1.45f), d(Position.DT, 1.25f, 1.45f), d(Position.RE, 3.75f, 1.45f),
+                d(Position.LOLB, -5f, 3.4f), d(Position.MLB, -0.7f, 4.0f), d(Position.ROLB, 3.5f, 3.2f),
+                d(Position.CB, -17f, 7f), d(Position.CB, 17f, 7f), d(Position.FS, 0f, 11.5f), d(Position.SS, 7f, 2.0f) }) { Front = "Bear" });
             return list;
+        }
+
+        /// <summary>The shell a defensive play shows before the snap: the disguise the play names, or the look its coverage naturally has.</summary>
+        public static ShellLook EffectiveShell(Play p)
+        {
+            if (p == null) return ShellLook.Auto;
+            if (p.Shell != ShellLook.Auto) return p.Shell;
+            switch (p.Scheme)
+            {
+                case CoverageScheme.Cover0: return ShellLook.Zero;
+                case CoverageScheme.Cover1: case CoverageScheme.Cover3: return ShellLook.OneHigh;
+                case CoverageScheme.None: return ShellLook.Auto;
+                default: return ShellLook.TwoHigh;   // Cover 2, 2-man, Tampa 2, Cover 4, Cover 6, prevent
+            }
         }
 
         private static DefConcept Def(string name, PlayCategory cat, CoverageScheme scheme, string[] formations, string blitz = "",
             RunGap[] gaps = null, string drop = "", string spy = "", string robber = "", StuntKind stunt = StuntKind.None,
-            bool press = false, bool deep = false, DefVariant variant = DefVariant.None)
+            bool press = false, bool deep = false, DefVariant variant = DefVariant.None, ShellLook shell = ShellLook.Auto, string note = "", bool match = false)
         {
             return new DefConcept
             {
                 Name = name, Cat = cat, Scheme = scheme, Formations = formations, Blitz = blitz,
                 Gaps = gaps ?? new RunGap[0], Drop = drop, Spy = spy, Robber = robber, Stunt = stunt,
-                Press = press, Deep = deep, Variant = variant
+                Press = press, Deep = deep, Variant = variant, Shell = shell, Note = note, Match = match
             };
         }
 
@@ -436,44 +476,50 @@ namespace PixFootball.Core
             foreach (Formation f in DefensiveFormations()) if (pb.FindFormation(f.Name) == null) pb.Formations.Add(f);
             var concepts = new List<DefConcept>();
             var Z = PlayCategory.ZoneCoverage; var M = PlayCategory.ManCoverage; var B = PlayCategory.Blitz; var G = PlayCategory.GoalLine;
-            concepts.Add(Def("Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Base43 }, "MLB LB2", new[] { RunGap.ALeft, RunGap.BRight }));
-            concepts.Add(Def("Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Nickel }, "MLB LB0", new[] { RunGap.BRight, RunGap.BLeft }));   // QA-531: the nickel has only two linebackers (there is no LB2)
+            var T = ShellLook.TwoHigh; var O = ShellLook.OneHigh;
+            concepts.Add(Def("Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Base43 }, "MLB LB2", new[] { RunGap.ALeft, RunGap.BRight }, note: "No deep help: everybody in man, two linebackers come"));
+            concepts.Add(Def("Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Nickel }, "MLB LB0", new[] { RunGap.BRight, RunGap.BLeft }, note: "No deep help: everybody in man, two linebackers come"));   // QA-531: the nickel has only two linebackers (there is no LB2)
             concepts.Add(Def("3-4 Cover 0 Blitz", B, CoverageScheme.Cover0, new[] { Base34 }, "LB1 LB2 LB0", new[] { RunGap.ALeft, RunGap.ARight, RunGap.CLeft }));
-            concepts.Add(Def("Cover 0 Double A-Gap", B, CoverageScheme.Cover0, new[] { Base43, Nickel }, "MLB LB0", new[] { RunGap.ARight, RunGap.ALeft }));
-            concepts.Add(Def("Cover 1 Robber", M, CoverageScheme.Cover1, new[] { Base43, Base34, Nickel }, robber: "MLB"));
-            concepts.Add(Def("Cover 1 Man Free", M, CoverageScheme.Cover1, new[] { Base43, Base34, Nickel, Dime }));
-            concepts.Add(Def("Cover 1 Spy", M, CoverageScheme.Cover1, new[] { Nickel }, spy: "MLB"));
-            concepts.Add(Def("Cover 2 Zone", Z, CoverageScheme.Cover2, new[] { Base43, Base34, Nickel }));
-            concepts.Add(Def("Cover 2 Press", Z, CoverageScheme.Cover2, new[] { Nickel, Base43 }, press: true));
-            concepts.Add(Def("Cover 2 Man Under", M, CoverageScheme.Cover2Man, new[] { Base43, Nickel, Dime }));
+            concepts.Add(Def("Cover 0 Double A-Gap", B, CoverageScheme.Cover0, new[] { Base43, Nickel }, "MLB LB0", new[] { RunGap.ARight, RunGap.ALeft }, note: "Two linebackers show in the A gaps and both come"));
+            concepts.Add(Def("Cover 1 Robber", M, CoverageScheme.Cover1, new[] { Base43, Base34, Nickel }, robber: "MLB", shell: T, note: "Looks like two-high, then one safety rotates to the middle and the Mike robs the crossers"));
+            concepts.Add(Def("Cover 1 Man Free", M, CoverageScheme.Cover1, new[] { Base43, Base34, Nickel, Dime, Nickel335, Bear46 }, note: "Man to man with a free safety in the middle"));
+            concepts.Add(Def("Cover 1 Spy", M, CoverageScheme.Cover1, new[] { Nickel }, spy: "MLB", note: "Man to man, the Mike mirrors the quarterback"));
+            concepts.Add(Def("Cover 2 Zone", Z, CoverageScheme.Cover2, new[] { Base43, Base34, Nickel, Nickel335 }, note: "Corners sit in the flats, two safeties split the deep field in halves"));
+            concepts.Add(Def("Cover 2 Press", Z, CoverageScheme.Cover2, new[] { Nickel, Base43 }, press: true, note: "Corners jam at the line, then drop to the flats"));
+            concepts.Add(Def("Cover 2 Man Under", M, CoverageScheme.Cover2Man, new[] { Base43, Nickel, Dime }, note: "Man underneath, two safeties over the top"));
             concepts.Add(Def("3-4 Cover 2 Man", M, CoverageScheme.Cover2Man, new[] { Base34 }, press: true));
-            concepts.Add(Def("Tampa 2", Z, CoverageScheme.Tampa2, new[] { Base43 }));
-            concepts.Add(Def("Cover 3 Sky", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }));
-            concepts.Add(Def("Cover 3 Cloud", Z, CoverageScheme.Cover3, new[] { Base43, Nickel }, variant: DefVariant.Cloud));
-            concepts.Add(Def("Cover 3 Buzz", Z, CoverageScheme.Cover3, new[] { Nickel, Base43 }, variant: DefVariant.Buzz));
-            concepts.Add(Def("Cover 4 Quarters", Z, CoverageScheme.Cover4, new[] { Base43, Base34, Nickel, Dime }));   // QA-504: the 3-4 gets the shells and stunts the 4-3 has
-            concepts.Add(Def("Cover 4 Match", Z, CoverageScheme.Cover4, new[] { Nickel }, press: true));
-            concepts.Add(Def("Cover 6", Z, CoverageScheme.Cover6, new[] { Nickel, Base43, Base34 }));
-            concepts.Add(Def("Cover 3 Fire Zone", B, CoverageScheme.Cover3, new[] { Base34 }, "LB0 LB3 LB1", drop: "DER"));   // QA-618: five rush, three deep, the right end drops
-            concepts.Add(Def("Cover 3 Fire Zone", B, CoverageScheme.Cover3, new[] { Base43 }, "LB0 LB2", drop: "DER"));
-            concepts.Add(Def("Zone Blitz Dog", B, CoverageScheme.Cover3, new[] { Base34 }, "LB0 LB1 LB3", new[] { RunGap.CLeft, RunGap.ALeft, RunGap.CRight }, drop: "DT"));   // QA-617: each blitzer has his own gap
-            concepts.Add(Def("Corner Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Nickel, Base43 }, "CBR", new[] { RunGap.DRight }));
-            concepts.Add(Def("Safety Blitz Cover 0", B, CoverageScheme.Cover0, new[] { Base43, Nickel }, "SS", new[] { RunGap.CRight }));
-            concepts.Add(Def("Mike Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Base43 }, "MLB", new[] { RunGap.ARight }));
+            concepts.Add(Def("Tampa 2", Z, CoverageScheme.Tampa2, new[] { Base43 }, note: "Cover 2 where the Mike runs the deep middle"));
+            concepts.Add(Def("Cover 3 Sky", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel, Nickel335, Bear46 }, note: "Three deep: the corners and the free safety take the thirds, the strong safety rolls down to the flat"));
+            concepts.Add(Def("Cover 3 Cloud", Z, CoverageScheme.Cover3, new[] { Base43, Nickel }, variant: DefVariant.Cloud, shell: T, note: "The corner takes the flat, the strong safety takes his deep third"));
+            concepts.Add(Def("Cover 3 Match", Z, CoverageScheme.Cover3, new[] { Nickel, Base43, Nickel335 }, shell: T, match: true, note: "Three deep from a quarters look: the corners match the outside receivers who go vertical and the safety plays the middle"));
+            concepts.Add(Def("Cover 3 Buzz", Z, CoverageScheme.Cover3, new[] { Nickel, Base43 }, variant: DefVariant.Buzz, shell: T, note: "The strong safety buzzes down to the hook zone"));
+            concepts.Add(Def("Cover 4 Quarters", Z, CoverageScheme.Cover4, new[] { Base43, Base34, Nickel, Dime, Nickel335 }, note: "Four deep quarters: the corner and the safety on each side match the receivers who go vertical"));   // QA-504: the 3-4 gets the shells and stunts the 4-3 has
+            concepts.Add(Def("Cover 4 Match", Z, CoverageScheme.Cover4, new[] { Nickel }, press: true, shell: O, note: "Quarters from a one-high look, the corners press and then match"));
+            concepts.Add(Def("Cover 6", Z, CoverageScheme.Cover6, new[] { Nickel, Base43, Base34, Nickel335 }, note: "Quarters to the strong side, a half to the weak side"));
+            concepts.Add(Def("Cover 3 Fire Zone", B, CoverageScheme.Cover3, new[] { Base34 }, "LB0 LB3 LB1", drop: "DER", shell: T, note: "Five rush, three deep, the end drops into the flat"));   // QA-618: five rush, three deep, the right end drops
+            concepts.Add(Def("Cover 3 Fire Zone", B, CoverageScheme.Cover3, new[] { Base43 }, "LB0 LB2", drop: "DER", shell: T, note: "Five rush, three deep, the end drops into the flat"));
+            concepts.Add(Def("Zone Blitz Dog", B, CoverageScheme.Cover3, new[] { Base34 }, "LB0 LB1 LB3", new[] { RunGap.CLeft, RunGap.ALeft, RunGap.CRight }, drop: "DT", shell: T, note: "Three linebackers come, the nose drops to the hook"));   // QA-617: each blitzer has his own gap
+            concepts.Add(Def("Corner Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Nickel, Base43 }, "CBR", new[] { RunGap.DRight }, note: "The corner comes off the edge, the safety is in the middle"));
+            concepts.Add(Def("Safety Blitz Cover 0", B, CoverageScheme.Cover0, new[] { Base43, Nickel, Bear46 }, "SS", new[] { RunGap.CRight }, shell: T, note: "Looks two-high, the strong safety comes off the edge and nobody is deep"));
+            concepts.Add(Def("Mike Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Base43 }, "MLB", new[] { RunGap.ARight }, note: "The Mike comes up the middle"));
             concepts.Add(Def("LB Cross Blitz Cover 1", B, CoverageScheme.Cover1, new[] { Base34 }, "LB1 LB2", new[] { RunGap.ARight, RunGap.BLeft }));   // QA-529: the two inside backers swap sides, so the blitz actually crosses
             concepts.Add(Def("Sam Blitz Cover 3", B, CoverageScheme.Cover3, new[] { Base43 }, "LB2", new[] { RunGap.CRight }));   // QA-530: Sam is the strong-side (right) backer
             concepts.Add(Def("Will Blitz Cover 3", B, CoverageScheme.Cover3, new[] { Base43 }, "LB0", new[] { RunGap.CLeft }));
-            concepts.Add(Def("Spy QB Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }, spy: "MLB"));
-            concepts.Add(Def("Prevent Shell", PlayCategory.Prevent, CoverageScheme.Prevent, new[] { Dime, Nickel }, deep: true));
+            concepts.Add(Def("Spy QB Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }, spy: "MLB", shell: T, note: "Zone with the Mike glued to the quarterback"));
+            concepts.Add(Def("Prevent Shell", PlayCategory.Prevent, CoverageScheme.Prevent, new[] { Dime, Nickel }, deep: true, note: "Everybody deep, nothing over the top"));
             concepts.Add(Def("Dime Cover 1 Blitz", B, CoverageScheme.Cover1, new[] { Dime }, "MLB", new[] { RunGap.ARight }));
             concepts.Add(Def("Dime Quarters Spy", Z, CoverageScheme.Cover4, new[] { Dime }, spy: "MLB"));
-            concepts.Add(Def("Nickel Fire Zone", B, CoverageScheme.Cover3, new[] { Nickel }, "NB MLB", new[] { RunGap.DLeft, RunGap.ARight }));
-            concepts.Add(Def("Twist Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }, stunt: StuntKind.Twist));
+            concepts.Add(Def("Nickel Fire Zone", B, CoverageScheme.Cover3, new[] { Nickel, Nickel335 }, "NB MLB", new[] { RunGap.DLeft, RunGap.ARight }, shell: T));
+            concepts.Add(Def("Twist Cover 3", Z, CoverageScheme.Cover3, new[] { Base43, Base34, Nickel }, stunt: StuntKind.Twist, shell: T, note: "Two linemen twist, three deep behind it"));
             concepts.Add(Def("Loop Stunt Cover 2", Z, CoverageScheme.Cover2, new[] { Base43, Nickel }, stunt: StuntKind.Loop));
             concepts.Add(Def("Double Edge Blitz Cover 2", B, CoverageScheme.Cover2, new[] { Nickel }, "CBL CBR", new[] { RunGap.DLeft, RunGap.DRight }));
             concepts.Add(Def("Goal Line Cover 0", G, CoverageScheme.Cover0, new[] { GoalLineD }, "LB0"));
             concepts.Add(Def("Goal Line Gap Control", G, CoverageScheme.Cover1, new[] { GoalLineD }));
             concepts.Add(Def("Goal Line Plug Cover 2", G, CoverageScheme.Cover2, new[] { GoalLineD }, stunt: StuntKind.Pinch));
+            // the 4-3 Over runs every 4-3 call (same personnel, a different front)
+            foreach (DefConcept c in concepts)
+                if (Array.IndexOf(c.Formations, Base43) >= 0 && Array.IndexOf(c.Formations, Over43) < 0)
+                { var fl = new List<string>(c.Formations); fl.Add(Over43); c.Formations = fl.ToArray(); }
 
             foreach (DefConcept c in concepts)
             {
@@ -483,6 +529,59 @@ namespace PixFootball.Core
                     AddPlay(pb, new DefBuilder(f).Build(c));
                 }
             }
+        }
+    }
+}
+
+namespace PixFootball.Core
+{
+    /// <summary>The pre-snap spots of the safeties in each shell (yards from the ball). One source for the sim's alignment (<c>DefenseAlignment.ApplyShell</c>) and the play diagram.</summary>
+    public static class ShellLayout
+    {
+        public const float TwoHighDepth = 10.5f, TwoHighX = 9f, OneHighDepth = 12.5f, BoxDepth = 7f, BoxX = 5.5f, ZeroDepth = 5.5f, ZeroX = 4.5f;
+
+        /// <summary>
+        /// Where the safeties of a defensive play stand before the snap, by formation slot, for the shell the play shows. Safeties who blitz or spy keep their formation spot.
+        /// <paramref name="strength"/> is the side (+1 / -1) the strong safety walks down to in a one-high shell.
+        /// </summary>
+        public static Dictionary<int, Vec2> Spots(Play play, Formation f, int strength)
+        {
+            var spots = new Dictionary<int, Vec2>();
+            if (play == null || f == null || play.Side != PlaySide.Defense) return spots;
+            ShellLook shell = DefaultPlaybooks.EffectiveShell(play);
+            if (shell == ShellLook.Auto) return spots;
+            var s = new List<int>();
+            for (int i = 0; i < f.Slots.Length; i++)
+            {
+                if (!PositionGroup.IsSafety(f.Slots[i].Position)) continue;
+                Assignment a = play.Assignments[i];
+                if (a is BlitzAssignment || a is RushAssignment || a is SpyAssignment) continue;
+                s.Add(i);
+            }
+            if (s.Count == 0) return spots;
+            s.Sort((p, q) => f.Slots[p].X.CompareTo(f.Slots[q].X));
+            if (strength == 0) strength = 1;
+            switch (shell)
+            {
+                case ShellLook.TwoHigh:
+                    if (s.Count >= 2) { spots[s[0]] = new Vec2(-TwoHighX, TwoHighDepth); spots[s[s.Count - 1]] = new Vec2(TwoHighX, TwoHighDepth); }
+                    else spots[s[0]] = new Vec2(0f, TwoHighDepth + 1f);
+                    break;
+                case ShellLook.OneHigh:
+                {
+                    int deep = -1;
+                    foreach (int i in s) { var c = play.Assignments[i] as CoverageAssignment; if (c != null && !c.IsMan && c.Zone != null && (c.Zone.Kind == ZoneKind.DeepMiddle || c.Zone.Kind == ZoneKind.DeepThird && Math.Abs(c.Zone.CenterX) < 1f)) { deep = i; break; } }
+                    if (deep < 0) foreach (int i in s) if (f.Slots[i].Position == Position.FS) { deep = i; break; }
+                    if (deep < 0) deep = s[s.Count - 1];
+                    spots[deep] = new Vec2(0f, OneHighDepth);
+                    foreach (int i in s) if (i != deep) spots[i] = new Vec2(strength * BoxX, BoxDepth);
+                    break;
+                }
+                case ShellLook.Zero:
+                    for (int k = 0; k < s.Count; k++) spots[s[k]] = new Vec2(s.Count == 1 ? 0f : (k == 0 ? -ZeroX : ZeroX), ZeroDepth);
+                    break;
+            }
+            return spots;
         }
     }
 }

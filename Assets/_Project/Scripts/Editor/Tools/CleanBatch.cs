@@ -54,7 +54,7 @@ namespace PixFootball.EditorTools
 
             AllNames = new HashSet<string>(clips.Keys);
             var rig = AnimRig.CreateMedium(); if (rig == null) return;
-            var sb = new StringBuilder("name,out,keys,lenIn,lenOut,t0,t1,spikes,clamped,heading,spread,groundFix,note\n");
+            var sb = new StringBuilder("name,out,keys,lenIn,lenOut,t0,t1,spikes,clamped,heading,spread,groundFix,note,qaBefore,qaAfter,polish\n");
             int n = 0, ok = 0, fail = 0;
             AssetDatabase.StartAssetEditing();
             try
@@ -66,10 +66,17 @@ namespace PixFootball.EditorTools
                     try
                     {
                         var plan = PlanFor(kv.Key, kv.Value, keys[kv.Key]);
-                        if (plan.KeepRootFrame && kv.Value.length > 20f) continue;       // raw 3-minute pair takes (celebrations, conversations): no gameplay use, not worth the disk
+                        if (plan.KeepRootFrame && kv.Value.length > 20f)
+                        {
+                            // raw pair takes: only the studio interactions that have a use (draft night, end-zone save) are cut into windows (the same windows for both actors); the rest has no gameplay use
+                            if (!Regex.IsMatch(kv.Key, @"(Draft_night|Endzone_save)_\d+_[AB]$")) continue;
+                            string twinName = kv.Key.Substring(0, kv.Key.Length - 1) + (kv.Key.EndsWith("A") ? "B" : "A");
+                            AnimationClip aClip = kv.Key.EndsWith("A") ? kv.Value : (clips.ContainsKey(twinName) ? clips[twinName] : kv.Value);
+                            plan.Windows = ClipCleaner.FindSegments(aClip, 2f, 14f, 8); plan.Segment = true; plan.AutoTrim = false; plan.Loop = false; plan.FindLoop = false;
+                        }
                         foreach (var r in ClipCleaner.CleanClip(rig, kv.Value, plan))
                         {
-                            sb.AppendLine(string.Join(",", new[] { Q(kv.Key), Q(Path.GetFileName(r.path)), Q(string.Join("+", keys[kv.Key])), F(r.lenIn), F(r.lenOut), F(r.t0), F(r.t1), r.spikes.ToString(), r.clamped.ToString(), F(r.heading), F(r.headingSpread), F(r.groundFix), Q(r.note) }));
+                            sb.AppendLine(string.Join(",", new[] { Q(kv.Key), Q(Path.GetFileName(r.path)), Q(string.Join("+", keys[kv.Key])), F(r.lenIn), F(r.lenOut), F(r.t0), F(r.t1), r.spikes.ToString(), r.clamped.ToString(), F(r.heading), F(r.headingSpread), F(r.groundFix), Q(r.note), r.qaBefore != null ? F(r.qaBefore.score) : "", r.qaAfter != null ? F(r.qaAfter.score) : "", Q(r.polish) }));
                             ok++;
                         }
                     }
@@ -81,7 +88,7 @@ namespace PixFootball.EditorTools
             rig.Dispose();
             AssetDatabase.SaveAssets();
             Directory.CreateDirectory("Logs/anim_audit");
-            File.WriteAllText("Logs/anim_audit/clean_report.csv", sb.ToString());
+            File.WriteAllText(only != null ? "Logs/anim_audit/clean_report_list.csv" : "Logs/anim_audit/clean_report.csv", sb.ToString());
             Debug.Log("[CleanBatch] clips=" + n + " written=" + ok + " failed=" + fail);
         }
 

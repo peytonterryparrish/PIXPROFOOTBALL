@@ -41,6 +41,10 @@ namespace PixFootball.Sim
         public FatigueTracker Fatigue;
         /// <summary>v0.7.0 (animation sync): seconds from the start of a quarterback throw (ball at the chest) to the release. 0 = the calibrated default (0.20 to 0.26 s by awareness). The match sets about 0.42 s so the throwing take (about 0.5 s of wind-up) plays at its natural tempo and the release lands on the release frame; a throw off a scramble uses 80 percent of it.</summary>
         public float QbWindupSeconds;
+        /// <summary>v0.10.0 CHOREO: the clip library of the sequence planner (see <see cref="Choreographer"/>). Null (the default for headless runs and tests) = no choreography, the simulation is exactly the v0.9.0 one.</summary>
+        public IChoreoLibrary ChoreoLibrary = DefaultChoreoLibrary;
+        /// <summary>QA: the library every new options object starts with (the audit tools turn the choreography on for runs that build their own options; null in the game, where the match flow sets it).</summary>
+        public static IChoreoLibrary DefaultChoreoLibrary;
 
         /// <summary>v0.8.0: apply the career layer to the players on the field: abilities (<see cref="PixFootball.League.AbilityCatalog"/>), morale rating points and team leadership. A player with no ability and a neutral morale is unchanged, so turning this off only matters for a league that has them. Tests that compare "with" and "without" use it as the control.</summary>
         public bool PlayerModifiers = true;
@@ -233,6 +237,7 @@ namespace PixFootball.Sim
             PreSnapStances.Refresh(this);
             for (int i = 0; i < 22; i++) Agents[i].ClearHistory(Agents[i].Pos);
             _setup = true;
+            InitChoreo();      // v0.10.0 CHOREO
             AutoJetMotion();
         }
 
@@ -486,6 +491,7 @@ namespace PixFootball.Sim
                 ResolveAction(a);
             }
             SeparateBodies();
+            if (Choreo != null) Choreo.Follow();      // v0.10.0 CHOREO: the takes play out after the whistle too (falls, get-ups, piles)
             if (Ball.State != BallState.Held) Ball.Step(Dt);
             else UpdateHeldBall();
         }
@@ -575,6 +581,7 @@ namespace PixFootball.Sim
             Blocks.Update();
             Moves.Update();
             Tackles.ApplyDragHold();
+            if (Choreo != null) Choreo.Steer();      // v0.10.0 CHOREO: forecast the interactions of the next second and bend the paths that lead into them
 
             for (int i = 0; i < 22; i++)
             {
@@ -604,6 +611,7 @@ namespace PixFootball.Sim
             }
             SeparateBodies();
             ConfineToSurroundings();
+            if (Choreo != null) Choreo.Follow();      // v0.10.0 CHOREO: the booked takes move their actors
             for (int i = 0; i < 22; i++) Agents[i].RecordHistory();
 
             UpdateBall();

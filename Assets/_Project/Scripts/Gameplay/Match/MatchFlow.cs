@@ -333,6 +333,7 @@ namespace PixFootball.Gameplay
             var sim = new PlaySimulation();
             var simOptions = new PlaySimOptions { Playbook = Book, Hash = _nextHash, AutoSnap = autoSnap, AutoSnapDelay = autoSnapDelay, Penalties = true, BallSlickness = Config.BallSlickness, Fatigue = Fatigue, QbWindupSeconds = 0.42f };
             if (State.Conditions != null) simOptions.SetWind(State.Conditions.ForQuarter(State.Quarter), PlayFrame.For(State).TowardsPlusZ);
+            simOptions.ChoreoLibrary = GameChoreoLibrary.Shared;      // v0.10.0 CHOREO: the sequence planner (null without the measured tables)
             if (SimOptionsHook != null) SimOptionsHook(simOptions);
             try { sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions); }
             finally

@@ -207,6 +207,7 @@ namespace PixFootball.Gameplay
                 Motion.LocomotionWeight = (ContactDriven || (Ragdoll != null && Ragdoll.Active)) ? 0f : 1f - (Rig != null ? Mathf.Clamp01(Rig.Weight) : 0f);
             }
 
+            ChoreoLocoHandoff();      // v0.10.0 CHOREO: the legs go to a full-body take and come back with the foot phase
             if (Motion != null) DriveGait(velocity, f, action, h.Carrying, dt);
             _clock += dt;
             if (Motion != null && !h.IsQb)
@@ -224,6 +225,7 @@ namespace PixFootball.Gameplay
             action = ConnectAction(action, h);                                                           // v0.9.0 CONNECT E-248 / E-259: stance holds through the snap Idle, no clip thrash
             action = CommitFilter(action);                                                               // v0.7.0: a throw / catch / hand-off plays out unless a higher priority event arrives
             bool changed = action != _lastAction || (action == AgentAction.Engaged && h.Rush != _lastRush);
+            if (changed && action == AgentAction.Engaged && _lastAction == AgentAction.Engaged && ChoreoDeferEngage()) changed = false;      // v0.10.0 CHOREO: the take that is playing plays out before the next move starts
             if (!changed) return;
             var prevAction = _lastAction;
             _lastAction = action; _lastRush = h.Rush; _lastChangeAt = _clock;
@@ -249,10 +251,10 @@ namespace PixFootball.Gameplay
                 }
                 case AgentAction.Shed: plan = AnimKit.Shed(h.Seed); break;
                 case AgentAction.Stumble: if (!DebugNoConnect) plan = AnimKit.Stumble(h.Seed, h.Speed); else owns = false; break;
-                case AgentAction.Catch: plan = DebugNoConnect ? AnimKit.Catch(h) : AnimKit.CatchFamily(h); break;
+                case AgentAction.Catch: plan = h.Booked != null ? AnimKit.CatchBooked(h) : default(ClipPlan); if (!plan.Valid) plan = DebugNoConnect ? AnimKit.Catch(h) : AnimKit.CatchFamily(h); break;      // v0.10.0 CHOREO: the booked take first
                 case AgentAction.Throw: plan = AnimKit.Throw(h); NoteThrowPose(plan, h); break;
                 case AgentAction.Handoff: plan = AnimKit.Handoff(h); break;
-                case AgentAction.Jump: plan = h.Defender && !DebugNoConnect ? AnimKit.SwatPlan(h) : default(ClipPlan); if (!plan.Valid) plan = AnimKit.Jump(h.Seed); break;
+                case AgentAction.Jump: plan = h.Defender && !DebugNoConnect ? AnimKit.SwatPlan(h) : default(ClipPlan); if (!plan.Valid) plan = DebugNoChoreo ? AnimKit.Jump(h.Seed) : AnimKit.JumpMatched(h); if (!plan.Valid) plan = AnimKit.Jump(h.Seed); break;
                 case AgentAction.Spin: plan = DebugNoConnect ? AnimKit.Spin(h.Seed) : AnimKit.SpinDir(h.Seed, lateralHint); break;
                 case AgentAction.TackleWrapUp: case AgentAction.TackleBigHit: case AgentAction.TackleShoestring: case AgentAction.TackleDive: case AgentAction.TackleGang:
                     plan = DebugNoConnect ? AnimKit.Tackle(h, false) : AnimKit.TacklePair(h, false); break;
@@ -284,7 +286,7 @@ namespace PixFootball.Gameplay
             var mv = MoveFor(action, lateralHint);
             if (mv != PlayerMove.None && !(action == AgentAction.Spin && plan.Valid)) { Anim.Trigger(mv); owns = false; _trigMove = mv; _trigClearAt = _clock + 0.3f; }
             if (plan.Valid && Rig != null && action == AgentAction.Engaged && plan.Clip == Rig.CurrentClip && Rig.InWindow) { /* E-263: the pair that is already playing is not restarted */ }
-            else if (plan.Valid && Rig != null) { plan = PacedPlan(action, plan); Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); NoteCommit(action, plan, getOff); if (getUp) { _commitPri = 5; _commitUntil = _clock + Mathf.Clamp(plan.Clip.length * 0.8f, 0.4f, 1.3f); } }
+            else if (plan.Valid && Rig != null) { plan = ChoreoMask(action, PacedPlan(action, plan)); Rig.Play(plan); _ownsClip = true; _clipYaw = ClipFacingTable.Offset(plan.Clip); NoteCommit(action, plan, getOff); if (getUp) { _commitPri = 5; _commitUntil = _clock + Mathf.Clamp(plan.Clip.length * 0.8f, 0.4f, 1.3f); } }
             else if (_ownsClip && Rig != null) { Rig.Stop(0.18f); _ownsClip = false; }
         }
 
@@ -292,12 +294,29 @@ namespace PixFootball.Gameplay
         /// Presentation-only contact correction applied after <see cref="ApplyMatch"/> for paired clips (tackles, engaged blocks): the engine owns the positions, but the
         /// paired takes were authored at a fixed distance, so the view steps toward its partner (offset, scaled by w) and optionally turns to face him.
         /// </summary>
-        public void ApplyContact(Vector3 offset, float yawToward, float w, bool turn)
+        public void ApplyContact(Vector3 offset, float yawToward, float w, bool turn, float dt = -1f)
         {
             if (w <= 0f) return;
             transform.position += offset * w;
-            if (turn) { _yaw = Mathf.LerpAngle(_yaw, yawToward, Mathf.Clamp01(w)); transform.rotation = Quaternion.Euler(0f, _yaw, 0f); }
+            if (turn)
+            {
+                float want = Mathf.LerpAngle(_yaw, yawToward, Mathf.Clamp01(w));
+                // v0.10.0 CHOREO: the direction to the partner is the atan2 of a 0.7 m vector that jitters with every push: used raw it snapped the hips and the chest of every engaged lineman (the largest source of rotation snaps).
+                // The drawn yaw follows it at a bounded rate.
+                if (!NoContactYawLimit && !DebugNoChoreo)
+                {
+                    float step = (dt > 0f ? dt : Time.deltaTime);
+                    if (!_cyHave || _clock - _cyAt > 0.15f) _cyOut = want;
+                    else _cyOut = Mathf.MoveTowardsAngle(_cyOut, want, ContactYawRate * step);
+                    _cyHave = true; _cyAt = _clock; want = _cyOut;
+                }
+                _yaw = want; transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
+            }
         }
+        float _cyOut, _cyAt; bool _cyHave;
+        /// <summary>Largest turn rate (deg/s) of the drawn yaw of a body that is pulled toward a contact partner; QA: -pixContactYawLimit switches it on.</summary>
+        public static float ContactYawRate = 480f;
+        public static bool NoContactYawLimit = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixContactYawLimit") < 0;      // off by default: bounding it raised the hip snaps by a third (the body lags, the pop filter then catches up)
 
         /// <summary>
         /// v0.6 closed-loop facing: the pose of the playing animation (locomotion blends mix clips authored facing -60 to -135 degrees away, e.g. the quarterback shuffles used for back-pedal and strafe) is measured from the hips every frame
@@ -305,7 +324,10 @@ namespace PixFootball.Gameplay
         /// </summary>
         float _loopYaw, _tableYaw, _loopHeld; bool _loopAllowed;
         public float LoopYaw { get { return _loopYaw; } }
-        public static bool DebugNoFacingLoop;
+        /// <summary>Largest rate (deg/s) of the closed facing loop's correction (0 = unbounded, the v0.9 behaviour); QA: -pixLoopRate.</summary>
+        public static float LoopRate = ArgF("-pixLoopRate", 360f);
+        static float ArgF(string n, float d) { var a = System.Environment.GetCommandLineArgs(); for (int i = 0; i + 1 < a.Length; i++) if (a[i] == n) { float v; if (float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v)) return v; } return d; }
+        public static bool DebugNoFacingLoop = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoFacingLoop") >= 0;
 
         static bool LoopAction(AgentAction a)
         {
@@ -320,18 +342,22 @@ namespace PixFootball.Gameplay
         void UpdateFacingLoop(float dt)
         {
             if (Avatar == null || Avatar.Animator == null || Avatar.Root == null || Rig == null || !Rig.Valid) return;
-            bool allow = _loopAllowed && !ContactDriven && !DebugNoClipFacing && !DebugNoFacingLoop && !(Ragdoll != null && Ragdoll.Active);
+            bool allow = _loopAllowed && !ContactDriven && !DebugNoClipFacing && !DebugNoFacingLoop && !(Ragdoll != null && Ragdoll.Active) && !MmOwnsFacing;
             if (allow)
             {
                 var pose = BodyHeading.MeasureThrottled(Avatar.Animator);   // GFX-419
                 if (pose.Valid && pose.HipsHeight > 0.5f)
                 {
                     float err = StanceRules.YawDelta(pose.Yaw, _yaw + _gaitBias);      // v0.9.0: the playing gait cycles travel along the velocity
-                    if (Mathf.Abs(err) > 8f) _loopYaw = Mathf.LerpAngle(_loopYaw, _loopYaw - err, 1f - Mathf.Exp(-dt / 0.09f));
+                    if (Mathf.Abs(err) > 8f)
+                    {
+                        float tgt = Mathf.LerpAngle(_loopYaw, _loopYaw - err, 1f - Mathf.Exp(-dt / 0.09f));
+                        _loopYaw = (DebugNoChoreo || LoopRate <= 0f) ? tgt : Mathf.MoveTowardsAngle(_loopYaw, tgt, LoopRate * dt);      // v0.10.0 CHOREO: a pose that swings 100 degrees in a few frames (a blocker's set, a hand fight) used to drag the body round at 1000 deg/s: bounded now
+                    }
                     _loopHeld = _loopYaw;
                 }
             }
-            else if (DebugNoConnect || ContactDriven || (Ragdoll != null && Ragdoll.Active)) { _loopYaw = Mathf.MoveTowardsAngle(_loopYaw, 0f, 420f * dt); _loopHeld = _loopYaw; }
+            else if (DebugNoConnect || ContactDriven || (Ragdoll != null && Ragdoll.Active) || MmOwnsFacing) { _loopYaw = Mathf.MoveTowardsAngle(_loopYaw, 0f, 420f * dt); _loopHeld = _loopYaw; }
             else _loopYaw = _loopHeld * (1f - Mathf.Clamp01(Rig.Weight));      // v0.9.0 CONNECT E-265: the loop correction leaves with the locomotion layer (folded into the new clip over its cross-fade), it no longer unwinds on its own at 420 deg/s
             Avatar.SetVisualYaw(_tableYaw + _loopYaw);
         }
@@ -341,6 +367,7 @@ namespace PixFootball.Gameplay
         void LateUpdate()
         {
             if (Avatar != null && Avatar.Lod != null) Avatar.Lod.Update(transform.position);   // GFX-389 (v0.9): every frame (a distance and a tan), the old 1-in-4 cadence let a player sit one level off for 4 frames
+            MotionLate(Time.deltaTime);          // v0.10.0 MOTION: inertialization and orientation warp of the matcher, first on the fresh pose
             UpdateFacingLoop(Time.deltaTime);
             PopFilterLate(Time.deltaTime);      // v0.9.0 CONNECT E-250
             FitGround(Time.deltaTime);
@@ -348,6 +375,8 @@ namespace PixFootball.Gameplay
             LateStancePose(Time.deltaTime);      // v0.9.0 QBSTANCE: the authored stance poses (hand on the turf, hips high, QB crouch) over the animation
             ArmIkLate(Time.deltaTime);          // v0.9.0 CONNECT E-125 / E-127 / E-146
             ActionGroundLate(Time.deltaTime);   // v0.9.0 LOCOMOTION LOCO-015: ground contact of the action clips, on the final pose (after the stance / QB pose IK and the arm IK)
+            EngageStepLate(Time.deltaTime);       // v0.10.0 CHOREO: engaged bodies step instead of skating
+            KickIkLate(Time.deltaTime);         // v0.10.0 QB: the kicking foot meets the ball on the contact frame
             if (_kickT < 0f || Avatar == null || Avatar.RightUpperLeg == null || Avatar.RightLowerLeg == null) return;
             _kickT += Time.deltaTime;
             float t = _kickT;
