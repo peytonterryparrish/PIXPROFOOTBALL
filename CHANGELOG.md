@@ -41,7 +41,7 @@ Answers the v0.9.0 playtest notes (`Docs/QA/v0100/PLAYTEST_v090.md`) with seven 
 - Sprinters are played 20-25 % over the fastest Mixamo take.
 - Seat (p99 1.6-1.7x) and sleeve (1.8-2.1x) skin stretch at extreme poses; grip and wrap hands slightly clawed.
 - Clip-change rate above target for linemen (about 1.0 per second against 0.5).
-- Field goal swing passes about 17 cm from the ball; 5-step drops land 8 steps; hand-off and play-action pivots not choreographed; interception and big-play celebrations not yet seen in a strip.
+- Bootleg slide 0.24 m/s; under-center hand-off reach 0.24 m; interception and big-play celebrations not yet seen in a strip.
 - UI: 25 directions delivered as mockups, owner to pick; in-game menus unchanged.
 - `CollegeAssets.asset` has no script in main (College screens live on `wip/v0.9-college-ui`); harmless warning at build.
 
