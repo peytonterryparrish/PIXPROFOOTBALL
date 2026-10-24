@@ -23,6 +23,7 @@ namespace PixFootball.Gameplay
             }
             _qbSecure = false; _qbScrStart = false;
             if (h.IsQb) QbSeqTrack(h);
+            if (QbThrowFlow(h, dt)) { _qbPoseOn = false; _qbStanceHold = false; if (Motion != null) { Motion.SetCarriage(BodyMotion.Carriage.None); Motion.CarriageFloor = 0f; } if (_ownsClip && Rig != null) { Rig.Stop(0.15f); _ownsClip = false; } return true; }      // v0.11.0 QB: the throw is the pose layer's
             if (DebugNoFlow || DebugNoStancePose || (!h.IsQb && h.QbSpecial == 0) || Rig == null || !Rig.Valid || StanceLayer == null || !StanceLayer.Ok) return false;
             if (h.QbSpecial != 0 && Role == PlayerRole.QB && !DebugNoFlow && !DebugNoStancePose && Rig != null && Rig.Valid && StanceLayer != null && StanceLayer.Ok && action != AgentAction.Stance)
             {
@@ -52,12 +53,14 @@ namespace PixFootball.Gameplay
             var q = h.Qb;
             bool fake = q == QbPhase.Fake;
             bool dropping = q == QbPhase.Dropback && !h.Rolling && h.DropSteps > 0;
-            bool pocket = q == QbPhase.Set || (q == QbPhase.Dropback && !h.Rolling && !dropping);
+            bool stanceMove = !h.QbTakeoff && (q == QbPhase.Scramble || (q == QbPhase.Dropback && h.Rolling));      // v0.11.0 QB (note 8): escaping the pocket, working across the line and rolling out are the throwing stance in motion (shuffle / slide steps, ball high at the chest), never the run cycle with the ball at the ear
+            bool watching = !QbV11.Legacy && q == QbPhase.Done && h.BallReleased && !h.QbHandoffPlan && action != AgentAction.Handoff;      // v0.11.0 QB: after the throw he settles in the stance and watches the ball
+            bool pocket = q == QbPhase.Set || (q == QbPhase.Dropback && !h.Rolling && !dropping) || stanceMove || watching;
             _gait.StepScale = 1f;
-            _gait.ReachH = (_qbPoseOn || dropping || q == QbPhase.Set || q == QbPhase.Mesh || q == QbPhase.Done) && StanceLayer != null ? (dropping && !shotgunQb ? 0.44f : 0.58f) * StanceLayer.Scale : 0f;
+            _gait.ReachH = (_qbPoseOn || dropping || stanceMove || watching || q == QbPhase.Set || q == QbPhase.Mesh || q == QbPhase.Done) && StanceLayer != null ? (dropping && !shotgunQb ? 0.44f : 0.58f) * StanceLayer.Scale : 0f;
             _gait.ReachOnly = dropping && !shotgunQb; _gait.SwingOverride = _gait.ReachOnly ? 0.34f : 0f;      // v0.10.0 QB: an N-step drop is N landings (long unhurried swings, a step only when the planted foot trails by its reach)
             _gait.PivotSlack = _gait.ReachOnly ? 25f : 0f;
-            _qbMeshEta = h.QbMeshEta;
+            _qbMeshEta = h.QbMeshEta; _qbUcNow = h.UnderCenter; _qbEmpty = !QbV11.Legacy && h.Qb == QbPhase.Done && !h.Carrying;      // v0.11.0 QB: the ball is gone (thrown / handed off / pitched): relaxed open hands, not a ball held at the chest
             bool mesh = q == QbPhase.Mesh && h.QbHandoffPlan;
             bool carryOut = h.QbHandoffPlan && q == QbPhase.Done && _seqHadMesh && _clock - _seqEnter < QbSeqTiming.MeshFollowSeconds && !h.BallReleased;
             if (mesh || carryOut)
@@ -92,7 +95,7 @@ namespace PixFootball.Gameplay
             if (fake) { if (!_wasFake) _fakeSince = _clock; _wasFake = true; } else _wasFake = false;
             _qbPoseOn = true; _qbPoseKind = dropping ? StanceKind.QbDrop : StanceKind.QbPocket;
             if (Motion != null) { Motion.SetCarriage(_lefty ? BodyMotion.Carriage.Chest : BodyMotion.Carriage.Chest); Motion.CarriageFloor = 0.7f; }
-            if (_qbMode != QbMode.Pocket) EnterPocket(h); else PocketLife(h);
+            if (_qbMode != QbMode.Pocket) EnterPocket(h); else if (q == QbPhase.Set && (QbV11.Legacy || _simVel.magnitude < 0.8f)) PocketLife(h);      // v0.11.0 QB: the pump fake is for a quarterback standing in the pocket
             return true;
         }
     }

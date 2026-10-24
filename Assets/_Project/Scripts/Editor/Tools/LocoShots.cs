@@ -194,10 +194,13 @@ namespace PixFootball.EditorTools
             if (modes.Contains("treadmill")) yield return Treadmill();
             if (modes.Contains("legs")) yield return Legs();
             if (modes.Contains("maneuvers")) yield return Maneuvers();
+            if (modes.Contains("positions")) yield return Positions();
+            if (modes.Contains("ik")) yield return IkTest();
+            if (modes.Contains("ground")) yield return GroundTest();
             if (modes.Contains("kicks")) yield return Kicks();
             if (modes.Contains("plays")) yield return Plays();
             if (modes.Contains("strips")) yield return Strips();
-            File.WriteAllText(_out + "/metrics_" + string.Join("_", modes) + ".md", "# Locomotion metrics (" + _tag + ")\n\nplanted speed = horizontal speed of the ground-contact point (heel or ball of the foot, whichever is lower) during a stance window; contact height = lowest sole point above the turf (the zero is the bind pose of the avatar).\n\n" + _treadText + _legText + "\n" + _maneuverText + "\n" + _kickText + "\n" + _playText + "\n" + _report);
+            File.WriteAllText(_out + "/metrics_" + string.Join("_", modes) + ".md", "# Locomotion metrics (" + _tag + ")\n\nplanted speed = horizontal speed of the ground-contact point (heel or ball of the foot, whichever is lower) during a stance window; contact height = lowest sole point above the turf (the zero is the bind pose of the avatar).\n\n" + _treadText + _legText + "\n" + _maneuverText + "\n" + _posText + "\n" + _ikText + "\n" + _groundText + "\n" + _kickText + "\n" + _playText + "\n" + _report);
             Debug.Log("[Loco] done " + _out);
             yield return null;
             EditorApplication.Exit(0);
@@ -506,7 +509,7 @@ namespace PixFootball.EditorTools
                 Vector3 pos = Vector3.zero; float sp = 0f;
                 var h = new AnimHints { Seed = 5, Side = 'C', Carrying = g.Carry };
                 Vector3 dir = Quaternion.Euler(0f, g.Angle, 0f) * Vector3.forward;
-                var frames = new List<Frm>(); StringBuilder trace = (g.Name == "free forward" && (g.Speed == 3.0f || g.Speed == 4.5f || g.Speed == 5.0f || g.Speed == 7.0f)) ? new StringBuilder("f,speed,layer,warp,rate,phase,hintL,hintR,plantL,plantR,wL,wR,corrL,corrR,hipDrop,soleL,soleR,liftL,pressL,heelL_spd,ballL_spd,heelR_spd,ballR_spd,cycles\n") : null;
+                var frames = new List<Frm>(); StringBuilder trace = (g.Name == "free forward" && (g.Speed == 1.5f || g.Speed == 2.0f || g.Speed == 3.0f || g.Speed == 4.5f || g.Speed == 5.0f || g.Speed == 7.0f)) ? new StringBuilder("f,speed,layer,warp,rate,phase,hintL,hintR,plantL,plantR,wL,wR,corrL,corrR,hipDrop,soleL,soleR,liftL,pressL,heelL_spd,ballL_spd,heelR_spd,ballR_spd,cycles\n") : null;
                 float t = 0f;
                 for (int f = 0; f < 480; f++)
                 {
@@ -572,7 +575,7 @@ namespace PixFootball.EditorTools
             };
             string onlyG = LocoShots.Arg("-pixLocoOnly", "");
             bool film = LocoShots.Arg("-pixLocoFilm", "1") == "1";
-            var rows = new SortedDictionary<string, LegProbe.Acc>();
+            var rows = new SortedDictionary<string, LegProbe.Acc>(); var formLegs = new SortedDictionary<string, FormProbe.Acc>();
             var root = new GameObject("Legs").transform;
             foreach (var g in cases)
             {
@@ -581,7 +584,7 @@ namespace PixFootball.EditorTools
                 view.Role = PlayerRole.WR; view.AgentId = 3; view.Avatar.Animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
                 view.ResetForPlay(Vector3.zero, 0f);
                 yield return null; yield return null;
-                var probe = new LegProbe(view.Avatar.Animator, view.Motion != null ? view.Motion.Plant : null); var acc = new LegProbe.Acc(); rows[g.Name] = acc;
+                var probe = new LegProbe(view.Avatar.Animator, view.Motion != null ? view.Motion.Plant : null); var acc = new LegProbe.Acc(); rows[g.Name] = acc; var fprobe = new FormProbe(view.Avatar.Animator, view.Motion != null ? view.Motion.Plant : null); var facc = new FormProbe.Acc(); formLegs[g.Name] = facc;
                 HumanPoseHandler hph = null; HumanPose hp = default(HumanPose); var overN = new Dictionary<int, int>(); var overMax = new Dictionary<int, float>(); int poseFrames = 0, anyOver = 0;
                 try { hph = new HumanPoseHandler(view.Avatar.Animator.avatar, view.Avatar.Animator.transform); } catch { }
                 Vector3 pos = Vector3.zero; float sp = 0f; var h = new AnimHints { Seed = 5, Side = 'C', Carrying = g.Carry };
@@ -594,7 +597,7 @@ namespace PixFootball.EditorTools
                     Vector3 vel = dir * sp; pos += vel * dt;
                     view.ApplyMatch(pos, vel, Vector3.forward, g.Action, h, 0f, false, false, dt);
                     yield return null;
-                    if (f >= 150) probe.Sample(acc, view.Forward, vel, sp, view.transform.position.y);
+                    if (f >= 150) { probe.Sample(acc, view.Forward, vel, sp, view.transform.position.y); fprobe.Sample(facc, view.Forward, vel, sp, view.transform.position.y, dt); }
                     if (f >= 150 && hph != null) { hph.GetHumanPose(ref hp); poseFrames++; bool any = false; for (int mi = 0; mi < hp.muscles.Length; mi++) if (Mathf.Abs(hp.muscles[mi]) > 1f && !MuscleReport.IsFinger(HumanTrait.MuscleName[mi])) { any = true; int cnt; overN.TryGetValue(mi, out cnt); overN[mi] = cnt + 1; float om; overMax.TryGetValue(mi, out om); overMax[mi] = Mathf.Max(om, Mathf.Abs(hp.muscles[mi])); } if (any) anyOver++; }
                     if (film && g.Film && f >= 260 && (f - 260) % 6 == 0 && shot < 12)
                     {
@@ -613,9 +616,227 @@ namespace PixFootball.EditorTools
                 Destroy(view.gameObject); yield return null;
             }
             foreach (var kv in swapped) kv.Key.clip = kv.Value;
-            _legText = "## leg quality (treadmill, final pose, frames 150-480; tag " + _tag + ")\n\n" + LegProbe.Table(rows) + "\n";
+            _legText = "## leg quality (treadmill, final pose, frames 150-480; tag " + _tag + ")\n\n" + LegProbe.Table(rows) + "\n## running form (treadmill)\n\n" + FormProbe.Table(formLegs) + "\n";
             _legText += "## humanoid muscles beyond +-1 in the final pose\n\n| case | frames | frames with any muscle beyond | muscles beyond | worst |\n|---|---|---|---|---|\n" + _muscleText + "\n";
             Destroy(root.gameObject);
+        }
+
+        // ---------------------------------------------------------------------------------------- v0.11.0 positions: every position at every gait, form metrics and strips
+        string _posText = "";
+        struct PosCase { public string Name, Mode; public float V, Angle; public AgentAction Act; }
+
+        /// <summary>Every position (body size and role as in the match) at jog / run / sprint / back-pedal / shuffle (steady), start, stop and cut: leg quality, running form, planted-foot slide, flight, and strips
+        /// (a close side view and a broadcast-like telephoto view from behind and above) of all positions side by side per gait. Run: -pixLocoModes positions [-pixLocoOnly gaitname]</summary>
+        IEnumerator Positions()
+        {
+            const float dt = 1f / 60f;
+            var positions = new[] { Position.QB, Position.RB, Position.WR, Position.TE, Position.LT, Position.DT, Position.MLB, Position.CB, Position.FS };
+            var cases = new List<PosCase>
+            {
+                new PosCase { Name = "jog 3.2", Mode = "steady", V = 3.2f, Act = AgentAction.Run },
+                new PosCase { Name = "run 5.0", Mode = "steady", V = 5.0f, Act = AgentAction.Run },
+                new PosCase { Name = "sprint 7.5", Mode = "steady", V = 7.5f, Act = AgentAction.Sprint },
+                new PosCase { Name = "backpedal 3.0", Mode = "steady", V = 3.0f, Angle = 180f, Act = AgentAction.Backpedal },
+                new PosCase { Name = "shuffle 3.0", Mode = "steady", V = 3.0f, Angle = 90f, Act = AgentAction.Shuffle },
+                new PosCase { Name = "start to 6.5", Mode = "start", V = 6.5f, Act = AgentAction.Run },
+                new PosCase { Name = "stop from 6.0", Mode = "stop", V = 6.0f, Act = AgentAction.Run },
+                new PosCase { Name = "cut 90 at 6.0", Mode = "cut", V = 6.0f, Act = AgentAction.Run },
+                new PosCase { Name = "coverage lane 7.5 (faces away)", Mode = "steady", V = 7.5f, Angle = 180f, Act = AgentAction.Sprint },
+            };
+            string onlyG = LocoShots.Arg("-pixLocoOnly", ""); bool film = LocoShots.Arg("-pixLocoFilm", "1") == "1";
+            var legRows = new SortedDictionary<string, LegProbe.Acc>(); var formRows = new SortedDictionary<string, FormProbe.Acc>();
+            var sb = new StringBuilder("## positions (scripted; every position with its own body size and role; flight = both toes more than 10 cm up)\n\n| case | position | stance windows | planted speed mean (m/s) | inner 60% | toe slide QB metric mean / p50 (n) | flight fraction | contacts/s | hips bob (m) | arm swing (m) | body yaw off travel (deg mean / max) |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
+            var root = new GameObject("Pos").transform;
+            foreach (var cs in cases)
+            {
+                if (onlyG.Length > 0 && cs.Name.IndexOf(onlyG, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                var sideTiles = new List<Texture2D>(); var bcastTiles = new List<Texture2D>(); int cols = 6;
+                foreach (var pos in positions)
+                {
+                    var role = RoleUtil.Of(pos); var size = RoleUtil.SizeOf(pos);
+                    bool line = role == PlayerRole.OL || role == PlayerRole.DL;
+                    float V = line ? Mathf.Min(cs.V, 5.8f) : cs.V;
+                    var view = SimAgentView.CreateForMatch(root, size, "Ps");
+                    view.Role = role; view.AgentId = 3; view.Avatar.Animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                    view.ResetForPlay(Vector3.zero, 0f);
+                    yield return null; yield return null;
+                    string key = cs.Name + " | " + pos;
+                    var probe = new LegProbe(view.Avatar.Animator, view.Motion != null ? view.Motion.Plant : null); var lacc = new LegProbe.Acc(); legRows[key] = lacc;
+                    var fprobe = new FormProbe(view.Avatar.Animator, view.Motion != null ? view.Motion.Plant : null); var facc = new FormProbe.Acc(); formRows[key] = facc;
+                    var h = new AnimHints { Seed = 5, Side = 'C' };
+                    // the scripted path, simulated once so the matcher is given the planned path
+                    int idle = cs.Mode == "start" ? 90 : 0, steadyFrames = cs.Mode == "steady" ? 480 : (cs.Mode == "stop" || cs.Mode == "cut") ? 330 : 0, tail = cs.Mode == "steady" ? 0 : 150;
+                    int total = idle + steadyFrames + tail + (cs.Mode == "start" ? 150 : 0), pre = total + 80;
+                    var pArr = new Vector3[pre]; var vArr = new Vector3[pre]; var fArr = new Vector3[pre]; var sArr = new float[pre];
+                    Vector3 dir0 = Quaternion.Euler(0f, cs.Angle, 0f) * Vector3.forward;
+                    {
+                        Vector3 pp = Vector3.zero, dd = dir0; float ss = 0f, yy = 0f;
+                        for (int f = 0; f < pre; f++)
+                        {
+                            int fm = f - idle - steadyFrames; float tm = fm * dt;           // time since the manoeuvre
+                            if (cs.Mode == "steady") ss = Mathf.MoveTowards(ss, V, 7f * dt);
+                            else if (cs.Mode == "start") { if (f >= idle) ss = Mathf.MoveTowards(ss, V, 5.5f * dt); }
+                            else if (cs.Mode == "stop") { ss = fm < 0 ? Mathf.MoveTowards(ss, V, 8f * dt) : Mathf.MoveTowards(ss, 0f, 9f * dt); }
+                            else { if (fm < 0) ss = Mathf.MoveTowards(ss, V, 8f * dt); else { float a0 = Mathf.Clamp01(tm / 0.45f) * 90f; dd = Quaternion.Euler(0f, a0, 0f) * Vector3.forward; ss = Mathf.MoveTowards(ss, V * 0.7f, V * 0.3f / 0.3f * dt); } }
+                            float tg = Mathf.Atan2(dd.x, dd.z) * Mathf.Rad2Deg; yy = Mathf.MoveTowardsAngle(yy, tg, 720f * dt);
+                            if (cs.Angle != 0f) yy = 0f;       // back-pedal / shuffle keep their facing
+                            Vector3 vv = dd * ss; pp += vv * dt; pArr[f] = pp; vArr[f] = vv; sArr[f] = ss; fArr[f] = new Vector3(Mathf.Sin(yy * Mathf.Deg2Rad), 0f, Mathf.Cos(yy * Mathf.Deg2Rad));
+                        }
+                    }
+                    var frames = new List<Frm>(); float t = 0f; int shot = 0; float nextShot = 0f; var yawErr = new List<float>();
+                    int capFrom = cs.Mode == "steady" ? 150 : cs.Mode == "start" ? idle - 6 : idle + steadyFrames - 12;
+                    int filmFrom = cs.Mode == "steady" ? 300 : cs.Mode == "start" ? idle : idle + steadyFrames;
+                    for (int f = 0; f < total; f++)
+                    {
+                        Vector3 p = pArr[f], vel = vArr[f]; float sp = sArr[f]; t += dt;
+                        view.SetMotionPlan(pArr[Mathf.Min(f + 20, pre - 1)] - p, pArr[Mathf.Min(f + 40, pre - 1)] - p, pArr[Mathf.Min(f + 60, pre - 1)] - p);
+                        var act = cs.Mode == "steady" ? cs.Act : (sp > 0.5f ? (V > 6.8f ? AgentAction.Sprint : AgentAction.Run) : AgentAction.Idle);
+                        view.ApplyMatch(p, vel, fArr[f], act, h, 0f, false, false, dt);
+                        yield return null;
+                        if (f >= capFrom)
+                        {
+                            frames.Add(Capture(view, t, sp, false));
+                            if (sp > 1.5f) yawErr.Add(Vector3.Angle(view.Forward, vel));
+                            if (sp > 1.5f) { probe.Sample(lacc, view.Forward, vel, sp, view.transform.position.y); fprobe.Sample(facc, view.Forward, vel, sp, view.transform.position.y, dt); }
+                            if (film && f >= filmFrom && shot < cols && (f - filmFrom) >= nextShot)
+                            {
+                                Vector3 face = fArr[f]; Vector3 right = Vector3.Cross(Vector3.up, face); Vector3 aim = p + Vector3.up * 0.8f;
+                                _cam.transform.position = aim - right * 3.4f; _cam.transform.rotation = Quaternion.LookRotation(aim - _cam.transform.position); _cam.fieldOfView = 36f;
+                                sideTiles.Add(ShotCam(200, 300));
+                                _cam.transform.position = p - face * 15f + Vector3.up * 6.5f; _cam.transform.rotation = Quaternion.LookRotation(p + Vector3.up * 0.9f - _cam.transform.position); _cam.fieldOfView = 11f;
+                                bcastTiles.Add(ShotCam(200, 300));
+                                shot++; nextShot += 6;
+                            }
+                        }
+                    }
+                    var stt = Measure(frames, dt);
+                    int fl = 0; foreach (var fr in frames) if (fr.ToeHL > 0.10f && fr.ToeHR > 0.10f) fl++;
+                    sb.AppendLine("| " + cs.Name + " | " + pos + " | " + stt.Windows + " | " + Mean(stt.WinSpeed).ToString("0.00") + " | " + Mean(stt.InnerSpeed).ToString("0.00") + " | " + Mean(stt.QbSlide).ToString("0.00") + " / " + Pct(stt.QbSlide, 0.5f).ToString("0.00") + " (" + stt.QbSlide.Count + ") | " + (frames.Count > 0 ? (fl / (float)frames.Count).ToString("0.00") : "-") + " | " + Mean(stt.Cadence).ToString("0.0") + " | " + Mean(stt.Bob).ToString("0.000") + " | " + Mean(stt.Swing).ToString("0.00") + " | " + (yawErr.Count > 0 ? yawErr.Average().ToString("0") + " / " + yawErr.Max().ToString("0") : "-") + " |");
+                    Destroy(view.gameObject); yield return null;
+                }
+                if (film) { string n = cs.Name.Replace(" ", "_"); Sheet(sideTiles, cols, _out + "/pos_" + n + "_side.png"); Sheet(bcastTiles, cols, _out + "/pos_" + n + "_bcast.png"); }
+            }
+            Destroy(root.gameObject);
+            _posText = sb.ToString() + "\n## leg quality by position and gait\n\n" + LegProbe.Table(legRows) + "\n## running form by position and gait\n\n" + FormProbe.Table(formRows) + "\n";
+        }
+
+        // ---------------------------------------------------------------------------------------- v0.11.0 Final IK smoke test and measurement
+        string _ikText = "";
+
+        /// <summary>Final IK through PixIk: a hand / foot / body target in front of a standing and a running body. Reports how close the effector gets, the solve cost and how much the rest of the body moved; two tiles per case (without / with IK).</summary>
+        IEnumerator IkTest()
+        {
+            const float dt = 1f / 60f;
+            var sb = new StringBuilder("## Final IK (PixIk bridge) available: " + PixIk.Available + "\n\n| case | effector | distance to target without IK (cm) | with IK (cm) | pelvis moved (cm) | feet moved (cm, planted foot) | solves | ms per solve |\n|---|---|---|---|---|---|---|---|\n");
+            if (!PixIk.Available) { _ikText = sb.AppendLine("Final IK bridge not present: nothing measured").ToString(); yield break; }
+            var root = new GameObject("Ik").transform;
+            var cases = new[] { new { Name = "standing, right hand reach 55 cm ahead", V = 0f, Mode = "rhand" }, new { Name = "standing, both hands ball catch", V = 0f, Mode = "both" }, new { Name = "run 5.0, both hands ball catch", V = 5.0f, Mode = "both" }, new { Name = "run 5.0, right hand reach", V = 5.0f, Mode = "rhand" }, new { Name = "standing, tackle wrap body pull", V = 0f, Mode = "wrap" }, new { Name = "backpedal 3.0, both hands", V = 3.0f, Mode = "both" } };
+            var tiles = new List<Texture2D>();
+            foreach (var cs in cases)
+            {
+                var view = SimAgentView.CreateForMatch(root, PlayerSize.Medium, "Ik");
+                view.Role = PlayerRole.WR; view.AgentId = 3; view.Avatar.Animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                view.ResetForPlay(Vector3.zero, 0f);
+                yield return null; yield return null;
+                var h = new AnimHints { Seed = 5, Side = 'C' };
+                var an = view.Avatar.Animator; var rh = an.GetBoneTransform(HumanBodyBones.RightHand); var lh = an.GetBoneTransform(HumanBodyBones.LeftHand); var hips = an.GetBoneTransform(HumanBodyBones.Hips); var lf = an.GetBoneTransform(HumanBodyBones.LeftFoot); var rf = an.GetBoneTransform(HumanBodyBones.RightFoot);
+                var act = cs.Name.StartsWith("backpedal") ? AgentAction.Backpedal : (cs.V > 0.5f ? AgentAction.Run : AgentAction.Idle);
+                Vector3 dir = cs.Name.StartsWith("backpedal") ? Vector3.back : Vector3.forward;
+                var dWithout = new List<float>(); var dWith = new List<float>(); var pelv = new List<float>(); var feet = new List<float>();
+                Vector3 pos = Vector3.zero; float sp = 0f; int solves0 = 0; double ms0 = 0; Vector3 hipsNoIk = Vector3.zero, lfNoIk = Vector3.zero;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    PixIk.Off = pass == 0;
+                    if (pass == 1) { PixIk.Service.ResetStats(); }
+                    pos = Vector3.zero; sp = 0f;
+                    view.ResetForPlay(Vector3.zero, 0f); yield return null; yield return null;
+                    for (int f = 0; f < 420; f++)
+                    {
+                        sp = Mathf.MoveTowards(sp, cs.V, 7f * dt); Vector3 vel = dir * sp; pos += vel * dt;
+                        // the targets: in front of the chest, a ball size apart, moving with the body
+                        Vector3 fwd = Vector3.forward; Vector3 chest = pos + Vector3.up * 1.32f + fwd * 0.62f;
+                        Vector3 tR = chest + Vector3.right * (cs.Mode == "both" ? 0.08f : 0.0f) + Vector3.up * (cs.Mode == "rhand" ? 0.18f : 0f), tL = chest - Vector3.right * 0.08f;
+                        view.SetMotionPlan(vel * 0.33f, vel * 0.66f, vel);
+                        view.ApplyMatch(pos, vel, fwd, act, h, 0f, false, false, dt);
+                        if (f >= 150)
+                        {
+                            if (cs.Mode == "rhand" || cs.Mode == "both") PixIk.Hand(view, false, tR, Quaternion.LookRotation(Vector3.forward, Vector3.up), 1f, 0f);
+                            if (cs.Mode == "both") PixIk.Hand(view, true, tL, Quaternion.LookRotation(Vector3.forward, Vector3.up), 1f, 0f);
+                            if (cs.Mode == "wrap") { PixIk.Hand(view, false, pos + Vector3.up * 1.1f + fwd * 0.75f + Vector3.right * 0.25f, Quaternion.identity, 1f, 0f); PixIk.Hand(view, true, pos + Vector3.up * 1.1f + fwd * 0.75f - Vector3.right * 0.25f, Quaternion.identity, 1f, 0f); PixIk.Body(view, fwd * 0.18f + Vector3.down * 0.10f, 1f); }
+                        }
+                        yield return null;
+                        if (f >= 330)
+                        {
+                            Vector3 tt = cs.Mode == "wrap" ? pos + Vector3.up * 1.1f + fwd * 0.75f + Vector3.right * 0.25f : tR;
+                            float d = (rh.position - tt).magnitude * 100f;
+                            if (pass == 0) { dWithout.Add(d); hipsNoIk += hips.position - pos; lfNoIk += lf.position - pos; }
+                            else { dWith.Add(d); pelv.Add(((hips.position - pos) - (hipsNoIk / 90f)).magnitude * 100f); feet.Add(((lf.position - pos) - (lfNoIk / 90f)).magnitude * 100f); }
+                        }
+                        if (pass == 1 && f == 360 && tiles.Count < 12)
+                        {
+                            Vector3 aim = pos + Vector3.up * 1.0f; _cam.transform.position = aim + Vector3.left * 2.8f; _cam.transform.rotation = Quaternion.LookRotation(aim - _cam.transform.position); _cam.fieldOfView = 36f;
+                            tiles.Add(ShotCam(300, 380));
+                        }
+                        if (pass == 0 && f == 360 && tiles.Count < 12)
+                        {
+                            Vector3 aim = pos + Vector3.up * 1.0f; _cam.transform.position = aim + Vector3.left * 2.8f; _cam.transform.rotation = Quaternion.LookRotation(aim - _cam.transform.position); _cam.fieldOfView = 36f;
+                            tiles.Add(ShotCam(300, 380));
+                        }
+                    }
+                    if (pass == 1) { double ms; int n; PixIk.Service.Stats(out n, out ms); solves0 = n; ms0 = ms; }
+                }
+                PixIk.Off = false;
+                sb.AppendLine("| " + cs.Name + " | " + (cs.Mode == "both" ? "both hands (right shown)" : "right hand") + " | " + Mean(dWithout).ToString("0.0") + " | " + Mean(dWith).ToString("0.0") + " | " + Mean(pelv).ToString("0.0") + " | " + Mean(feet).ToString("0.0") + " | " + solves0 + " | " + (solves0 > 0 ? (ms0 / solves0).ToString("0.000") : "-") + " |");
+                Destroy(view.gameObject); yield return null;
+            }
+            Sheet(tiles, 4, _out + "/ik_pairs.png");
+            Destroy(root.gameObject);
+            _ikText = sb.ToString();
+        }
+
+        // ---------------------------------------------------------------------------------------- v0.11.0 Grounder experiment: Final IK GrounderIK on top of FootPlant, per gait, before / after
+        string _groundText = "";
+
+        IEnumerator GroundTest()
+        {
+            const float dt = 1f / 60f;
+            var sb = new StringBuilder("## Final IK GrounderIK on top of the final pose (treadmill, Medium body; off = FootPlant only)\n\n| case | grounder | stance windows | planted speed mean (m/s) | toe slide QB metric mean (n) | lowest sole mean (cm) | lowest sole min (cm) | flight fraction | ankle roll stance abs (deg) | toe-out abs (deg) | pelvis height (cm) | ms per body-frame |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+            if (!PixIk.Available) { _groundText = sb.AppendLine("Final IK bridge not present").ToString(); yield break; }
+            var root = new GameObject("Gnd").transform;
+            var cases = new[] { new { Name = "idle", V = 0f, A = 0f, Act = AgentAction.Idle }, new { Name = "jog 3.2", V = 3.2f, A = 0f, Act = AgentAction.Run }, new { Name = "run 5.0", V = 5.0f, A = 0f, Act = AgentAction.Run }, new { Name = "sprint 7.5", V = 7.5f, A = 0f, Act = AgentAction.Sprint }, new { Name = "backpedal 3.0", V = 3.0f, A = 180f, Act = AgentAction.Backpedal }, new { Name = "shuffle 3.0", V = 3.0f, A = 90f, Act = AgentAction.Shuffle } };
+            foreach (var cs in cases)
+            {
+                foreach (bool on in new[] { false, true })
+                {
+                    var view = SimAgentView.CreateForMatch(root, PlayerSize.Medium, "Gnd");
+                    view.Role = PlayerRole.WR; view.AgentId = 3; view.Avatar.Animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                    view.ResetForPlay(Vector3.zero, 0f);
+                    PixIk.Grounder = on; PixIk.Off = false;
+                    yield return null; yield return null;
+                    var probe = new LegProbe(view.Avatar.Animator, view.Motion != null ? view.Motion.Plant : null); var lacc = new LegProbe.Acc();
+                    var h = new AnimHints { Seed = 5, Side = 'C' };
+                    Vector3 dir = Quaternion.Euler(0f, cs.A, 0f) * Vector3.forward; Vector3 pos = Vector3.zero; float sp = 0f;
+                    var frames = new List<Frm>(); float t = 0f; var hipsH = new List<float>();
+                    PixIk.Service.ResetStats();
+                    for (int f = 0; f < 480; f++)
+                    {
+                        sp = Mathf.MoveTowards(sp, cs.V, 7f * dt); Vector3 vel = dir * sp; pos += vel * dt; t += dt;
+                        view.SetMotionPlan(vel * 0.33f, vel * 0.66f, vel);
+                        view.ApplyMatch(pos, vel, Vector3.forward, cs.Act, h, 0f, false, false, dt);
+                        yield return null;
+                        if (f >= 150) { var fr = Capture(view, t, sp, false); frames.Add(fr); hipsH.Add(fr.Hips); if (sp > 1.5f) probe.Sample(lacc, view.Forward, vel, sp, view.transform.position.y); }
+                    }
+                    int ns; double ms; PixIk.Service.Stats(out ns, out ms);
+                    var st = Measure(frames, dt);
+                    var low = new List<float>(); int fl = 0; foreach (var fr in frames) { low.Add(Mathf.Min(fr.SoleL, fr.SoleR)); if (fr.ToeHL > 0.10f && fr.ToeHR > 0.10f) fl++; }
+                    Func<string, string> M = k => { List<float> l; return lacc.V.TryGetValue(k, out l) && l.Count > 0 ? l.Average().ToString("0.0") : "-"; };
+                    sb.AppendLine("| " + cs.Name + " | " + (on ? "GrounderIK" : "off") + " | " + st.Windows + " | " + Mean(st.WinSpeed).ToString("0.00") + " | " + Mean(st.QbSlide).ToString("0.00") + " (" + st.QbSlide.Count + ") | " + (Mean(low) * 100f).ToString("0.0") + " | " + (low.Min() * 100f).ToString("0.0") + " | " + (fl / (float)frames.Count).ToString("0.00") + " | " + M("ankle roll deg stance (abs)") + " | " + M("foot toe-out deg contact (abs)") + " | " + (hipsH.Average() * 100f).ToString("0.0") + " | " + (ns > 0 ? (ms / frames.Count).ToString("0.000") : "-") + " |");
+                    Destroy(view.gameObject); yield return null;
+                }
+            }
+            PixIk.Grounder = false;
+            Destroy(root.gameObject);
+            _groundText = sb.ToString();
         }
 
         // ---------------------------------------------------------------------------------------- plays

@@ -1,0 +1,278 @@
+# PIX on-field SFX library spec (v0.11.0).  group,layers,maxdur,fadeout_ms,notes   (see Sfx.cs header for the layer syntax)
+# ================= CONTACT =================
+hit_light,gm:Punches/punch_blocked_01.wav,,,pad-on-arm block
+hit_light,gm:Punches/punch_blocked_02.wav,,,pad-on-arm block
+hit_light,gm:Punches/punch_blocked_03.wav,,,pad-on-arm block
+hit_light,gm:Punches/punch_blocked_04.wav,,,pad-on-arm block
+hit_light,gm:Punches/kick_soft_jab_impact_02.wav,,,soft jab thump
+hit_light,gm:Punches/kick_soft_jab_impact_05.wav,,,soft jab thump
+hit_light,gm:Punches/punch_general_body_impact_05.wav,,,short body bump
+hit_medium,gm:Punches/punch_general_body_impact_01.wav,,,body thud
+hit_medium,gm:Punches/punch_general_body_impact_03.wav,,,body thud
+hit_medium,gm:Punches/punch_general_body_impact_06.wav,,,body thud
+hit_medium,gm:Punches/punch_grit_wet_impact_01.wav,,,gritty body hit
+hit_medium,gm:Punches/punch_grit_wet_impact_04.wav,,,gritty body hit
+hit_medium,gm:Punches/punch_grit_wet_impact_07.wav,,,gritty body hit
+hit_medium,gm:Punches/kick_hard_impact_02.wav,,,harder thump
+hit_medium,gm:Punches/kick_hard_impact_06.wav,,,harder thump
+hit_heavy,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_01.wav,,,DF football tackle
+hit_heavy,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_02.wav,,,DF football tackle
+hit_heavy,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_03.wav,,,DF football tackle
+hit_heavy,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_04.wav,,,DF football tackle
+hit_heavy,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_05.wav,,,DF football tackle
+hit_heavy,df:ClientAssets/310505359-football-tackle-impact1.wav,,,DF client tackle impact
+hit_heavy,df:ClientAssets/079265460-football-tackle-impact.wav,,,DF client tackle impact (96k source)
+hit_heavy,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_02.wav|gm:Punches/punch_low_deep_impact_03.wav*-4,,,tackle plus low body weight layer
+hit_heavy,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_05.wav|gm:Punches/punch_low_deep_impact_09.wav*-4,,,tackle plus low body weight layer
+hit_big,df:ClientAssets/231990050-american-football-body-impact-.wav#0-1.8,1.8,,DF american football body impact
+hit_big,df:ClientAssets/011981205-football-tackle.wav#0-1.8,1.8,,DF football tackle (bright)
+hit_big,df:ClientAssets/314286435-football-tackle-sfx-heavy-body.wav#0.55-2.4,1.8,,DF heavy body tackle
+hit_big,df:Cliente SFX edited/Client_SFX_Bodies_impact_01.wav,1.8,,DF multi-body impact
+hit_big,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_01.wav|gm:Punches/punch_low_deep_impact_05.wav*-2|gm:Impacts_Smashable/rock_impact_heavy_slam_04.wav*-8,1.8,,tackle + low thump + sub weight
+hit_big,df:ClientAssets/310505359-football-tackle-impact1.wav|gm:Punches/punch_heavy_huge_distorted_04.wav*-6|gm:Impacts_Smashable/rock_impact_heavy_slam_01.wav*-9,1.8,,tackle + huge body + sub weight
+hit_big,df:Cliente SFX edited/Client_SFX_Tackle_single/Client_SFX_Tackle_single_01.wav|gm:Punches/punch_low_deep_impact_02.wav*-3|gm:Impacts_Smashable/rock_impact_heavy_slam_03.wav*-9,1.8,,bright tackle + low thump + sub weight
+block_thud,gm:Punches/punch_low_deep_impact_01.wav,,,pad shove thud
+block_thud,gm:Punches/punch_low_deep_impact_02.wav,,,pad shove thud
+block_thud,gm:Punches/punch_low_deep_impact_03.wav,,,pad shove thud
+block_thud,gm:Punches/punch_low_deep_impact_04.wav,,,pad shove thud
+block_thud,gm:Punches/punch_low_deep_impact_06.wav,,,pad shove thud
+block_thud,gm:Punches/punch_low_deep_impact_07.wav,,,pad shove thud
+block_thud,gm:Punches/punch_low_deep_impact_08.wav,,,pad shove thud
+block_thud,gm:Punches/punch_general_body_impact_04.wav,,,pad shove thud (mid)
+block_thud,gm:Punches/punch_general_body_impact_08.wav,,,pad shove thud (mid)
+helmet_clack,gm:Wood/wood_block_sticks_hit_clap_01.wav,,,hard dry clack (wood-block stand-in)
+helmet_clack,gm:Wood/wood_block_sticks_hit_clap_03.wav,,,hard dry clack (wood-block stand-in)
+helmet_clack,gm:Wood/wood_block_sticks_hit_clap_04.wav,,,hard dry clack (wood-block stand-in)
+helmet_clack,gm:Wood/wood_block_sticks_hit_clap_06.wav,,,hard dry clack (wood-block stand-in)
+helmet_clack,gm:Wood/wood_block_sticks_hit_clap_12.wav,,,hard dry clack (wood-block stand-in)
+helmet_clack,gm:Wood/wood_block_sticks_hit_clap_11.wav,,,hard dry clack (wood-block stand-in)
+helmet_clack,gm:Punches/punch_head_weapon_bat_impact_03.wav,,,hard head-impact crack
+shed_slap,gm:Punches/punch_slap_whack_hit_01.wav,,,bright hand slap
+shed_slap,gm:Punches/punch_slap_whack_hit_02.wav,,,bright hand slap
+shed_slap,gm:Punches/punch_slap_whack_hit_03.wav,,,bright hand slap
+shed_slap,gm:Punches/punch_slap_whack_hit_04.wav,,,bright hand slap
+shed_slap,ss:SFX/Gloves_Parry_Punch_Hard_01.wav,,,glove swat
+shed_slap,gm:Foley/foley_combat_fight_grab_throw_04.wav,,,grab/swat
+grunt_hit,gm:Human Male A/voice_male_grunt_pain_03.wav,,,male A impact grunt
+grunt_hit,gm:Human Male A/voice_male_grunt_pain_07.wav,,,male A impact grunt
+grunt_hit,gm:Human Male A/voice_male_grunt_pain_08.wav,,,male A impact grunt
+grunt_hit,gm:Human Male A/voice_male_grunt_pain_12.wav,,,male A impact grunt
+grunt_hit,gm:Human Male A/voice_male_grunt_pain_16.wav,,,male A impact grunt
+grunt_hit,gm:Human Male B/voice_male_b_hurt_pain_set_3_02.wav,,,male B impact grunt
+grunt_hit,gm:Human Male B/voice_male_b_hurt_pain_set_3_05.wav,,,male B impact grunt
+grunt_hit,gm:Human Male D/voice_male_d_hurt_pain_low_01.wav,,,male D low impact grunt
+grunt_hit,gm:Human Male D/voice_male_d_hurt_pain_06.wav,,,male D impact grunt
+grunt_hit,gm:Human Male C/voice_male_c_hurt_pain_03.wav,,,male C impact grunt
+grunt_effort,gm:Human Male A/voice_male_effort_grunt_01.wav,,,male A effort
+grunt_effort,gm:Human Male A/voice_male_effort_grunt_02.wav,,,male A effort
+grunt_effort,gm:Human Male A/voice_male_effort_grunt_03.wav,,,male A effort
+grunt_effort,gm:Human Male A/voice_male_effort_grunt_04.wav,,,male A effort
+grunt_effort,gm:Human Male A/voice_male_effort_grunt_05.wav,,,male A effort
+grunt_effort,gm:Human Male A/voice_male_effort_grunt_06.wav,,,male A effort
+grunt_effort,gm:Human Male A/voice_male_effort_grunt_long_01.wav,,,male A effort (longer)
+grunt_effort,gm:Human Male B/voice_male_b_effort_quick_action_01.wav,,,male B effort
+grunt_effort,gm:Human Male B/voice_male_b_effort_quick_action_05.wav,,,male B effort
+grunt_effort,gm:Human Male B/voice_male_b_effort_jump_01.wav,,,male B effort
+grunt_effort,gm:Human Male C/voice_male_c_effort_short_06.wav,,,male C effort
+pile_scrum,df:ClientAssets/314286435-football-tackle-sfx-heavy-body.wav#0.55-2.6,2.5,,DF multi body hits
+pile_scrum,df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_03.wav@0|gm:Punches/punch_general_body_impact_03.wav@0.35*-2|gm:Punches/punch_grit_wet_impact_05.wav@0.7*-3|gm:Punches/punch_low_deep_impact_06.wav@1.0*-4|gm:Foley/foley_cloth_light_fast_movement_04.wav@0*-8,2.5,,built pile: tackle + body hits + cloth
+pile_scrum,df:ClientAssets/231990050-american-football-body-impact-.wav#0-1.4@0|gm:Foley/foley_cloth_light_fast_movement_05.wav@0.2*-9|df:Hits/Hard_hitting_tackles/Hard_hitting_tackles_01.wav@0.5*-3|gm:Punches/punch_general_body_impact_01.wav@0.95*-3|gm:Foley/foley_soldier_gear_equipment_metal_cloth_heavy_movement_med_03.wav@0.1*-10,2.5,,built pile: body impact + hits + cloth + gear rattle
+pile_scrum,df:Cliente SFX edited/Client_SFX_Bodies_impact_01.wav@0|gm:Foley/foley_cloth_light_fast_movement_01.wav@0.3*-9|gm:Punches/punch_grit_wet_impact_02.wav@0.8*-4,2.5,,built pile: bodies + cloth
+# ================= BALL =================
+snap_slap,df:Ball hit/Ball_hit_01.wav,,,DF leather ball thump
+snap_slap,df:Ball hit/Ball_hit_04.wav,,,DF leather ball thump
+snap_slap,ss:SFX/Medicine_Ball_Catch_01.wav~1,,,heavy ball into hands
+snap_slap,ss:SFX/Medicine_Ball_Catch_02.wav~1,,,heavy ball into hands
+snap_slap,df:Ball hit/Ball_hit_05.wav|gm:Foley/foley_cloth_sports_glove_catch_06.wav@0.004*-5,,,ball thump + glove slap
+handoff_slap,df:Ball hit/New version/Ball_hits_new_01.wav,,,DF ball hit (new)
+handoff_slap,df:Ball hit/New version/Ball_hits_new_02.wav,,,DF ball hit (new)
+handoff_slap,df:Ball hit/New version/Ball_hits_new_04.wav,,,DF ball hit (new)
+handoff_slap,df:Ball hit/New version/Ball_hits_new_05.wav,,,DF ball hit (new)
+handoff_slap,gm:Foley/foley_cloth_sports_glove_catch_04.wav,,,glove slap
+handoff_slap,gm:Foley/foley_cloth_sports_glove_catch_01.wav,,,glove slap
+throw_whoosh,df:Cliente SFX edited/Client_SFX_Whoosh/Client_SFX_Whoosh_05.wav,,,DF whoosh
+throw_whoosh,df:Cliente SFX edited/Client_SFX_Whoosh/Client_SFX_Whoosh_06.wav,,,DF whoosh
+throw_whoosh,df:Cliente SFX edited/Client_SFX_Whoosh/Client_SFX_Whoosh_04.wav,,,DF whoosh
+throw_whoosh,df:ClientAssets/199093577-hand-throw-02.wav,,,DF hand throw
+throw_whoosh,df:ClientAssets/257220673-swoosh-punch-54.wav,,,DF swoosh (96k source)
+throw_whoosh,gm:Whooshes/whoosh_weapon_knife_swing_03.wav,,,air swish (knife swing used as light swish)
+throw_whoosh,gm:Whooshes/whoosh_weapon_knife_swing_04.wav,,,air swish (knife swing used as light swish)
+throw_whoosh,ss:SFX/Racket_Whoosh_Hard.wav#0.1-0.9,,,racket whoosh
+ball_whirr,gm:Whooshes/whoosh_weapon_spin_01.wav&1.5,2,,LOW CONFIDENCE spinning-object whirr extended by loop splice
+ball_whirr,gm:Whooshes/whoosh_weapon_spin_02.wav&1.6,2,,LOW CONFIDENCE spinning-object whirr extended by loop splice
+catch_soft,df:Cath ball/Catch_ball_02.wav,,,DF ball catch
+catch_soft,df:Cath ball/Catch_ball_04.wav,,,DF ball catch
+catch_soft,df:Cath ball/Catch_ball_05.wav,,,DF ball catch
+catch_soft,ss:SFX/Single_Hand_Catch_Soft_01.wav~2,,,soundstripe soft catch
+catch_soft,ss:SFX/Single_Hand_Catch_Soft_03.wav~2,,,soundstripe soft catch
+catch_soft,ss:SFX/Single_Hand_Catch_Gentle_01.wav~3,,,soundstripe gentle catch
+catch_soft,gm:Foley/foley_cloth_sports_glove_catch_03.wav,,,glove catch
+catch_soft,gm:Foley/foley_cloth_sports_glove_catch_06.wav,,,glove catch
+catch_hard,df:Cath ball/Catch_ball_01.wav,,,DF ball catch
+catch_hard,df:Cath ball/Catch_ball_03.wav,,,DF ball catch
+catch_hard,df:Cliente SFX edited/Client_SFX_Catch_ball/Client_SFX_Catch_ball_02.wav,,,DF client catch (bright)
+catch_hard,ss:SFX/Catch_Hard_Heavy_01.wav~1,,,soundstripe hard catch
+catch_hard,ss:SFX/Catch_Hard_Heavy_01.wav~3,,,soundstripe hard catch
+catch_hard,ss:SFX/Single_Hand_Catch_Hard_01.wav~1,,,soundstripe hard catch
+catch_hard,ss:SFX/Single_Hand_Catch_Hard_01.wav~3,,,soundstripe hard catch
+catch_hard,gm:Foley/foley_cloth_sports_glove_catch_02.wav,0.24,,glove catch (first contact only)
+catch_contested,df:Cliente SFX edited/Client_SFX_Catch_Tackle_01.wav,,,DF client catch+tackle edit
+catch_contested,df:Cath ball/Catch_ball_05.wav|gm:Punches/punch_blocked_03.wav@0.03*-4,,,built: catch + pad hit
+catch_contested,ss:SFX/Catch_Hard_Heavy_01.wav~1|gm:Punches/punch_general_body_impact_05.wav@0.02*-5,,,built: hard catch + body hit
+catch_contested,df:Cath ball/Catch_ball_03.wav|gm:Punches/kick_soft_jab_impact_05.wav@0.04*-4,,,built: catch + jab
+catch_contested,ss:SFX/Single_Hand_Catch_Hard_01.wav~3|gm:Punches/punch_blocked_01.wav@0.025*-3,,,built: catch + pad hit
+catch_contested,ss:SFX/Single_Hand_Catch_Hard_Dull_01.wav~1|gm:Punches/punch_blocked_04.wav@0.02*-3,,,built: dull catch into body + pad hit
+drop_thud,df:Ball hit/Ball_hit_03.wav,,,DF ball thump with bounce
+drop_thud,df:Ball hit/New version/Ball_hits_new_03.wav,,,DF ball hit with bounces
+drop_thud,df:Ball hit/New version/Ball_hits_new_04.wav,,,DF ball hit
+drop_thud,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_04.wav|gm:Object Deep Thud/impact_deep_thud_bounce_09.wav*-6,,,built: ball bounce + turf thud
+drop_thud,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_01.wav|gm:Object Deep Thud/impact_deep_thud_bounce_02.wav*-8,,,built: ball bounce + turf thud
+bounce_dry,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_01.wav,,,
+bounce_dry,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_02.wav,,,
+bounce_dry,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_03.wav,,,
+bounce_dry,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_04.wav,,,
+bounce_dry,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_05.wav,,,
+bounce_dry,df:Ball Bounce/Ball_Bounce_grass/Ball_Bounce_grass_06.wav,,,
+bounce_wet,df:Ball Bounce/Ball_Bounce_wet_grass/Ball_Bounce_wet_grass_01.wav,,,
+bounce_wet,df:Ball Bounce/Ball_Bounce_wet_grass/Ball_Bounce_wet_grass_02.wav,,,
+bounce_wet,df:Ball Bounce/Ball_Bounce_wet_grass/Ball_Bounce_wet_grass_03.wav,,,
+bounce_wet,df:Ball Bounce/Ball_Bounce_wet_grass/Ball_Bounce_wet_grass_04.wav,,,
+bounce_wet,df:Ball Bounce/Ball_Bounce_wet_grass/Ball_Bounce_wet_grass_05.wav,,,
+bounce_wet,df:Ball Bounce/Ball_Bounce_wet_grass/Ball_Bounce_wet_grass_06.wav,,,
+bounce_snow,df:Ball Bounce/Ball_Bounce_snow_grass/Ball_Bounce_snow_grass_01.wav,,,
+bounce_snow,df:Ball Bounce/Ball_Bounce_snow_grass/Ball_Bounce_snow_grass_02.wav,,,
+bounce_snow,df:Ball Bounce/Ball_Bounce_snow_grass/Ball_Bounce_snow_grass_03.wav,,,
+bounce_snow,df:Ball Bounce/Ball_Bounce_snow_grass/Ball_Bounce_snow_grass_04.wav,,,
+bounce_snow,df:Ball Bounce/Ball_Bounce_snow_grass/Ball_Bounce_snow_grass_05.wav,,,
+bounce_snow,df:Ball Bounce/Ball_Bounce_snow_grass/Ball_Bounce_snow_grass_06.wav,,,
+fumble_pop,gm:Foley/foley_combat_fight_grab_throw_04.wav,,,grab/rip
+fumble_pop,gm:Foley/foley_combat_fight_grab_throw_05.wav,,,grab/rip
+fumble_pop,gm:Foley/foley_combat_fight_grab_throw_08.wav,,,grab/rip
+fumble_pop,ss:SFX/Gloves_Parry_Punch_Hard_01.wav,,,glove punch-out
+fumble_pop,gm:Punches/punch_slap_whack_hit_03.wav|df:Ball hit/Ball_hit_05.wav@0.01*-3,,,built: slap + ball thump
+fumble_pop,gm:Punches/kick_soft_jab_impact_02.wav|df:Ball hit/New version/Ball_hits_new_01.wav@0.01*-3,,,built: jab + ball thump
+# ================= KICKS =================
+kick_thump,df:Kicks/Ball_kick_01.wav,,,DF ball kick
+kick_thump,df:Kicks/Ball_kick_02.wav,,,DF ball kick
+kick_thump,df:Kicks/Ball_kick_05.wav,,,DF ball kick
+kick_thump,df:ClientAssets/156584666-01-football-kick.wav,,,DF client kick
+kick_thump,ss:SFX/Football_Kick_02.wav~1,,,soundstripe football kick
+kick_thump,ss:SFX/Football_Kick_01.wav#3.1-4.5,,,soundstripe football kick
+kick_punt,df:ClientAssets/205513282-football-kick.wav,,,DF client kick (long)
+kick_punt,ss:SFX/Football_Kick_03.wav#0.55-2.0,,,soundstripe football kick (deep)
+kick_punt,ss:SFX/Football_Kick_01.wav#6.1-7.3,,,soundstripe football kick (longer tail)
+kick_punt,ss:SFX/Football_Kick_02.wav#2.6-3.8,,,soundstripe football kick (longer tail)
+kick_short,ad:KickFootBallv1/SFX_KickFootBallv1variation02.wav,,,AD light kick
+kick_short,ad:KickFootBallv1/SFX_KickFootBallv1variation04.wav,,,AD light kick
+kick_short,ad:KickFootBallv2/SFX_KickFootBallv2variation01.wav,,,AD light kick
+kick_short,ad:KickFootBallv2/SFX_KickFootBallv2variation03.wav,,,AD light kick
+kick_short,ad:KickFootBallv3/SFX_KickFootBallv3variation02.wav,,,AD deeper kick
+kick_short,df:Kicks/Ball_kick_04.wav,,,DF ball kick
+# ================= FEET =================
+step_run_dry,df:Footsteps/Grass/Run/Footsteps_grass_01.wav,,,
+step_run_dry,df:Footsteps/Grass/Run/Footsteps_grass_02.wav,,,
+step_run_dry,df:Footsteps/Grass/Run/Footsteps_grass_03.wav,,,
+step_run_dry,df:Footsteps/Grass/Run/Footsteps_grass_04.wav,,,
+step_run_dry,df:Footsteps/Grass/Run/Footsteps_grass_05.wav,,,
+step_run_dry,df:Footsteps/Grass/Run/Footsteps_grass_06.wav,,,
+step_run_dry,df:Footsteps/Grass/Run/Footsteps_grass_07.wav,,,
+step_run_dry,df:Footsteps/Dirt/Run/Footsteps_dirt_run_01.wav,,,dry hard ground
+step_run_dry,df:Footsteps/Dirt/Run/Footsteps_dirt_run_04.wav,,,dry hard ground
+step_run_dry,gm:Footsteps/footstep_grass_run_01.wav,,,
+step_run_dry,gm:Footsteps/footstep_grass_run_05.wav,,,
+step_run_dry,gm:Footsteps/footstep_grass_run_06.wav,,,
+step_run_dry,gm:Footsteps/footstep_grass_run_09.wav,,,
+step_run_wet,df:Footsteps/Wet/Run/footsteps_wet_run_01.wav,,,
+step_run_wet,df:Footsteps/Wet/Run/footsteps_wet_run_02.wav,,,
+step_run_wet,df:Footsteps/Wet/Run/footsteps_wet_run_03.wav,,,
+step_run_wet,df:Footsteps/Wet/Run/footsteps_wet_run_04.wav,,,
+step_run_wet,df:Footsteps/Wet/Run/footsteps_wet_run_05.wav,,,
+step_run_wet,gm:Footsteps/footstep_mud_run_02.wav,,,
+step_run_wet,gm:Footsteps/footstep_mud_run_09.wav,,,
+step_run_wet,gm:Footsteps/footstep_mud_run_01.wav,,,
+step_run_wet,gm:Footsteps/footstep_water_run_05.wav,,,
+step_run_wet,gm:Footsteps/footstep_water_run_02.wav,,,
+step_run_snow,df:Footsteps/Snow/Run/footsteps_snow_run_01.wav,,,
+step_run_snow,df:Footsteps/Snow/Run/footsteps_snow_run_02.wav,,,
+step_run_snow,df:Footsteps/Snow/Run/footsteps_snow_run_03.wav,,,
+step_run_snow,df:Footsteps/Snow/Run/footsteps_snow_run_04.wav,,,
+step_run_snow,df:Footsteps/Snow/Run/footsteps_snow_run_05.wav,,,
+step_run_snow,gm:Footsteps/footstep_snow_run_06.wav,,,
+step_run_snow,gm:Footsteps/footstep_snow_run_12.wav,,,
+step_run_snow,gm:Footsteps/footstep_snow_run_15.wav,,,
+step_run_snow,gm:Footsteps/footstep_snow_run_17.wav,,,
+step_run_snow,gm:Footsteps/footstep_snow_run_20.wav,,,
+step_walk_dry,df:Footsteps/Dirt/Walk/Footsteps_dirt_walk_01.wav,,,
+step_walk_dry,df:Footsteps/Dirt/Walk/Footsteps_dirt_walk_03.wav,,,
+step_walk_dry,df:Footsteps/Dirt/Walk/Footsteps_dirt_walk_04.wav,,,
+step_walk_dry,df:Footsteps/Dirt/Walk/Footsteps_dirt_walk_06.wav,,,
+step_walk_dry,df:Footsteps/Grass/Walk/Footsteps_grass_walk_05.wav,,,
+step_walk_dry,df:Footsteps/Grass/Walk/Footsteps_grass_walk_06.wav,,,
+step_walk_dry,gm:Footsteps/footstep_grass_walk_05.wav,,,
+step_walk_dry,gm:Footsteps/footstep_grass_walk_06.wav,,,
+step_walk_dry,gm:Footsteps/footstep_grass_walk_07.wav,,,
+step_walk_dry,gm:Footsteps/footstep_grass_walk_10.wav,,,
+step_walk_wet,df:Footsteps/Wet/Walk/footsteps_wet_walk_01.wav,,,
+step_walk_wet,df:Footsteps/Wet/Walk/footsteps_wet_walk_02.wav,,,
+step_walk_wet,df:Footsteps/Wet/Walk/footsteps_wet_walk_03.wav,,,
+step_walk_wet,df:Footsteps/Wet/Walk/footsteps_wet_walk_04.wav,,,
+step_walk_wet,df:Footsteps/Wet/Walk/footsteps_wet_walk_05.wav,,,
+step_walk_wet,gm:Footsteps/footstep_mud_walk_02.wav,,,
+step_walk_wet,gm:Footsteps/footstep_mud_walk_04.wav,,,
+step_walk_wet,gm:Footsteps/footstep_mud_walk_07.wav,,,
+step_walk_wet,gm:Footsteps/footstep_water_walk_04.wav,,,
+step_walk_snow,df:Footsteps/Snow/Walk/footsteps_snow_walk_01.wav,,,
+step_walk_snow,df:Footsteps/Snow/Walk/footsteps_snow_walk_02.wav,,,
+step_walk_snow,df:Footsteps/Snow/Walk/footsteps_snow_walk_03.wav,,,
+step_walk_snow,df:Footsteps/Snow/Walk/footsteps_snow_walk_04.wav,,,
+step_walk_snow,df:Footsteps/Snow/Walk/footsteps_snow_walk_05.wav,,,
+step_walk_snow,gm:Footsteps/footstep_snow_walk_05.wav,,,
+step_walk_snow,gm:Footsteps/footstep_snow_walk_11.wav,,,
+step_walk_snow,gm:Footsteps/footstep_snow_walk_13.wav,,,
+step_walk_snow,gm:Footsteps/footstep_snow_walk_15.wav,,,
+step_walk_snow,gm:Footsteps/footstep_snow_walk_17.wav,,,
+plant_cut,gm:Footsteps/footstep_dirt_land_03.wav,,,hard plant (land)
+plant_cut,gm:Footsteps/footstep_dirt_land_04.wav,,,hard plant (land)
+plant_cut,gm:Footsteps/footstep_dirt_land_05.wav,,,hard plant (land)
+plant_cut,gm:Footsteps/footstep_dirt_land_07.wav,,,hard plant (land)
+plant_cut,gm:Footsteps/footstep_dirt_land_08.wav,,,hard plant (land)
+plant_cut,gm:Footsteps/footstep_dirt_land_10.wav,,,hard plant (land)
+plant_cut,gm:Footsteps/footstep_grass_land_02.wav,,,hard plant on grass (land)
+plant_cut,gm:Footsteps/footstep_grass_land_03.wav,,,hard plant on grass (land)
+slide_turf,gm:Footsteps/footstep_sand_slide_03.wav,,,LOW CONFIDENCE sand slide as turf skid stand-in
+slide_turf,gm:Footsteps/footstep_sand_slide_05.wav,,,LOW CONFIDENCE sand slide as turf skid stand-in
+slide_turf,gm:Footsteps/footstep_sand_slide_06.wav,,,LOW CONFIDENCE sand slide as turf skid stand-in
+slide_turf,gm:Footsteps/footstep_sand_slide_07.wav,,,LOW CONFIDENCE sand slide as turf skid stand-in
+ground_thump,gm:Object Deep Thud/impact_deep_thud_bounce_04.wav,,,deep thud
+ground_thump,gm:Object Deep Thud/impact_deep_thud_bounce_09.wav,,,deep thud
+ground_thump,gm:Object Deep Thud/impact_deep_thud_bounce_03.wav|gm:Punches/punch_general_body_impact_06.wav*-6,,,built: deep thud + body
+ground_thump,gm:Object Deep Thud/impact_deep_thud_bounce_07.wav|gm:Punches/punch_general_body_impact_08.wav*-6,,,built: deep thud + body
+ground_thump,gm:Punches/punch_low_deep_impact_09.wav|gm:Footsteps/footstep_dirt_land_05.wav*-3,,,built: body thud + turf land
+ground_thump,gm:Punches/punch_low_deep_impact_10.wav|gm:Footsteps/footstep_grass_land_03.wav*-3,,,built: body thud + turf land
+# ================= REF / FIELD =================
+whistle_short,ad:Whistle/SFX_Whistlev1Short.wav,,,AD whistle short
+whistle_short,df:Umpire whistle/Umpire_whistle_02.wav,,,DF umpire whistle
+whistle_short,df:Umpire whistle/Umpire_whistle_01.wav#0-0.8,,,DF umpire whistle (cut)
+whistle_short,ad:Whistle/SFX_WhistleDoublev2.wav,,,AD double blip
+whistle_short,ad:Whistle/SFX_Whistlev1Double.wav,0.9,,AD double blip (cut)
+whistle_long,ad:Whistle/SFX_Whistlev1Long.wav,,,AD long whistle
+whistle_long,ad:Whistle/SFX_Whistlev1Long.wav&1.7,,,AD long whistle sustain-extended by loop splice
+whistle_long,df:Umpire whistle/Umpire_whistle_01.wav,,,DF umpire whistle
+whistle_long,df:Umpire whistle/Umpire_whistle_01.wav&1.9,,,DF umpire whistle sustain-extended by loop splice
+whistle_long,ad:Whistle/SFX_WhistleMultiplev1.wav,,,AD multi-blast whistle
+chain_clank,ss:SFX/Punching_Bag_Metal_Chain_Fall_Down_01.wav#0.1-1.3,,,soundstripe chain fall
+chain_clank,ss:SFX/Punching_Bag_Metal_Chain_Fall_Down_01.wav#3.35-4.55,,,soundstripe chain fall
+chain_clank,ss:SFX/Punching_Bag_Metal_Chain_Fall_Down_02.wav#0.35-1.55,,,soundstripe chain fall
+chain_clank,ss:SFX/Punching_Bag_Metal_Chain_Fall_Down_02.wav#3.65-4.85,,,soundstripe chain fall
+chain_clank,gm:Foley/foley_keys_belt_metal_jingle_08.wav,,,metal jingle
+chain_clank,gm:Metal/metal_small_impact_shake_01.wav,,,metal rattle/shake
+chain_clank,gm:Metal/metal_small_impact_shake_02.wav,,,metal rattle/shake
+chain_clank,gm:Metal/metal_impact_light_03.wav,,,light metal clank
+chain_clank,gm:Foley/foley_keys_belt_metal_jingle_10.wav|gm:Metal/metal_tin_impacts_soft_05.wav*-6,,,built: jingle + low metal clank
+flag_toss,gm:Foley/foley_cloth_light_fast_movement_02.wav,,,cloth
+flag_toss,gm:Foley/foley_cloth_light_fast_movement_03.wav,,,cloth
+flag_toss,gm:Foley/foley_cloth_light_fast_movement_06.wav,,,cloth
+flag_toss,gm:Foley/foley_cloth_light_fast_movement_08.wav,,,cloth
+flag_toss,gm:Foley/foley_object_throw_move_01.wav,,,cloth/throw
+flag_toss,gm:Foley/foley_object_throw_move_02.wav,,,cloth/throw
+flag_toss,gm:Foley/foley_object_throw_move_04.wav,,,cloth/throw

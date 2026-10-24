@@ -47,10 +47,10 @@ namespace PixFootball.UI.Franchise
 
         protected override void Build(RectTransform root)
         {
-            _tiles = Lay.Group(root, "Tiles", 0f, 0f, 1728f, 96f);
+            _tiles = Lay.Group(root, "Tiles", 0f, 0f, Lay.W, 96f);
             _banner = Lay.Text(root, "", 22f, GlassTheme.T.textSecondary, 0f, 108f, 1250f, 48f, true, TextAlignmentOptions.MidlineLeft, 0f, "Banner"); Lay.Under(_banner, 16f, 0f);
             _autoFix = GlassKit.Button(root, "AUTO-FIX THE CAP", () => Shell.Busy("Fixing the cap", () => { int n = CapManager.AutoFix(Save, Ctl.User); Shell.Toast(n + " moves made to get under the cap."); Ctl.Touch(); }), GlassButtonStyle.Secondary, 380f, 52f, null, "AutoFix", 22f);
-            Lay.Place((RectTransform)_autoFix.transform, 1728f - 380f, 106f, 380f, 52f);
+            Lay.Place((RectTransform)_autoFix.transform, Lay.W - 380f, 106f, 380f, 52f);
             var cols = new List<TableColumn>
             {
                 new TableColumn("NAME", 2.5f, i => _rows[i].Name),
@@ -65,8 +65,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("DEAD IF CUT", 1.2f, i => Fmt.MoneyShort(_rows[i].DeadIfReleased), true),
                 new TableColumn("STATUS", 1.3f, i => _rows[i].Status, true, null, false)
             };
-            _table = GlassTable.Create(root, "CapTable", 1728f, 504f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 162f, 1728f, 504f);
+            _table = GlassTable.Create(root, "CapTable", Lay.W, Lay.H - 162f, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 162f, Lay.W, Lay.H - 162f);
             _table.Activated = i => OpenActions(_rows[i]);
             _table.HeaderClicked = SortBy; _table.SortRequested = SortBy;
         }
@@ -88,7 +88,7 @@ namespace PixFootball.UI.Franchise
             for (int i = _tiles.childCount - 1; i >= 0; i--) UiKit.Kill(_tiles.GetChild(i).gameObject);
             string[] vals = { Fmt.MoneyShort(rep.Cap), Fmt.MoneyShort(rep.Used), Fmt.MoneyShort(rep.Space), Fmt.MoneyShort(rep.Dead), Fmt.MoneyShort(rep.CommittedNextYear) };
             string[] caps = { "SALARY CAP", "CAP USED", "CAP SPACE", "DEAD MONEY", "NEXT YEAR" };
-            float w = (1728f - 4f * 14f) / 5f;
+            float w = (Lay.W - 4f * 14f) / 5f;
             for (int i = 0; i < 5; i++)
             {
                 var tile = GlassWidgets.StatTile(_tiles, vals[i], caps[i], w, 96f, i == 2);
@@ -146,24 +146,24 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("MOR", 0.7f, i => _players[i].Morale.ToString(), true, null, false),
                 new TableColumn("STATUS", 1.5f, i => StatusOf(_players[i]), true, i => StatusTint(_players[i]), false)
             };
-            _table = GlassTable.Create(root, "ReSignTable", 840f, 666f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 0f, 840f, 666f);
+            _table = GlassTable.Create(root, "ReSignTable", 840f, Lay.H, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 0f, 840f, Lay.H);
             _table.EmptyText = "Nobody's contract is up.";
             _table.CursorChanged = i => SelectCurrent();
             _table.HandleSortKey = false;
 
-            var card = GlassKit.Panel(root, "OfferCard", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 856f, 0f, 872f, 666f);
+            var card = GlassKit.Panel(root, "OfferCard", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 856f, 0f, Lay.W - 856f, Lay.H);
             var cr = card.rectTransform;
-            _header = Lay.Text(cr, "", 38f, t.textPrimary, 30f, 20f, 812f, 52f, true, TextAlignmentOptions.MidlineLeft, 2f, "Header");
-            _sub = Lay.Text(cr, "", 22f, t.textSecondary, 30f, 70f, 812f, 32f, false, TextAlignmentOptions.MidlineLeft, 0f, "Sub");
-            _info = Lay.Group(cr, "Info", 30f, 112f, 812f, 196f);
+            _header = Lay.Text(cr, "", 38f, t.textPrimary, 30f, 20f, Lay.W - 916f, 52f, true, TextAlignmentOptions.MidlineLeft, 2f, "Header");
+            _sub = Lay.Text(cr, "", 22f, t.textSecondary, 30f, 70f, Lay.W - 916f, 32f, false, TextAlignmentOptions.MidlineLeft, 0f, "Sub");
+            _info = Lay.Group(cr, "Info", 30f, 112f, Lay.W - 916f, 196f);
             Lay.Caps(cr, "YOUR OFFER", 30f, 318f, 400f, 26f, t.textSecondary, 17f);
-            _editor = OfferEditor.Build(cr, 30f, 348f, 812f, 54f);
+            _editor = OfferEditor.Build(cr, 30f, 348f, Lay.W - 916f, 54f);
             _editor.Changed = () => { };
-            _resp = Lay.Text(cr, "", 22f, t.textPrimary, 30f, 530f, 812f, 54f, true, TextAlignmentOptions.TopLeft, 0f, "Response", false);
+            _resp = Lay.Text(cr, "", 22f, t.textPrimary, 30f, Lay.H - 190f, Lay.W - 916f, 54f, true, TextAlignmentOptions.TopLeft, 0f, "Response", false);
             _resp.textWrappingMode = TextWrappingModes.Normal;
-            _submit = GlassKit.Button(cr, "SUBMIT OFFER", Submit, GlassButtonStyle.Primary, 400f, 66f, "ui_arrow_right", "Submit", 26f); Lay.Place((RectTransform)_submit.transform, 30f, 584f, 400f, 66f);
-            _tag = GlassKit.Button(cr, "FRANCHISE TAG", UseTag, GlassButtonStyle.Secondary, 400f, 66f, null, "Tag", 24f); Lay.Place((RectTransform)_tag.transform, 442f, 584f, 400f, 66f);
+            _submit = GlassKit.Button(cr, "SUBMIT OFFER", Submit, GlassButtonStyle.Primary, 400f, 66f, "ui_arrow_right", "Submit", 26f); Lay.Place((RectTransform)_submit.transform, 30f, Lay.H - 82f, 400f, 66f);
+            _tag = GlassKit.Button(cr, "FRANCHISE TAG", UseTag, GlassButtonStyle.Secondary, 400f, 66f, null, "Tag", 24f); Lay.Place((RectTransform)_tag.transform, 450f, Lay.H - 82f, 400f, 66f);
         }
 
         string StatusOf(Player p)
@@ -219,7 +219,7 @@ namespace PixFootball.UI.Franchise
             _ask = Negotiator.Ask(Save, Ctl.User, p);
             _header.text = p.Name.ToUpperInvariant();
             _sub.text = p.Position + "  -  " + p.Overall + " OVR  -  " + p.Age + " yrs  -  " + (window ? "re-sign window" : "extension (final contract year)");
-            var sp = StackPanel.Create(_info, "Stack", 0f, 0f, 812f, 196f);
+            var sp = StackPanel.Create(_info, "Stack", 0f, 0f, Lay.W - 916f, 196f);
             sp.Line("He wants", Fmt.MoneyShort(_ask.Aav) + " per year, " + Fmt.Years(_ask.Years), t.textPrimary, 32f, 22f);
             sp.Bar("Interest in staying", _ask.Interest / 100f, _ask.Interest.ToString(), _ask.Interest >= 60, 32f);
             sp.Line("Mood", _ask.Mood, _ask.WillNegotiate ? t.textPrimary : t.danger, 32f, 21f);
@@ -260,15 +260,16 @@ namespace PixFootball.UI.Franchise
     /// <summary>OFFICE &gt; STAFF: the head coach and both coordinators with their ratings, schemes and contracts, fire and hire from the market. A vacancy blocks the end of camp.</summary>
     public sealed class StaffPage : FranchisePage
     {
+        static float CardW { get { return (Lay.W - 48f) / 3f; } }
         RectTransform _cards; GlassTable _table; OptionSelector _roleSel; TextMeshProUGUI _pay;
         List<CoachCandidate> _cands = new List<CoachCandidate>();
         readonly List<Button> _fireButtons = new List<Button>();
 
         protected override void Build(RectTransform root)
         {
-            _cards = Lay.Group(root, "Cards", 0f, 0f, 1728f, 262f);
+            _cards = Lay.Group(root, "Cards", 0f, 0f, Lay.W, 262f);
             _roleSel = GlassKit.Stepper(root, "Market", new[] { "All roles", "Head coach", "Offensive coordinator", "Defensive coordinator" }, 0, i => Refresh(), 640f, 52f); Lay.Place((RectTransform)_roleSel.transform, 0f, 274f, 640f, 52f);
-            _pay = Lay.Text(root, "", 21f, GlassTheme.T.textPrimary, 700f, 274f, 1028f, 52f, true, TextAlignmentOptions.MidlineRight, 0f, "Payroll"); Lay.Under(_pay, 14f, 0f);
+            _pay = Lay.Text(root, "", 21f, GlassTheme.T.textPrimary, 700f, 274f, Lay.W - 700f, 52f, true, TextAlignmentOptions.MidlineRight, 0f, "Payroll"); Lay.Under(_pay, 14f, 0f);
             var cols = new List<TableColumn>
             {
                 new TableColumn("NAME", 2.4f, i => _cands[i].Coach.Name, false, null, false),
@@ -280,8 +281,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("SCHEMES", 2.4f, i => _cands[i].Coach.OffScheme + " / " + _cands[i].Coach.DefScheme, true, null, false),
                 new TableColumn("ASKS", 1.6f, i => Fmt.MoneyShort(_cands[i].AskSalary) + " x " + _cands[i].Years, true, null, false)
             };
-            _table = GlassTable.Create(root, "CoachTable", 1728f, 328f, cols, 48f);
-            Lay.Place((RectTransform)_table.transform, 0f, 338f, 1728f, 328f);
+            _table = GlassTable.Create(root, "CoachTable", Lay.W, Lay.H - 338f, cols, 48f);
+            Lay.Place((RectTransform)_table.transform, 0f, 338f, Lay.W, Lay.H - 338f);
             _table.EmptyText = "Nobody is on the market.";
             _table.Activated = i => ConfirmHire(_cands[i]);
             _table.HandleSortKey = false;
@@ -300,7 +301,7 @@ namespace PixFootball.UI.Franchise
             for (int k = 0; k < 3; k++)
             {
                 var role = roles[k]; var c = u.FindCoach(role);
-                var card = GlassKit.Panel(_cards, "Card" + k, 1.15f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, k * (560f + 24f), 0f, 560f, 262f);
+                var card = GlassKit.Panel(_cards, "Card" + k, 1.15f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, k * (CardW + 24f), 0f, CardW, 262f);
                 var cr = card.rectTransform;
                 Lay.Caps(cr, StaffManager.RoleName(role), 26f, 16f, 500f, 26f, t.accent, 17f);
                 if (c == null)
@@ -319,7 +320,7 @@ namespace PixFootball.UI.Franchise
                 Lay.Text(cr, sc != null ? Fmt.MoneyShort(sc.Salary) + " for " + Fmt.Years(sc.YearsLeft) : "", 20f, t.textSecondary, 26f, 222f, 300f, 28f, false, TextAlignmentOptions.MidlineLeft, 0f, "Pay");
                 int kk = k;
                 var fire = GlassKit.Button(cr, "FIRE", () => Shell.Confirm("Fire " + c.Name + "?", "The rest of his contract is paid out. The job stays open until you hire somebody.", "FIRE", () => { var r = StaffManager.Fire(Save, u, role); Shell.Toast(r.Message); Ctl.Touch(); }), GlassButtonStyle.Secondary, 150f, 44f, null, "Fire", 20f);
-                Lay.Place((RectTransform)fire.transform, 560f - 26f - 150f, 262f - 56f, 150f, 44f); _fireButtons.Add(fire);
+                Lay.Place((RectTransform)fire.transform, CardW - 26f - 150f, 262f - 56f, 150f, 44f); _fireButtons.Add(fire);
             }
             long pay = StaffManager.Payroll(Save, u), bud = StaffManager.Budget(Save, u);
             int offFit = StaffManager.TeamSchemeFit(u, true), defFit = StaffManager.TeamSchemeFit(u, false);
@@ -352,8 +353,8 @@ namespace PixFootball.UI.Franchise
 
         protected override void Build(RectTransform root)
         {
-            _left = Lay.Group(root, "Left", 0f, 0f, 840f, 666f);
-            _right = Lay.Group(root, "Right", 856f, 0f, 872f, 666f);
+            _left = Lay.Group(root, "Left", 0f, 0f, 840f, Lay.H);
+            _right = Lay.Group(root, "Right", 856f, 0f, Lay.W - 856f, Lay.H);
         }
 
         public override void Refresh()
@@ -362,17 +363,17 @@ namespace PixFootball.UI.Franchise
             var t = GlassTheme.T; var u = Ctl.User; var home = Ctl.Home();
             for (int i = _left.childCount - 1; i >= 0; i--) UiKit.Kill(_left.GetChild(i).gameObject);
             for (int i = _right.childCount - 1; i >= 0; i--) UiKit.Kill(_right.GetChild(i).gameObject);
-            var c1 = GlassWidgets.Card(_left, "THE OWNER", 840f, 666f, "OwnerCard"); Lay.Unlayout(c1.Root.gameObject); Lay.Place(c1.Root, 0f, 0f, 840f, 666f);
-            var sp = StackPanel.Create(c1.Body, "Stack", 0f, 0f, 784f, 560f);
-            sp.Bar("Trust", home.OwnerSatisfaction / 100f, home.OwnerSatisfaction.ToString(), true, 40f);
-            sp.Line("Job security", home.JobSecurity, home.OwnerSatisfaction < 35 ? t.danger : t.textPrimary, 40f, 24f);
+            var c1 = GlassWidgets.Card(_left, "THE OWNER", 840f, Lay.H, "OwnerCard"); Lay.Unlayout(c1.Root.gameObject); Lay.Place(c1.Root, 0f, 0f, 840f, Lay.H);
+            var sp = StackPanel.Create(c1.Body, "Stack", 0f, 0f, 784f, Lay.H - 106f);
+            sp.Bar("Trust", home.OwnerSatisfaction / 100f, home.OwnerSatisfaction.ToString(), true, 50f);
+            sp.Line("Job security", home.JobSecurity, home.OwnerSatisfaction < 35 ? t.danger : t.textPrimary, 50f, 28f);
             sp.Rule();
             sp.Caps("GOALS FOR " + Save.Year);
             if (home.Goals.Count == 0) sp.Para("The owner sets goals when the season starts.", 22f);
             foreach (var g in home.Goals)
             {
                 string mark = g.Resolved ? (g.Met ? "MET" : "MISSED") : (g.Target > 0 ? g.Actual + " / " + g.Target : "open");
-                sp.Line(g.Text, mark, g.Resolved ? (g.Met ? t.success : t.danger) : t.textSecondary, 38f, 22f);
+                sp.Line(g.Text, mark, g.Resolved ? (g.Met ? t.success : t.danger) : t.textSecondary, 46f, 26f);
             }
             sp.Gap(8f); sp.Rule();
             sp.Caps("PAST SEASONS");
@@ -380,17 +381,17 @@ namespace PixFootball.UI.Franchise
             for (int i = Save.TeamSeasons.Count - 1; i >= 0 && shown < 5; i--)
             {
                 var r = Save.TeamSeasons[i]; if (r.TeamId != u.Id) continue;
-                sp.Line(r.Year + "   " + r.Wins + "-" + r.Losses + (r.Ties > 0 ? "-" + r.Ties : ""), r.Result == PlayoffResult.Champion ? "PIX BOWL CHAMPIONS" : r.Result.ToString().ToUpperInvariant(), r.Result == PlayoffResult.Champion ? t.accent : t.textSecondary, 36f, 22f);
+                sp.Line(r.Year + "   " + r.Wins + "-" + r.Losses + (r.Ties > 0 ? "-" + r.Ties : ""), r.Result == PlayoffResult.Champion ? "PIX BOWL CHAMPIONS" : r.Result.ToString().ToUpperInvariant(), r.Result == PlayoffResult.Champion ? t.accent : t.textSecondary, 44f, 26f);
                 shown++;
             }
             if (shown == 0) sp.Para("No seasons played yet.", 22f, t.textMuted);
 
             var leg = HistoryEngine.Legacy(Save, u.Id);
-            var c2 = GlassWidgets.Card(_right, "LEGACY", 872f, 666f, "LegacyCard"); Lay.Unlayout(c2.Root.gameObject); Lay.Place(c2.Root, 0f, 0f, 872f, 666f);
+            var c2 = GlassWidgets.Card(_right, "LEGACY", Lay.W - 856f, Lay.H, "LegacyCard"); Lay.Unlayout(c2.Root.gameObject); Lay.Place(c2.Root, 0f, 0f, Lay.W - 856f, Lay.H);
             Lay.Text(c2.Body, leg.Score.ToString(), 90f, t.accent, 0f, 0f, 300f, 110f, true, TextAlignmentOptions.MidlineLeft, 0f, "Score");
             Lay.Text(c2.Body, leg.Tier.ToUpperInvariant(), 32f, t.textPrimary, 300f, 18f, 500f, 50f, true, TextAlignmentOptions.MidlineLeft, 4f, "Tier");
             Lay.Text(c2.Body, "Titles, playoff runs, wins, awards and records of " + u.Nickname + ".", 20f, t.textSecondary, 300f, 66f, 500f, 36f, false, TextAlignmentOptions.MidlineLeft, 0f, "Blurb");
-            var s2 = StackPanel.Create(c2.Body, "Lines", 0f, 128f, 816f, 440f);
+            var s2 = StackPanel.Create(c2.Body, "Lines", 0f, 128f, Lay.W - 856f - 56f, Lay.H - 226f);
             foreach (var kv in leg.Lines) if (kv.Value != 0 && s2.Fits(36f)) s2.Line(kv.Key, (kv.Value > 0 ? "+" : "") + kv.Value, kv.Value > 0 ? t.textPrimary : t.danger, 34f, 21f);
         }
     }

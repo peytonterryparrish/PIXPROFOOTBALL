@@ -65,6 +65,7 @@ namespace PixFootball.Sim
             get
             {
                 if (_qb == null) return -1;
+                if (!QbV11.Legacy && S.PassThrown && S.TargetId >= 0) return S.TargetId;      // v0.11.0 QB: after the release his eyes follow the ball to the receiver he threw it to
                 if (_qb.QbState == QbPhase.Windup && _qb.ThrowTarget >= 0) return _qb.ThrowTarget;
                 if (_reads == null || _reads.Count == 0) return -1;
                 return _reads[Math.Min(Math.Max(0, _qb.ReadIdx), _reads.Count - 1)];
@@ -80,7 +81,7 @@ namespace PixFootball.Sim
                 float x0 = S.BallX0 + S.OffForm.Slots[0].X;
                 float ext = (q.Pos.X - x0) * dir;
                 q.HasFace = true;
-                q.FaceDir = new Vec2(dir * 0.62f, 0.78f).Norm();      // eyes downfield while he runs: shoulders between the run and the line
+                q.FaceDir = QbStanceMoveFacing(new Vec2(dir, 0f), 0.45f, 0.62f, 0.78f);      // v0.11.0 QB: square stance while he rolls: chest to the field, hips opened 26 degrees at most, eyes downfield
                 if (ext < 10.0f && q.Pos.X > 3.5f && q.Pos.X < FieldGeometry.Width - 3.5f) return new Vec2(dir, 0f) * Math.Min(q.Body.EffectiveVMax * 0.8f, 5.2f);
                 return Vec2.Zero;
             }
@@ -140,6 +141,7 @@ namespace PixFootball.Sim
         private void QbSeqWatch(SimAgent q)
         {
             QbPhase st = q.QbState;
+            QbTakeoffWatch(q);      // v0.11.0 QB: stance until he decides to run
             if (st != _seqPrev)
             {
                 if (st == QbPhase.Dropback && (_seqPrev == QbPhase.WaitSnap || _seqPrev == QbPhase.PreSnap) && _dropT0 < 0f)
@@ -159,7 +161,7 @@ namespace PixFootball.Sim
             if (_rolling && st == QbPhase.Dropback && _qa != null)
             {
                 // a rolling passer runs with his shoulders turned upfield (eyes on the field), not square to the way he runs
-                q.HasFace = true; int rdir = _qa.RollDirection >= 0 ? 1 : -1; q.FaceDir = new Vec2(rdir * 0.55f, 0.84f).Norm();
+                q.HasFace = true; int rdir = _qa.RollDirection >= 0 ? 1 : -1; q.FaceDir = QbStanceMoveFacing(new Vec2(rdir, 0f), 0.45f, 0.55f, 0.84f);
             }
             if (st == QbPhase.Scramble && _seqScrambleAt >= 0f)
             {

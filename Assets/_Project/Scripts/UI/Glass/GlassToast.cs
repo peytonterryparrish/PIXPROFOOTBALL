@@ -15,9 +15,10 @@ namespace PixFootball.UI.Glass
         public static GlassToast Create(Transform parent, float bottom = 150f)
         {
             var t = GlassTheme.T;
-            var g = GlassKit.Panel(parent, "Toast", 1.5f, true, 22f);
+            var g = GlassKit.Panel(parent, "Toast", 1.5f, true, GlassKit.Rad(22f));
             var rt = g.rectTransform; UiKit.Anchor(rt, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, bottom), new Vector2(560f, 64f));
             var toast = g.gameObject.AddComponent<GlassToast>(); toast.Root = rt;
+            if (t.flat) { var bar = GlassKit.Bar(rt, "GoldBar", t.gold, 6f, 64f); bar.rectTransform.anchorMin = new Vector2(0f, 0f); bar.rectTransform.anchorMax = new Vector2(0f, 1f); bar.rectTransform.pivot = new Vector2(0f, 0.5f); bar.rectTransform.anchoredPosition = Vector2.zero; bar.rectTransform.sizeDelta = new Vector2(6f, 0f); }
             toast.Group = g.gameObject.AddComponent<CanvasGroup>(); toast.Group.blocksRaycasts = false; toast.Group.interactable = false;
             toast.Icon = GlassKit.Icon(rt, "ui_info", 28f, t.accent);
             UiKit.Anchor(toast.Icon.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(26f, 0f), new Vector2(28f, 28f));
@@ -48,7 +49,7 @@ namespace PixFootball.UI.Glass
         {
             if (!_active) return;
             _t += Time.unscaledDeltaTime;
-            float inT = GlassTheme.T.motionBase, outT = GlassTheme.T.motionBase;
+            float inT = GlassTheme.T.motionSlow, outT = GlassTheme.T.motionSlow;
             float a = _t < inT ? _t / inT : _t > _dur - outT ? Mathf.Clamp01((_dur - _t) / outT) : 1f;
             Apply(a);
             if (_t >= _dur) { _active = false; gameObject.SetActive(false); }

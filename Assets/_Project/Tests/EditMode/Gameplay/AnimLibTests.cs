@@ -81,5 +81,63 @@ namespace PixFootball.Tests
             Assert.AreEqual(2, t.OfKey("k2").Count); Assert.AreEqual(1, t.OfKey("k1").Count); Assert.AreEqual(0, t.OfKey("none").Count);
             Object.DestroyImmediate(t);
         }
+
+        // ---- v0.11.0 ----
+        [Test]
+        public void FingerCurvesAreWrittenUnderTheAnimatorNames()
+        {
+            // the v0.8-v0.10 bug: curves named "Left Index 1 Stretched" are ignored by the Animator, so every cleaned clip had bind-pose fingers
+            var s = PoseSeq.Alloc(4, 30f, "t"); for (int i = 0; i < 4; i++) s.RQ[i] = Quaternion.identity;
+            int mi = PoseSeq.Index("Left Index 1 Stretched"); Assert.GreaterOrEqual(mi, 0);
+            for (int i = 0; i < 4; i++) s.M[mi][i] = -0.6f;
+            Assert.AreEqual("LeftHand.Index.1 Stretched", PoseSeq.CurveName(mi));
+            Assert.AreEqual("RightHand.Thumb.Spread", PoseSeq.CurveName(PoseSeq.Index("Right Thumb Spread")));
+            Assert.AreEqual("Spine Front-Back", PoseSeq.CurveName(PoseSeq.Index("Spine Front-Back")));
+            var clip = s.ToClip("t");
+            bool animatorName = false, wrongName = false;
+            foreach (var b in UnityEditor.AnimationUtility.GetCurveBindings(clip)) { if (b.propertyName == "LeftHand.Index.1 Stretched") animatorName = true; if (b.propertyName == "Left Index 1 Stretched") wrongName = true; }
+            Assert.IsTrue(animatorName); Assert.IsFalse(wrongName);
+            var back = PoseSeq.FromClip(clip, 0f, clip.length, 30f);
+            Assert.AreEqual(-0.6f, back.M[mi][2], 0.02f);
+            Object.DestroyImmediate(clip);
+        }
+
+        [Test]
+        public void WristClampKeepsTheMusclesInsideTheAvatarRange()
+        {
+            var s = PoseSeq.Alloc(5, 30f, "t");
+            int m = PoseSeq.Index("Left Hand In-Out");
+            s.M[m][0] = 0.2f; s.M[m][1] = 1.4f; s.M[m][2] = -1.8f; s.M[m][3] = 0.99f; s.M[m][4] = 0f;
+            ClipPolish2.WristClamp(s);
+            for (int i = 0; i < 5; i++) Assert.LessOrEqual(Mathf.Abs(s.M[m][i]), 0.99f + 1e-4f);
+            Assert.AreEqual(0.2f, s.M[m][0], 1e-4f);
+            Assert.AreEqual(0f, s.M[m][4], 1e-4f);
+        }
+
+        [Test]
+        public void DeadCutKeepsTheLeadAndRefusesToCutAShortTake()
+        {
+            var q = new QaRow { length = 6f, deadStart = 2f, deadEnd = 0.2f };
+            float a, b; ClipPolish2.DeadCut(q, out a, out b);
+            Assert.AreEqual(1.75f, a, 1e-3f); Assert.AreEqual(0f, b, 1e-3f);
+            q = new QaRow { length = 1.2f, deadStart = 0.9f, deadEnd = 1.0f };
+            ClipPolish2.DeadCut(q, out a, out b);
+            Assert.AreEqual(0f, a); Assert.AreEqual(0f, b);
+        }
+
+        [Test]
+        public void PlantsAreFoundWhereTheSoleStaysOnTheTurf()
+        {
+            var sole = new[] { new float[20], new float[20] };
+            for (int i = 0; i < 20; i++) { sole[0][i] = (i >= 5 && i <= 12) ? 0.005f : 0.3f; sole[1][i] = 0.3f; }
+            var p = Plants.Find(sole, 0f, 1f / 30f);
+            Assert.AreEqual(1, p.Count); Assert.AreEqual(0, p[0].side); Assert.LessOrEqual(p[0].i0, 6); Assert.GreaterOrEqual(p[0].i1, 11);
+        }
+
+        [Test]
+        public void NewMocapHelpersReturnAnEmptyPlanWhenTheLibraryHasNoClip()
+        {
+            Assert.IsFalse(PixFootball.Gameplay.AnimKit.Mocap("no_such_key", null, 1).Valid);
+        }
     }
 }

@@ -144,3 +144,66 @@ namespace PixFootball.Gameplay
         }
     }
 }
+
+namespace PixFootball.Gameplay
+{
+    public sealed partial class PlayStage
+    {
+        /// <summary>v0.11.0 QB (playtest note 8): the quarterback's takeoff flag for the pose layer (stance until the simulation says he runs).</summary>
+        void QbStanceHints(ref AnimHints h, SimAgent a)
+        {
+            if (a.Side != SimSide.Offense || a.Slot != 0 || Sim.Kind != PlayKind.Scrimmage) return;
+            h.QbTakeoff = Sim.QbTakeoff;
+            h.QbTakeoffSince = Sim.QbTakeoff ? Mathf.Max(0f, Sim.Time - Sim.QbTakeoffAt) : 0f;
+        }
+    }
+}
+
+namespace PixFootball.Gameplay
+{
+    public sealed partial class PlayStage
+    {
+        /// <summary>
+        /// v0.11.0 QB (playtest note 9): while a pass is in the air the receiver it is thrown to, and the defender on him, turn their head to the ball (<see cref="SimAgentView.SetEyesOnBall"/>), from 0.1 s after the release until the catch is made.
+        /// </summary>
+        void ReceiverEyes(int i, SimAgent a, SimAgentView v)
+        {
+            if (v == null) return;
+            var b = Sim.Ball; float w = 0f;
+            if (!QbV11.Legacy && Sim.Kind == PlayKind.Scrimmage && b.State == BallState.Pass && b.FlightTime > 0.10f && b.Intended >= 0 && b.Intended < 22 && a.Action != AgentAction.Catch && a.Action != AgentAction.Fallen && a.Action != AgentAction.Tackled && !a.IsDown)
+            {
+                if (i == b.Intended) w = 1f;
+                else if (a.Side != Sim.Agents[b.Intended].Side && a.CoverTarget == b.Intended && (a.Pos - Sim.Agents[b.Intended].Pos).Length < 9f) w = 0.85f;
+            }
+            v.SetEyesOnBall(Frame.ToUnity(b.Pos), w);
+        }
+    }
+}
+
+namespace PixFootball.Gameplay
+{
+    public sealed partial class PlayStage
+    {
+        /// <summary>v0.11.0 QB: once the ball is out, the passer watches the ball itself (not the receiver's head) all the way in.</summary>
+        void QbEyesOverride(ref Vector3 look, ref bool hasLook, SimAgent a)
+        {
+            if (QbV11.Legacy || a.Side != SimSide.Offense || a.Slot != 0 || Sim.Kind != PlayKind.Scrimmage) return;
+            if (Sim.PassIsThrown && Sim.Ball.State == BallState.Pass && Sim.Ball.Thrower == a.Id) { look = Frame.ToUnity(Sim.Ball.Pos); hasLook = true; }
+        }
+    }
+}
+
+namespace PixFootball.Gameplay
+{
+    public sealed partial class PlayStage
+    {
+        /// <summary>v0.11.0 QB: the flight of the pass: spin by style (from <see cref="BallSpinHint"/>) and the wobble from how the throw was made (pressure, on the run, a hurried or a hit arm; a lob is a little looser).</summary>
+        void QbFlightHints(SimAgent a)
+        {
+            if (a.Side != SimSide.Offense || a.Slot != 0 || Sim.Kind != PlayKind.Scrimmage) return;
+            float press = Mathf.Clamp01(Sim.LastThrowPressure);
+            float run = Mathf.Clamp01(a.Speed * PlayFrame.YardsToMeters / 4.5f); if (Sim.Ball.State == BallState.Pass && Sim.Ball.FlightTime > 0.25f) return;      // the throw sets it for the flight
+            BallSpinHint.Wobble = QbV11.Legacy ? 1.5f : 0.7f + 4.5f * press + 1.6f * run + (a.PendingStyle == ThrowStyle.Lob ? 0.6f : 0f);
+        }
+    }
+}

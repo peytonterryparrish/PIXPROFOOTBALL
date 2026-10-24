@@ -1,0 +1,73 @@
+// v0.11.0 AUDIO+CROWD: crowd billboard animation. One thread per fan rewrites the four vertices (position + atlas uv) of that fan's quad straight into the mesh vertex buffer
+// (stream 0 = position float3, normal float3, uv0 float2 = 32 bytes), so the HDRP Lit crowd material, its lighting and culling stay exactly as before:
+// idle sway / breathing for everyone, and per team (home / away sections) cheering: arms up (atlas row below), hopping, standing up, or slumping, with a wave that travels round the bowl.
+#pragma kernel Sway
+
+struct Fan
+{
+    float3 root;     // bottom centre of the quad
+    float3 right;    // half width vector (bottom right vertex = root + right)
+    float3 up;       // full height vector
+    float u0, u1;    // atlas u of the +right edge (v0 / v3) and the -right edge (v1 / v2)
+    float vb, vt;    // atlas v of the bottom and the top of the cell (seated pose)
+    float phase;     // 0..1 per fan
+    float team;      // 0 home section, 1 away section
+    float angle;     // radians around the bowl
+};
+
+StructuredBuffer<Fan> _Fans;
+RWByteAddressBuffer _VB;
+uint _Count;
+uint _Stride;        // bytes per vertex
+uint _UvOffset;      // byte offset of uv0 in a vertex
+float _Time;
+float _WaveClock;
+float _RowStep;      // v distance of one atlas row
+float4 _Home;        // x excitement 0..1, y standing 0..1, z slump 0..1
+float4 _Away;
+
+float Hash(float n) { return frac(sin(n * 12.9898 + 4.1414) * 43758.5453); }
+
+[numthreads(64, 1, 1)]
+void Sway(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _Count) return;
+    Fan f = _Fans[id.x];
+    float4 S = f.team < 0.5 ? _Home : _Away;
+    float h1 = Hash(f.phase * 91.7), h2 = Hash(f.phase * 37.3 + 1.7);
+    float t = _Time;
+
+    // idle: slow sway and a faint breathing bob, different for every fan
+    float idle = sin(t * (0.45 + 0.5 * h1) + f.phase * 6.2832);
+    float breathe = sin(t * (0.8 + 0.6 * h2) + f.phase * 11.0);
+    float sway = 0.012 * idle;
+    float lift = 0.004 * breathe;
+
+    // cheering: a wave round the bowl modulates how many fans are fully up
+    float wave = 0.5 + 0.5 * sin((_WaveClock * 0.9 - f.angle * 0.31831) * 6.2832);
+    float cheer = saturate(S.x * (0.45 + 0.55 * wave) * 1.7);
+    float flick = 0.12 * sin(t * 2.7 + f.phase * 13.0) * cheer;
+    float armsUp = step(0.14 + 0.7 * h2, cheer + flick);
+    float hop = cheer * 0.075 * abs(sin(t * (2.6 + 0.9 * h1) + f.phase * 9.0)) * step(0.25, cheer);
+    float stand = smoothstep(h2 * 0.75, h2 * 0.75 + 0.25, S.y);
+    float slump = S.z * (0.4 + 0.6 * h1);
+
+    float3 rdir = normalize(f.right);
+    float3 upv = f.up * (1.0 + 0.16 * stand - 0.05 * slump);
+    float3 topShift = rdir * (sway + armsUp * 0.02 * sin(t * 5.0 + f.phase * 20.0)) + float3(0, hop + lift + 0.16 * stand * length(f.up) * 0.5 - 0.04 * slump, 0);
+    float3 botShift = float3(0, 0.3 * hop, 0);
+
+    float3 p0 = f.root + f.right + botShift;
+    float3 p1 = f.root - f.right + botShift;
+    float3 p2 = f.root - f.right + upv + topShift;
+    float3 p3 = f.root + f.right + upv + topShift;
+
+    float dv = armsUp * _RowStep;
+    float2 uv0 = float2(f.u0, f.vb - dv), uv1 = float2(f.u1, f.vb - dv), uv2 = float2(f.u1, f.vt - dv), uv3 = float2(f.u0, f.vt - dv);
+
+    uint v = id.x * 4;
+    _VB.Store3((v + 0) * _Stride, asuint(p0)); _VB.Store2((v + 0) * _Stride + _UvOffset, asuint(uv0));
+    _VB.Store3((v + 1) * _Stride, asuint(p1)); _VB.Store2((v + 1) * _Stride + _UvOffset, asuint(uv1));
+    _VB.Store3((v + 2) * _Stride, asuint(p2)); _VB.Store2((v + 2) * _Stride + _UvOffset, asuint(uv2));
+    _VB.Store3((v + 3) * _Stride, asuint(p3)); _VB.Store2((v + 3) * _Stride + _UvOffset, asuint(uv3));
+}

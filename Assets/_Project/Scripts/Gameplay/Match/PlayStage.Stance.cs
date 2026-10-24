@@ -33,6 +33,7 @@ namespace PixFootball.Gameplay
             h.UnderCenter = !_shotgun;
             h.QbHandoffPlan = Sim.Kind == PlayKind.Scrimmage && Sim.QbPlanIsHandoff;
             h.QbMeshEta = -1f;
+            QbStanceHints(ref h, a);      // v0.11.0 QB
             if (h.QbHandoffPlan && a.Side == SimSide.Offense && a.Slot == 0 && a.QbState == QbPhase.Mesh && Sim.QbHandoffTargetId > 0)
             {
                 // the exchange happens when the runner is 1.3 yd away (OffenseAI.QbMesh): time to it from the closing speed
@@ -112,12 +113,12 @@ namespace PixFootball.Gameplay
                 _qbDropT += dt;
                 bool cad = _cadenceLen > 0f; if (cad) _cadenceT += dt;
                 bool go = a.QbState == QbPhase.WaitSnap || (cad && _cadenceT > _cadenceLen - 0.14f);
-                _qbDrop = Mathf.MoveTowards(_qbDrop, go && kind == StanceKind.QbUnderCenter ? 0.15f : 0f, dt / 0.12f);
+                _qbDrop = Mathf.MoveTowards(_qbDrop, go && kind == StanceKind.QbUnderCenter ? 0.15f : 0f, (QbV11.Legacy ? 1f : 0.15f) * dt / 0.12f);      // v0.11.0 QB (B-021): the step was dt / 0.12 = 0.139 m a frame (the whole 0.15 m drop in ONE frame: the hips pop at the call); now 0.15 m over 0.12 s
                 d.HipsDrop = _qbDrop;
                 if (cad && !go) d.HipsDrop += 0.025f * Mathf.Max(0f, Mathf.Sin(_cadenceT * 9.5f));      // the bounce of the cadence
                 if (!go) { d.HeadYaw = 26f * Mathf.Sin(_qbDropT * 1.15f) * (0.6f + 0.4f * Mathf.Sin(_qbDropT * 0.37f)); d.HeadPitch = 2f * Mathf.Sin(_qbDropT * 0.8f); }
             }
-            else if (!qbStand && i == 0) { _qbDrop = 0f; }
+            else if (!qbStand && i == 0) { if (QbV11.Legacy) _qbDrop = 0f; else { _qbDrop = Mathf.MoveTowards(_qbDrop, 0f, 0.15f * dt / 0.14f); d.HipsDrop = _qbDrop; } }      // v0.11.0 QB (B-021): the hips come back up over 0.14 s after the snap (the 0.15 m drop of the call used to vanish in one frame)
             // motion facts the pose layer uses for the quarterback (and the footfall planner of every body in the layer)
             Vector3 down = Frame.DirToUnity(new Vec2(0f, 1f));
             Vector3 look = Vector3.zero; bool hasLook = false;
@@ -126,9 +127,11 @@ namespace PixFootball.Gameplay
                 int tid = a.QbState == QbPhase.Fake ? Sim.QbFakeTargetId : (a.QbState == QbPhase.Mesh && Sim.QbPlanIsHandoff ? Sim.QbHandoffTargetId : Sim.QbLookTargetId);
                 if (tid >= 0 && tid < 22) { look = WorldPos(tid) + Vector3.up * 1.75f; hasLook = true; }
             }
+            QbEyesOverride(ref look, ref hasLook, a);      // v0.11.0 QB: after the release his eyes follow the ball
             bool lefty = a.Player != null && a.Player.Bio != null && a.Player.Bio.Hand == PixFootball.League.Handedness.Left && a.PlayPos == Position.QB;
             v.SetMotionInputs(Frame.VelToUnity(a.Vel), down, look, hasLook, lefty);
             if (a.Side == SimSide.Offense && a.Slot == 0 && Sim.Kind == PlayKind.Scrimmage && (a.QbState == QbPhase.Windup || Sim.Ball.State != BallState.Pass)) BallSpinHint.PassSpin = BallSpinHint.For(a.PendingStyle);
+            QbFlightHints(a);      // v0.11.0 QB
             if (i == 0 && a.Side == SimSide.Offense && Sim.Kind == PlayKind.Scrimmage && (a.QbState == QbPhase.Mesh || a.QbState == QbPhase.Fake || a.QbState == QbPhase.Done))
             {
                 // v0.10.0 QB: where the runner's pocket is (his belly, a hand's breadth toward the quarterback), handed to the quarterback's pose with a marker weight: his arms reach for it at the sync frame
@@ -141,6 +144,7 @@ namespace PixFootball.Gameplay
             }
             v.StanceInput = d;
             KickTarget(i, a, v);      // v0.10.0 QB: the kick event (note 7)
+            ReceiverEyes(i, a, v);      // v0.11.0 QB: eyes on the ball
         }
     }
 }

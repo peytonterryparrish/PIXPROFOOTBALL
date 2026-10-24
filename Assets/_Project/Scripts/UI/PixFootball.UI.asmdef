@@ -6,6 +6,7 @@
         "PixFootball.League",
         "PixFootball.Art",
         "PixFootball.Gameplay",
+        "PixFootball.Sim",
         "Unity.InputSystem",
         "Unity.TextMeshPro",
         "UnityEngine.UI",

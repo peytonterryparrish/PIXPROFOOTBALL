@@ -87,7 +87,7 @@ namespace PixFootball.Tests
         public void TickerJoinsHeadlinesWithAnAccentSeparator()
         {
             string s = GlassTicker.Join(new[] { "One", "Two" });
-            StringAssert.StartsWith("One", s); StringAssert.EndsWith("Two", s); StringAssert.Contains("//", s);
+            StringAssert.StartsWith("One", s); StringAssert.EndsWith("Two", s); StringAssert.Contains(PixFootball.UI.Glass.GlassTheme.T.flat ? "◆" : "//", s);   // diamond in the Tile look
         }
 
         [Test]

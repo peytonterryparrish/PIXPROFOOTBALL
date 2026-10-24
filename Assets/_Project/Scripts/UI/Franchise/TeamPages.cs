@@ -57,7 +57,7 @@ namespace PixFootball.UI.Franchise
             var t = GlassTheme.T;
             _posSel = GlassKit.Stepper(root, "Position", PosFilter.Names, 0, i => Refresh(), 380f, 56f); Lay.Place((RectTransform)_posSel.transform, 0f, 0f, 380f, 56f);
             _showSel = GlassKit.Stepper(root, "Show", new[] { "Everyone", "Active", "Starters" }, 0, i => Refresh(), 380f, 56f); Lay.Place((RectTransform)_showSel.transform, 396f, 0f, 380f, 56f);
-            _count = Lay.Text(root, "", 21f, t.textPrimary, 800f, 0f, 280f, 56f, false, TextAlignmentOptions.MidlineRight, 0f, "Count"); Lay.Under(_count, 10f, 0f);
+            _count = Lay.Text(root, "", 22f, t.textPrimary, 800f, 0f, 300f, 56f, false, TextAlignmentOptions.MidlineRight, 0f, "Count"); Lay.Under(_count, 10f, 0f);
             var cols = new List<TableColumn>
             {
                 new TableColumn("#", 0.55f, i => _rows[i].Jersey.ToString(), false),
@@ -69,13 +69,13 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("MOR", 0.7f, i => _rows[i].Morale.ToString(), true),
                 new TableColumn("STATUS", 1.35f, i => StatusText(_rows[i]), true)
             };
-            _table = GlassTable.Create(root, "RosterTable", 1080f, 598f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1080f, 598f);
+            _table = GlassTable.Create(root, "RosterTable", 1100f, Lay.H - 68f, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1100f, Lay.H - 68f);
             _table.RowTint = i => _rows[i].Injured ? (Color?)t.danger : _rows[i].Status != RosterStatus.Active ? (Color?)t.textSecondary : null;
             _table.CursorChanged = i => ShowCard();
             _table.Activated = i => OpenActions(_rows[i]);
             _table.HeaderClicked = SortBy; _table.SortRequested = SortBy;
-            _card = PlayerCardPanel.Create(root, 1096f, 0f, 632f, 666f);
+            _card = PlayerCardPanel.Create(root, 1116f, 0f, Lay.W - 1116f, Lay.H);
         }
 
         static string StatusText(RosterRow r)
@@ -182,9 +182,9 @@ namespace PixFootball.UI.Franchise
             var t = GlassTheme.T;
             _issues = Lay.Text(root, "", 22f, t.textSecondary, 0f, 0f, 1000f, 52f, true, TextAlignmentOptions.MidlineLeft, 0f, "Issues"); Lay.Under(_issues, 16f, 0f);
             _autoPos = GlassKit.Button(root, "AUTO SORT POSITION", () => { DepthManager.AutoSort(Save, Ctl.User, Pos); Ctl.Touch(); Shell.Toast("Automatic order for " + Pos + "."); }, GlassButtonStyle.Secondary, 330f, 52f, null, "AutoPos", 20f);
-            Lay.Place((RectTransform)_autoPos.transform, 1728f - 330f * 2f - 16f, 0f, 330f, 52f);
+            Lay.Place((RectTransform)_autoPos.transform, Lay.W - 330f * 2f - 16f, 0f, 330f, 52f);
             _autoAll = GlassKit.Button(root, "AUTO SORT ALL", () => { DepthManager.AutoSortAll(Save, Ctl.User); Ctl.Touch(); Shell.Toast("Every position is back on automatic."); }, GlassButtonStyle.Secondary, 330f, 52f, null, "AutoAll", 20f);
-            Lay.Place((RectTransform)_autoAll.transform, 1728f - 330f, 0f, 330f, 52f);
+            Lay.Place((RectTransform)_autoAll.transform, Lay.W - 330f, 0f, 330f, 52f);
 
             var pcols = new List<TableColumn>
             {
@@ -192,8 +192,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("STARTER", 2.6f, i => StarterName(i), false, i => IsIssue(i) ? (Color?)GlassTheme.T.warning : null, false),
                 new TableColumn("OVR", 0.8f, i => StarterOvr(i), true, null, false)
             };
-            _pos = GlassTable.Create(root, "PosTable", 360f, 606f, pcols, 44f);
-            Lay.Place((RectTransform)_pos.transform, 0f, 60f, 360f, 606f);
+            _pos = GlassTable.Create(root, "PosTable", 360f, Lay.H - 60f, pcols, 44f);
+            Lay.Place((RectTransform)_pos.transform, 0f, 60f, 360f, Lay.H - 60f);
             _pos.SetCount(LeagueRules.RosterOrder.Length);
             _pos.CursorChanged = i => { _grab = false; RefreshDepth(true); };
             _pos.Activated = i => Shell.Focus(_depth);
@@ -206,8 +206,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("OVR", 0.8f, i => _entries[i].OverallAtSlot.ToString(), true, i => Fmt.OvrColor(_entries[i].OverallAtSlot), false),
                 new TableColumn("ROLE", 1.6f, i => RoleText(i), true, null, false)
             };
-            _depth = GlassTable.Create(root, "DepthTable", 720f, 606f, dcols);
-            Lay.Place((RectTransform)_depth.transform, 376f, 60f, 720f, 606f);
+            _depth = GlassTable.Create(root, "DepthTable", 740f, Lay.H - 60f, dcols);
+            Lay.Place((RectTransform)_depth.transform, 376f, 60f, 740f, Lay.H - 60f);
             _depth.RowTint = i => _grab && i < _entries.Count && _entries[i].PlayerId == _grabId ? (Color?)GlassTheme.T.accent : (_entries[i].Injured ? (Color?)GlassTheme.T.danger : null);
             _depth.CursorChanged = i => ShowCard();
             _depth.Activated = i => ToggleGrab();
@@ -215,7 +215,7 @@ namespace PixFootball.UI.Franchise
             _depth.MoveHook = OnDepthMove;
             _depth.HandleSortKey = false;
             _depth.EmptyText = "Nobody is listed here. Press X to add a player.";
-            _card = PlayerCardPanel.Create(root, 1112f, 60f, 616f, 606f, false);
+            _card = PlayerCardPanel.Create(root, 1132f, 60f, Lay.W - 1132f, Lay.H - 60f, false);
             NavWire.Set(_pos, null, null, null, _depth); NavWire.Set(_depth, null, null, _pos, null);
         }
 
@@ -393,8 +393,8 @@ namespace PixFootball.UI.Franchise
                     new TableColumn(h[4], 1.3f, i => _data[vi][i].C, true, null, false),
                     new TableColumn(h[5], 1.2f, i => vi == 0 || vi == 2 ? _data[vi][i].Ovr.ToString() : _data[vi][i].D, true, i => vi == 0 || vi == 2 ? (Color?)Fmt.OvrColor(_data[vi][i].Ovr) : null, false)
                 };
-                var tb = GlassTable.Create(root, "SquadTable" + v, 1080f, 598f, cols);
-                Lay.Place((RectTransform)tb.transform, 0f, 68f, 1080f, 598f);
+                var tb = GlassTable.Create(root, "SquadTable" + v, 1100f, Lay.H - 68f, cols);
+                Lay.Place((RectTransform)tb.transform, 0f, 68f, 1100f, Lay.H - 68f);
                 tb.EmptyText = v == 0 ? "Nobody is hurt." : v == 1 ? "The practice squad is empty." : v == 2 ? "Injured reserve is empty." : (RosterManager.InSeason(Save) ? "Nobody is on waivers." : "The waiver wire only runs during the season.");
                 tb.RowTint = i => _data[vi][i].Tint;
                 tb.CursorChanged = i => ShowCard();
@@ -402,7 +402,7 @@ namespace PixFootball.UI.Franchise
                 tb.HandleSortKey = false;
                 _tables[v] = tb;
             }
-            _card = PlayerCardPanel.Create(root, 1096f, 0f, 632f, 666f);
+            _card = PlayerCardPanel.Create(root, 1116f, 0f, Lay.W - 1116f, Lay.H);
         }
 
         public override Selectable Entry { get { return _tables[V]; } }

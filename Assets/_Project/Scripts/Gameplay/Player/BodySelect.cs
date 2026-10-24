@@ -24,8 +24,12 @@ namespace PixFootball.Gameplay
         }
 
         /// <summary>Size + base of a player. A missing bio (height / weight 0) uses a typical build of the position (ChooseBody falls back on the weight).</summary>
+        /// <summary>QA (v0.11.0 CRITICAL): 0-14 forces one of the 15 bodies (size + 3 * base) for every player; -1 = by position and bio.</summary>
+        public static int ForceBody = -1;
+
         public static void For(Position pos, int heightIn, int weightLb, out PlayerSize size, out BodyBase baseShape)
         {
+            if (ForceBody >= 0) { size = (PlayerSize)(ForceBody % 3); baseShape = (BodyBase)(ForceBody / 3); return; }
             int cm = heightIn > 55 ? (int)(heightIn * 2.54f + 0.5f) : 183;
             int kg = weightLb > 100 ? (int)(weightLb * 0.45359f + 0.5f) : TypicalKg(pos);
             PhotoBody s; BodyBase b;

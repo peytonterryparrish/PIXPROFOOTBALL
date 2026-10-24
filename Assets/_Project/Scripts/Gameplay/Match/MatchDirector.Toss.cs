@@ -11,7 +11,7 @@ namespace PixFootball.Gameplay
 
         void BeginTossScene()
         {
-            if (Ui == null || Config.CpuVsCpu || Autopilot || Stage == null) return;
+            if (Ui == null || (Config.CpuVsCpu && !_watch) || AutoRun || Stage == null) return;   // v0.11 B-119: a watched game opens with the coin toss scene
             _tossScene = true;
             Stage.BeginToss(_homeKit, _awayKit, _tossCenter);
             if (Officials != null) Officials.PlaceForToss(_tossCenter, 180f);

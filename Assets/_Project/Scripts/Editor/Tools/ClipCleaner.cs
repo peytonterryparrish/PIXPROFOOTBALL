@@ -220,10 +220,10 @@ namespace PixFootball.EditorTools
         }
 
         /// <summary>Writes a processed sequence as Clean/NAME.anim (same simplification as the cleaner).</summary>
-        public static string WriteSeq(PoseSeq seq)
+        public static string WriteSeq(PoseSeq seq, float tol = 0.015f, float legTol = -1f)
         {
             var clip = seq.ToClip(seq.Name);
-            Simplify(clip, 0.015f);
+            Simplify(clip, tol, legTol);
             Directory.CreateDirectory(CleanDir);
             string path = PathOf(seq.Name);
             var existing = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
@@ -370,7 +370,7 @@ namespace PixFootball.EditorTools
         }
 
         // ---------------------------------------------------------------------------------------------------- curve simplification
-        public static void Simplify(AnimationClip clip, float tol)
+        public static void Simplify(AnimationClip clip, float tol, float legTol = -1f)
         {
             foreach (var b in AnimationUtility.GetCurveBindings(clip))
             {
@@ -380,7 +380,7 @@ namespace PixFootball.EditorTools
                 string pn = b.propertyName;
                 if (pn.StartsWith("RootQ")) continue;     // QA-923: never reduce the root quaternion components independently
                 bool finger = pn.Contains("Thumb") || pn.Contains("Index") || pn.Contains("Middle") || pn.Contains("Ring") || pn.Contains("Little");
-                float t = pn.StartsWith("RootT") ? 0.006f : (pn.StartsWith("RootQ") ? 0.003f : (finger ? 0.08f : tol));
+                float t = pn.StartsWith("RootT") ? 0.006f : (pn.StartsWith("RootQ") ? 0.003f : (finger ? 0.08f : ((legTol > 0f && (pn.Contains("Leg") || pn.Contains("Foot"))) ? legTol : tol)));
                 var keep = new bool[keys.Length]; keep[0] = keep[keys.Length - 1] = true;
                 Rdp(keys, 0, keys.Length - 1, t, keep);
                 var nk = new List<Keyframe>();
@@ -389,7 +389,8 @@ namespace PixFootball.EditorTools
                 for (int i = 0; i < nk.Count; i++)
                 {
                     var k = nk[i]; int a = Mathf.Max(0, i - 1), z = Mathf.Min(nk.Count - 1, i + 1);
-                    float dt = nk[z].time - nk[a].time; float sl = dt > 0f ? (nk[z].value - nk[a].value) / dt : 0f;
+                    float dPrev = i > 0 ? (nk[i].value - nk[i - 1].value) / Mathf.Max(1e-5f, nk[i].time - nk[i - 1].time) : 0f, dNext = i < nk.Count - 1 ? (nk[i + 1].value - nk[i].value) / Mathf.Max(1e-5f, nk[i + 1].time - nk[i].time) : 0f;
+                    float sl = i == 0 ? dNext : (i == nk.Count - 1 ? dPrev : (dPrev * dNext <= 0f ? 0f : 2f * dPrev * dNext / (dPrev + dNext)));      // v0.11: monotone (Fritsch-Butland) tangents: the Hermite curve between two kept keys never overshoots them (finger muscles saturate at +-1)
                     k.inTangent = sl; k.outTangent = sl; nk[i] = k;
                 }
                 AnimationUtility.SetEditorCurve(clip, b, new AnimationCurve(nk.ToArray()));

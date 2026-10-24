@@ -14,7 +14,7 @@ namespace PixFootball.Gameplay
         public enum QbPre { None, Walk, Survey, Crouch }
 
         QbPre _qbPre; float _qbPreT, _qbPreLen; Vector3 _qbPreLook; bool _qbPreShotgun; bool _qbSeqPlay;
-        float _qbPointW; bool _footLenSet;
+        float _qbPointW, _qbReadYaw; bool _footLenSet, _qbUcNow, _qbEmpty;
         /// <summary>The pocket-to-scramble transition poses the legs on the pose layer (true) or leaves the legs to the motion matcher while the sim holds his speed down (false, default: the pose layer's 0.22 s fade pinned a planted foot while he accelerated, a metre of slide).</summary>
         public static bool ScrambleStartPose = false;
         // post-snap tracking
@@ -39,6 +39,7 @@ namespace PixFootball.Gameplay
             get
             {
                 if (_qbPre != QbPre.None) return _qbPre.ToString();
+                if (_qtOn) return "Throw";
                 if (_qbSecure) return "Secure";
                 if (_qbScrStart) return "ScrambleStart";
                 if (_qbMeshOn) return "Mesh";
@@ -64,6 +65,7 @@ namespace PixFootball.Gameplay
         bool QbSeqPose(ref StancePose target, ref float tau, ref bool gait)
         {
             _qbPointW = 0f;
+            if (QbThrowPose(ref target, ref tau, ref gait)) return true;      // v0.11.0 QB: the throw
             if (_qbPre == QbPre.Survey)
             {
                 float pw; target = StancePoses.QbSurvey(_qbPreT, _qbPreLen, out pw); _qbPointW = pw;
@@ -100,7 +102,7 @@ namespace PixFootball.Gameplay
             if (_qbSeqPlay && _qbPre == QbPre.None && !_qbPoseOn && (_lastAction == AgentAction.Stance || _qbStanceHold) && !Huddle)
             {
                 // set at the line after the sequence: the stance pose, with the feet where the crouch planted them (no step into the stance rest spots)
-                target = StancePoses.For(Stance, Role); tau = 0.06f; gait = true; return target.Valid;
+                target = StancePoses.For(Stance, Role); if (Stance.Kind == StanceKind.QbUnderCenter) target = StancePoses.QbUcDeep(target); tau = 0.06f; gait = true; return target.Valid;
             }
             if (_qbPoseOn && _qbPoseKind == StanceKind.QbDrop && !_wasFake)
             {
@@ -110,7 +112,7 @@ namespace PixFootball.Gameplay
             }
             if (_qbPoseOn && _qbPoseKind == StanceKind.QbPocket && !_wasFake)
             {
-                target = StancePoses.QbPocketLive(_clock); if (_lefty) target = target.Mirrored();
+                target = StancePoses.QbPocketLive(_clock, _simVel.magnitude); if (_qbEmpty) { target.RPos = new Vector3(0.20f, -0.30f, 0.12f); target.LPos = new Vector3(-0.20f, -0.30f, 0.12f); } if (_lefty) target = target.Mirrored();
                 tau = 0.09f; gait = true; return target.Valid;
             }
             return false;
@@ -172,10 +174,23 @@ namespace PixFootball.Gameplay
                     d.Look = hp + _seqLookDir * 10f;
                 }
             }
+            // v0.11.0 QB (note 8): the shoulders turn toward the read (a little more than half the way, 30 degrees at most) while the hips and the feet stay on the field: the stance scans with the chest, not only the eyes
+            if (!QbV11.Legacy && have && _qbPoseOn && (_qbPoseKind == StanceKind.QbPocket || (_qbPoseKind == StanceKind.QbDrop && !_qbUcNow)) && !_wasFake && !_qbMeshOn && !_qbCarryOut && _qbHasLook)
+            {
+                Vector3 toR = _qbLook - transform.position; toR.y = 0f;
+                float rel = toR.sqrMagnitude > 0.25f ? Vector3.SignedAngle(Forward, toR, Vector3.up) : 0f;
+                _qbReadYaw = Mathf.MoveTowards(_qbReadYaw, Mathf.Clamp(rel * 0.65f, -32f, 32f), 220f * Mathf.Max(Time.deltaTime, 0.0001f));
+                d.UpperYaw += _qbReadYaw;
+            }
+            else _qbReadYaw = Mathf.MoveTowards(_qbReadYaw, 0f, 300f * Mathf.Max(Time.deltaTime, 0.0001f));
+            QbThrowDyn(ref d);      // v0.11.0 QB: the scripted feet and the eyes of the throw
         }
 
         /// <summary>The quarterback's set-feet throw keeps the footfall planner (the front foot's stride is a planned step, not a snap to the pose).</summary>
         bool QbThrowGait { get { return Role == PlayerRole.QB; } }
+
+        /// <summary>QA: the passer throws with his left hand.</summary>
+        public bool IsLefty { get { return _lefty; } }
 
         /// <summary>0..1: how far the quarterback's drawn position has stepped toward the runner for the hand-off (see <see cref="PlayStage"/>).</summary>
         public float QbMeshPullWeight

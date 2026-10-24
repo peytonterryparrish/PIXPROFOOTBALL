@@ -17,7 +17,7 @@ namespace PixFootball.UI
         RectTransform _bottomRoot, _flagStripB;
         TextMeshProUGUI _flagTextB;
         Block _bAway, _bHome;
-        TextMeshProUGUI _bQuarter, _bClock, _bPlayClock, _bDown, _bSpot, _bCam;
+        TextMeshProUGUI _bQuarter, _bClock, _bPlayClock, _bDown, _bSpot, _bCam; GameObject _bPlayClockCell, _bCamCell;
         Image _bPlayClockBg;
         KickHud _kick;
         OptionSelector _pauseSb;
@@ -112,7 +112,7 @@ namespace PixFootball.UI
             // penalty flag strip: hangs just above the hint bar (the hint bar itself sits above the bar)
             _flagStripB = UiKit.Rect(_root, "FlagStripBottom");
             var fimg = _flagStripB.gameObject.AddComponent<Image>(); fimg.color = new Color(1f, 0.918f, 0f, 1f); fimg.raycastTarget = false;
-            _flagTextB = UiKit.Label(_flagStripB, "", 28, Color.black, true, TextAlignmentOptions.MidlineLeft, "FlagText"); UiKit.Stretch(_flagTextB.rectTransform, 24, 0, 24, 0); _flagTextB.characterSpacing = 2f;
+            _flagTextB = UiKit.Label(_flagStripB, "", 24, Color.black, true, TextAlignmentOptions.Center, "FlagText"); UiKit.Stretch(_flagTextB.rectTransform, 24, 0, 24, 0); _flagTextB.characterSpacing = 2f; UiKit.Fit(_flagTextB, HudMetrics.MinFont);
             _flagStripB.gameObject.SetActive(false);
         }
 
@@ -129,6 +129,7 @@ namespace PixFootball.UI
         {
             FillBar(_bHome, s.HomeAbbr, s.HomeCrest, s.HomeColor, s.HomeScore, s.HomeTimeouts, s.PossessionHome);
             FillBar(_bAway, s.AwayAbbr, s.AwayCrest, s.AwayColor, s.AwayScore, s.AwayTimeouts, !s.PossessionHome);
+            if (_bPlayClockCell != null && _bPlayClockCell.activeSelf != (s.PlayClock >= 0)) _bPlayClockCell.SetActive(s.PlayClock >= 0);   // v0.11 B-081: no empty play-clock cell when nobody calls plays
             _bQuarter.text = s.Quarter; _bClock.text = s.Clock;
             _bClock.color = s.TwoMinute ? UiColors.Orange : Color.white;
             _bDown.text = s.DownDistance; _bSpot.text = s.Spot;
@@ -189,7 +190,7 @@ namespace PixFootball.UI
             if (_bottomRoot != null) _bottomRoot.localScale = Vector3.one * s;
             if (_bottomRoot == null) return;
             _appliedScale = s;
-            float inset = _bottomActive ? BarHeight * s : 0f;
+            float inset = _bottomActive ? BarHeight * s + HudMetrics.BarLift : 0f;
             if (_hintBar != null) ((RectTransform)_hintBar.transform).anchoredPosition = new Vector2(0f, _bottomActive ? inset + 14f : 36f);
             if (_toast != null) _toast.anchoredPosition = new Vector2(0f, _bottomActive ? inset + 128f : 150f);
             if (_kick != null) _kick.SetBaseY(_bottomActive ? inset + 84f : 106f);

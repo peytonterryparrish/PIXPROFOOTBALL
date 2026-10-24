@@ -54,7 +54,7 @@ namespace PixFootball.Tests
         [Test] public void RushYardsPerTeam() { var s = Run1000(); double v = s.RushYds / (2.0 * s.Games); Assert.That(v, Is.InRange(105.0, 125.0), "rush yds/team " + v); }
         [Test] public void SacksPerTeam() { var s = Run1000(); double v = s.Sacks / (2.0 * s.Games); Assert.That(v, Is.InRange(2.0, 2.7), "sacks/team " + v); }
         [Test] public void InterceptionsPerTeam() { var s = Run1000(); double v = s.Ints / (2.0 * s.Games); Assert.That(v, Is.InRange(0.65, 1.0), "INT/team " + v); }
-        [Test] public void PlaysPerTeam() { var s = Run1000(); double v = s.Plays / (2.0 * s.Games); Assert.That(v, Is.InRange(60.0, 66.0), "plays/team " + v); }
+        [Test] public void PlaysPerTeam() { var s = Run1000(); double v = s.Plays / (2.0 * s.Games); Assert.That(v, Is.InRange(60.0, 68.0), "plays/team " + v); }   // v0.11.0 SIM-FLOW (B-072): range 60-68 (no clock for a touchback kickoff gives a play or so more)
         // 1000 games carry about +-1.6 points of sampling noise around the true ~56 percent
         [Test] public void HomeWinPercentage() { var s = Run1000(); double v = 100.0 * s.HomeWins / s.Games; Assert.That(v, Is.InRange(50.0, 60.0), "home win% " + v); }
 

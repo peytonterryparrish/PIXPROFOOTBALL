@@ -28,6 +28,8 @@ namespace PixFootball.EditorTools
             0.8f, 0.8f, 0.8f,                         // facing change
         };
         static readonly float[] MinStd = { 0.05f, 0.05f, 0.05f, 0.05f, 0.03f, 0.03f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 0.3f, 8f, 8f, 8f };
+        /// <summary>The turning takes (cuts, 180 turns) would triple the spread of the facing-change features and with it halve their weight for every other take: capped at the v0.10 scale.</summary>
+        static readonly float[] MaxStd = { 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 14f, 14f, 14f };
 
         /// <summary>Clips that go into the database (file name without extension) and their role flags. Everything else in the folder (goalkeeper, soccer, football actions) belongs to the action systems.</summary>
         public sealed class Spec { public string Name; public int Kind; public bool ForceOneShot; public float SpeedScale = 0f; public bool Lib; }
@@ -43,6 +45,14 @@ namespace PixFootball.EditorTools
             foreach (var n in new[] { "Run_Jog_Backward", "Run_Running_Backward", "Run_Jog_Backward_Diagonal" }) add(n, B);
             foreach (var n in new[] { "Jog_Jog_Strafe_Left", "Jog_Jog_Strafe_Right", "Jog_Left_Strafe_2", "Jog_Right_Strafe", "Run_Jog_Forward_Diagonal", "Jog_Jog_Forward_Diagonal_2" }) add(n, S);
             // one-shot starts / stops / turns are OUT: their root turning fights the simulated yaw (planted slide 2-3.4 m/s against 0.5-1.3 for the loops); stops and cuts are the loops with the planned path, the stride warp, the orientation warp and the foot lock
+            if (LocoCycleScan.CmdArg("-pixMmTrans", "0") == "1")      // opt-in: measured worse than the loops alone (Docs/QA/v0110/motion.md section 4)
+            {
+                // v0.11.0: explicit transitions, one-shot takes played by distance (MotionMatcher): the start from standing, the stop from a run, cuts and turns, each with its left-right mirror
+                foreach (var n in new[] { "Run_Idle_To_Sprint" }) add(n, St);      // Run_Crouched_To_Sprinting stands 37 cm too low in the retarget (floor), left out
+                foreach (var n in new[] { "Stop_Run_To_Stopss", "Stop_Standing_Torch_Run_Forward_Stops" }) add(n, Sp);
+                foreach (var n in new[] { "Run_Sprint_Turn", "Run_Running_Right_Turn", "Turn_Goalkeeper_Sidestep", "Turn_Goalkeeper_Sidestep_2", "Jog_Turn_To_Runninggx" }) add(n, C);
+                add("Jog_Running_Turn_180", T);
+            }
 
 
             return L;
@@ -53,6 +63,12 @@ namespace PixFootball.EditorTools
         {
             return false;
         }
+
+        /// <summary>Staging builds (-pixMmDb) write their cleaned and mirrored clips next to the shipped ones, never over them: the shipped database keeps pointing at its own assets.</summary>
+        public static string Suffix { get { return MotionDb.AssetPath != MotionDb.EditorPath ? "11" : ""; } }
+
+        /// <summary>Height (m above the floor of the foot) at which a fast take lets go of a contact (the sprinter's foot leaves the turf late, the lock holds it to the turf for the whole push-off).</summary>
+        public static float TagExitFast { get { float v; return float.TryParse(LocoCycleScan.CmdArg("-pixMmTagExit", "0.07"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : 0.07f; } }
 
         public const string CalibPath = "D:/PIXFootball/anim_loco/mm_calibration.csv";
         static readonly Dictionary<string, float> Calib = new Dictionary<string, float>();
@@ -72,7 +88,7 @@ namespace PixFootball.EditorTools
             db.refLeg = rig.Leg;
             var rows = new List<float[]>(); var vel = new List<float>(); var yawr = new List<float>(); var contact = new List<byte>(); var clipOf = new List<int>();
             var report = new StringBuilder();
-            string only = LocoCycleScan.CmdArg("-pixMmOnly", "");
+            string only = LocoCycleScan.CmdArg("-pixMmOnly", ""), skip = LocoCycleScan.CmdArg("-pixMmSkip", "");
             Calib.Clear();
             if (LocoCycleScan.CmdArg("-pixMmCalib", "0") == "1" && File.Exists(CalibPath)) foreach (var ln in File.ReadAllLines(CalibPath).Skip(1)) { var p = ln.Split(','); float t; if (p.Length >= 3 && float.TryParse(p[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out t)) Calib[p[0]] = t; }
             // humanoid muscles inside human range: re-zero the left arm chain, soft-limit the rest (MotionClean)
@@ -82,12 +98,13 @@ namespace PixFootball.EditorTools
             foreach (var spec in Specs())
             {
                 if (only.Length > 0 && !only.Split(',').Contains(spec.Name)) continue;
+                if (skip.Length > 0 && skip.Split(',').Contains(spec.Name)) continue;      // QA: leave takes out (-pixMmSkip a,b)
                 string path = MixamoImport.Folder + "/" + spec.Name + ".fbx";
                 var clip = spec.Lib ? LocoCycleBuilder.FindExact(spec.Name) : MixamoImport.LoadClip(path);
                 if (clip == null) { Debug.LogWarning("[MotionDb] missing " + path); continue; }
                 if (!spec.Lib && !noClean) { int cb, ca; clip = MotionClean.Clean(clip, spec.Name, deltas, out cb, out ca); cleanBefore += cb; cleanAfter += ca; }
                 AddClip(db, rig, plant, clip, spec, rows, vel, yawr, contact, clipOf, report);
-                if (!spec.Lib && (spec.Kind & ((int)MotionDb.Kind.Start | (int)MotionDb.Kind.Stop | (int)MotionDb.Kind.Turn | (int)MotionDb.Kind.Cut)) == 0 && LocoCycleScan.CmdArg("-pixMmNoMirror", "0") != "1")
+                if (!spec.Lib && LocoCycleScan.CmdArg("-pixMmNoMirror", "0") != "1")
                 {
                     int orig = db.clips.Count - 1; var tw = MakeMirror(clip, spec.Name);
                     AddClip(db, rig, plant, tw, new Spec { Name = spec.Name + "_M", Kind = spec.Kind }, rows, vel, yawr, contact, clipOf, report);
@@ -101,14 +118,14 @@ namespace PixFootball.EditorTools
             {
                 double m = 0; for (int r = 0; r < n; r++) m += rows[r][i]; m /= Math.Max(1, n);
                 double v = 0; for (int r = 0; r < n; r++) { double d = rows[r][i] - m; v += d * d; }
-                mean[i] = (float)m; std[i] = Mathf.Max(MinStd[i], (float)Math.Sqrt(v / Math.Max(1, n)));
+                mean[i] = (float)m; std[i] = Mathf.Clamp((float)Math.Sqrt(v / Math.Max(1, n)), MinStd[i], MaxStd[i]);
             }
             db.mean = mean; db.scale = new float[D];
             for (int i = 0; i < D; i++) db.scale[i] = Weights[i] / std[i];
             db.feat = new float[n * D];
             for (int r = 0; r < n; r++) for (int i = 0; i < D; i++) db.feat[r * D + i] = (rows[r][i] - mean[i]) * db.scale[i];
             db.vel = vel.ToArray(); db.yawRate = yawr.ToArray(); db.contact = contact.ToArray(); db.clipOf = clipOf.ToArray();
-            string asset = MotionDb.EditorPath;
+            string asset = MotionDb.AssetPath;
             Directory.CreateDirectory(Path.GetDirectoryName(asset));
             AssetDatabase.DeleteAsset(asset);
             AssetDatabase.CreateAsset(db, asset);
@@ -124,8 +141,8 @@ namespace PixFootball.EditorTools
         /// <summary>A left / right mirrored twin of a take (the humanoid mirror flag of the clip: the same muscle curves swapped left for right). The two feet of a mocap take are never alike (one lands flatter, one turns out more); with the twin in the database the matcher has both, so no side of the body is the one that always plays the worse foot.</summary>
         static AnimationClip MakeMirror(AnimationClip clip, string name)
         {
-            string dir = MixamoImport.Folder + "/Mirrored";
-            if (!AssetDatabase.IsValidFolder(dir)) AssetDatabase.CreateFolder(MixamoImport.Folder, "Mirrored");
+            string dir = MixamoImport.Folder + "/Mirrored" + Suffix;
+            if (!AssetDatabase.IsValidFolder(dir)) AssetDatabase.CreateFolder(MixamoImport.Folder, "Mirrored" + Suffix);
             string path = dir + "/" + name + "_M.anim";
             AssetDatabase.DeleteAsset(path); AnimationClip tw = null;      // always rebuilt from the (cleaned) source
             if (tw == null) { tw = UnityEngine.Object.Instantiate(clip); tw.name = name + "_M"; AssetDatabase.CreateAsset(tw, path); }
@@ -210,11 +227,14 @@ namespace PixFootball.EditorTools
             var lows = new List<float>(); for (int i = 0; i <= N; i++) lows.Add(Mathf.Min(lc[i], rc[i])); lows.Sort();
             float floor = lows[Mathf.Clamp((int)(0.03f * lows.Count), 0, lows.Count - 1)]; float floorL = Pct3(lc), floorR = Pct3(rc);
             var cl = new bool[N + 1]; var cr = new bool[N + 1]; bool sl = false, sr = false;
+            // v0.11.0: the contact window is as wide as the foot is near the floor: a sprinter's foot skims the turf (enter 4 cm, leave at 7 cm), a walking or jogging foot lands and leaves cleanly (2.4 / 3.8 cm), so a slow gait no longer holds a foot that has already lifted 6-9 cm. Scales with the speed of the take.
+            float tagK = spec.Lib ? Mathf.Clamp01((vMean.magnitude * 0.72f - 2.0f) / 3.0f) : 1f; if (LocoCycleScan.CmdArg("-pixMmOldTags", "0") == "1") tagK = 1f;
+            float tagEnter = Mathf.Lerp(0.024f, 0.04f, tagK), tagExit = Mathf.Lerp(0.038f, TagExitFast, tagK);
             for (int pass = 0; pass < 2; pass++)
                 for (int i = 0; i <= N; i++)
                 {
                     float hl = lc[i] - floorL, hr = rc[i] - floorR;
-                    sl = sl ? hl < 0.07f : hl < 0.04f; sr = sr ? hr < 0.07f : hr < 0.04f;
+                    sl = sl ? hl < tagExit : hl < tagEnter; sr = sr ? hr < tagExit : hr < tagEnter;
                     if (pass == 1) { cl[i] = sl; cr[i] = sr; }
                 }
             // a foot that skims the turf while it swings forward is not in contact: during a stance the foot moves BACKWARD relative to the body (along the travel direction) at a good share of the ground speed

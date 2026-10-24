@@ -115,6 +115,8 @@ namespace PixFootball.Presentation
             finally { _have0 = false; }   // the next play must bring its own BeginPlay snapshot (QA-841)
         }
 
+        readonly bool[] _inRz = new bool[2];
+
         PlayDigest RecordPlayCore(PlayOutcome o, PlayKind kind, Func<int, Player> lookup, GameState after)
         {
             var d = new PlayDigest();
@@ -122,6 +124,11 @@ namespace PixFootball.Presentation
             PlayResult r = o.Result;
             int off = o.Offense == CoreTeam.Home ? 0 : 1, def = 1 - off;
             var offBox = BoxOf(off); var defBox = BoxOf(def);
+            // v0.11 B-050: red zone trips (first snap or end spot inside the opponent's 20 on a drive) and the touchdowns that finish them
+            int spotEnd = after != null && after.Possession == o.Offense ? after.BallSpot : 0;
+            if (!_inRz[off] && (_spot0 >= 80 || spotEnd >= 80) && kind != PlayKind.Kickoff && kind != PlayKind.Punt && kind != PlayKind.FieldGoal) { offBox.RedZoneTrips++; _inRz[off] = true; }
+            if (o.ScoringTeam.HasValue && o.ScoringTeam.Value == o.Offense && o.Headline == Headline.Touchdown && _inRz[off]) offBox.RedZoneTds++;
+            if (o.PossessionChanged || o.ScoringTeam.HasValue || kind == PlayKind.Kickoff || kind == PlayKind.Punt || kind == PlayKind.FieldGoal) { _inRz[0] = false; _inRz[1] = false; }
             Plays++;
             bool scrim = kind == PlayKind.Scrimmage || kind == PlayKind.Kneel || kind == PlayKind.Spike;
             Func<int, Player> get = id => { if (id <= 0) return null; var p = lookup != null ? lookup(id) : null; if (p != null) Players[p.Id] = p; return p; };

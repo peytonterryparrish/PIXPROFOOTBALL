@@ -7,7 +7,9 @@
 //   uv1   : x corner radius, y edge width, z focus amount 0..1 (orange edge + glow), w drop shadow amount 0..1
 //   uv2   : x sheen strength, y noise strength, z backdrop strength 0..1 (0 = flat frosted fallback), w kind
 //   uv3   : x density (tint opacity multiplier), y brighten (hover / press), z glow scale (1 = full focus glow), w unused
+// uv3.w (Tile look) = focus edge width override (negative = theme)
 // kind: 0 glass, 1 action (silver gradient, dark text), 2 solid tint (vertex colour is the fill), 3 inset well (dark, low opacity), 4 accent fill (orange)
+// Tile look (material _Flat = 1, see fragFlat): 0 tile body, 1/4 gold plate, 2 solid, 3 well, 5 panel, 6 list row, 7 tab, 8 active tab; kinds 5-8 draw as 0 / 4 in the glass look
 //
 // Globals (set by PixFootball.UI.Glass.GlassBackdrop): _PixGlassBackdrop (blurred scene), _PixGlassBackdropScale (valid uv extent of that texture), _PixGlassBackdropOn (1 when live blur is available).
 Shader "PIX/UI/Glass"
@@ -30,6 +32,18 @@ Shader "PIX/UI/Glass"
         _Desat ("Backdrop desaturation", Range(0, 1)) = 0.35
         _Refraction ("Edge refraction (uv)", Range(0, 0.05)) = 0.012
         _EdgeAlpha ("Edge opacity", Range(0, 1)) = 0.9
+        _Flat ("Flat (Tile) look", Float) = 0
+        _FlatFill ("Tile fill (sRGB)", Vector) = (0.145, 0.153, 0.173, 1)
+        _PanelFill ("Panel fill (sRGB)", Vector) = (0.125, 0.133, 0.157, 1)
+        _PanelHead ("Panel head (sRGB)", Vector) = (0.082, 0.09, 0.106, 1)
+        _RowFill ("Row fill (sRGB)", Vector) = (0.102, 0.11, 0.125, 1)
+        _RowFocus ("Row focus fill (sRGB)", Vector) = (0.153, 0.165, 0.192, 1)
+        _TabOff ("Tab off fill (sRGB)", Vector) = (0.114, 0.122, 0.141, 1)
+        _GoldHi ("Gold highlight (sRGB)", Vector) = (1, 0.812, 0.478, 1)
+        _FocusA ("Focus edge, ring width, ring alpha, glow alpha", Vector) = (4, 2, 0.35, 0.55)
+        _FocusB ("Glow radius, sheen alpha, shadow alpha", Vector) = (46, 0.16, 0.5, 0)
+        _KeyA ("Key cap top (sRGB)", Vector) = (0.467, 0.467, 0.467, 1)
+        _KeyB ("Key cap bottom (sRGB)", Vector) = (0.235, 0.235, 0.235, 1)
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -97,7 +111,8 @@ Shader "PIX/UI/Glass"
             };
 
             float4 _SurfTop, _SurfMid, _SurfBot, _EdgeA, _EdgeB, _EdgeC, _ActionA, _ActionB, _Accent, _FrostLow, _FrostHigh;
-            float _Dim, _Desat, _Refraction, _EdgeAlpha;
+            float _Dim, _Desat, _Refraction, _EdgeAlpha, _Flat;
+            float4 _FlatFill, _PanelFill, _PanelHead, _RowFill, _RowFocus, _TabOff, _GoldHi, _FocusA, _FocusB, _KeyA, _KeyB;
             float4 _ClipRect;
             sampler2D _MainTex;
 
@@ -142,8 +157,127 @@ Shader "PIX/UI/Glass"
                 return t < 0.55 ? lerp(a, b, t / 0.55) : lerp(b, c, (t - 0.55) / 0.45);
             }
 
+            // ---------------------------------------------------------------------------------- Tile (Direction 16) flat branch: solid charcoal surfaces, 2px border, gold focus (4px edge + ring + glow + sheen). No backdrop is sampled.
+            // kind: 0 tile body (160deg #2C2F35 -> #1D1F24; density < 0.9 = list-row fill), 1 / 4 gold plate, 2 solid tint (vertex colour), 3 well (panel head), 5 panel, 6 list row (focus = row focus fill + 4px gold bar), 7 tab (off), 8 tab (on: gold + glow)
+            fixed4 fragFlat(v2f i)
+            {
+                float2 p = i.pos.xy;
+                float2 half2 = i.pos.zw;
+                float radius = min(i.params1.x, min(half2.x, half2.y));
+                float edgeW = i.params1.y;
+                float focus = i.params1.z;
+                float shadowAmt = i.params1.w;
+                float sheenAmt = i.params2.x;
+                float noiseAmt = i.params2.y;
+                int kind = (int)(i.params2.w + 0.5);
+                float density = i.params3.x;
+                float bright = i.params3.y;
+                float glowScale = i.params3.z;
+                float focusEdgeOv = i.params3.w;
+
+                float d = sdRoundBox(p, half2, radius);
+                float aa = max(fwidth(d), 1e-4);
+                float cover = saturate(0.5 - d / aa);
+                float fillCover = cover;
+                float2 uv = p / (half2 * 2.0) + 0.5;          // 0..1, y up
+                float yd = 1.0 - uv.y;                        // y down, like CSS
+
+                float3 rgb;
+                float3 edgeCol = _EdgeA.rgb;
+                bool goldPlate = (kind == 1 || kind == 4 || kind == 8);
+                if (goldPlate) rgb = lerp(_GoldHi.rgb, _Accent.rgb, saturate(yd));
+                else if (kind == 2) rgb = toG(i.color.rgb);
+                else if (kind == 3) { rgb = _PanelHead.rgb; edgeCol = _EdgeC.rgb; }
+                else if (kind == 5) { rgb = _PanelFill.rgb; edgeCol = _EdgeB.rgb; }
+                else if (kind == 6) { rgb = lerp(_RowFill.rgb, _RowFocus.rgb, focus); edgeCol = _EdgeC.rgb; }
+                else if (kind == 7) { rgb = _TabOff.rgb; }
+                else if (kind == 9) { rgb = lerp(_KeyA.rgb, _KeyB.rgb, saturate(yd)); edgeCol = min(_KeyA.rgb * 1.25, 1.0); }
+                else if (kind == 10)    // frame: transparent inside (only the border, ring, glow and the focus sheen draw)
+                {
+                    rgb = float3(1.0, 0.86, 0.59);
+                    float ts10 = saturate((uv.x * 0.866 + yd * 0.5) / 1.366);
+                    fillCover = cover * _FocusB.y * focus * glowScale * saturate(1.0 - ts10 / 0.4);
+                }
+                else
+                {
+                    float tg = saturate((uv.x * 0.342 + yd * 0.940) / 1.282);    // CSS 160deg
+                    rgb = density < 0.9 ? _RowFill.rgb : lerp(_SurfTop.rgb, _SurfBot.rgb, tg);
+                }
+                if (kind != 2) rgb *= toG(i.color.rgb);
+
+                // focus sheen (120deg gold wash fading by 40%), tile-sized surfaces only
+                if (focus > 0.001 && (kind == 0 || kind == 5) && half2.y > 50.0)
+                {
+                    float ts = saturate((uv.x * 0.866 + yd * 0.5) / 1.366);
+                    float sh = _FocusB.y * focus * glowScale * saturate(1.0 - ts / 0.4) * sheenAmt;
+                    rgb = lerp(rgb, float3(1.0, 0.86, 0.59), sh);
+                }
+                rgb += bright.xxx;
+                rgb += (hash12(i.vertex.xy) - 0.5) * noiseAmt;
+
+                // row: gold bar on the left while focused, 1px hairline along the bottom
+                if (kind == 6)
+                {
+                    float barW = (focusEdgeOv >= 0.0 ? focusEdgeOv : _FocusA.x);
+                    float bar = 1.0 - saturate((p.x + half2.x - barW) / aa);
+                    rgb = lerp(rgb, _Accent.rgb, bar * saturate(focus * 4.0));
+                    if (edgeW > 0.0) { float hl = 1.0 - saturate((p.y + half2.y - edgeW) / aa); rgb = lerp(rgb, edgeCol, hl); }
+                }
+
+                // border: 2px at rest, wider and gold when focused (not on rows, tabs and gold plates)
+                float ew = edgeW;
+                if (goldPlate || kind == 6 || kind == 7) ew = 0.0;
+                else if (ew > 0.0)
+                {
+                    float fe = focusEdgeOv >= 0.0 ? focusEdgeOv : _FocusA.x;
+                    ew = lerp(ew, max(ew, fe), focus);
+                }
+                float edgeMask = 0.0;
+                if (ew > 0.0) { float inner = saturate(0.5 - (d + ew) / aa); edgeMask = saturate(cover - inner); }
+                edgeCol = lerp(edgeCol, _Accent.rgb, focus);
+
+                float3 col = rgb * fillCover;
+                float a = fillCover;
+                col = col * (1.0 - edgeMask) + edgeCol * edgeMask;
+                a = a * (1.0 - edgeMask) + edgeMask;
+
+                float outside = saturate(d / aa);
+                // focus: outer ring (2px, 35%) and glow (46px, 55%)
+                if (focus > 0.001 && kind != 6 && kind != 7)
+                {
+                    float ring = (1.0 - saturate((d - _FocusA.y) / aa)) * outside * _FocusA.z;
+                    float gt = saturate(1.0 - max(d, 0.0) / max(_FocusB.x, 1.0));
+                    float g = gt * gt * gt * _FocusA.w * 0.5 * outside;
+                    float gg = (ring + g) * focus * glowScale;
+                    col += _Accent.rgb * gg; a += gg;
+                }
+                if (kind == 8)    // active tab: static gold glow (24px, 50%)
+                {
+                    float gt = saturate(1.0 - max(d, 0.0) / 24.0);
+                    float gg = gt * gt * gt * 0.5 * glowScale * outside;
+                    col += _Accent.rgb * gg; a += gg;
+                }
+                if (shadowAmt > 0.001)
+                {
+                    float sd = sdRoundBox(p - float2(0.0, -8.0), half2, radius);
+                    float sh = exp(-max(sd, 0.0) / 11.0) * _FocusB.z * shadowAmt * outside;
+                    a += sh * (1.0 - a);
+                }
+
+                float4 c = float4(toL(col / max(a, 1e-4)) * a, saturate(a));
+                c *= i.color.a;
+                #ifdef UNITY_UI_CLIP_RECT
+                c *= UnityGet2DClipping(i.worldPosition.xy, _ClipRect);
+                #endif
+                #ifdef UNITY_UI_ALPHACLIP
+                clip(c.a - 0.001);
+                #endif
+                return c;
+            }
+
             fixed4 frag(v2f i) : SV_Target
             {
+                if (_Flat > 0.5) return fragFlat(i);
                 float2 p = i.pos.xy;
                 float2 half2 = i.pos.zw;
                 float radius = min(i.params1.x, min(half2.x, half2.y));
@@ -154,6 +288,7 @@ Shader "PIX/UI/Glass"
                 float noiseAmt = i.params2.y;
                 float backdropAmt = i.params2.z;
                 int kind = (int)(i.params2.w + 0.5);
+                if (kind >= 5) kind = (kind == 8 ? 4 : 0);   // Tile kinds drawn with the glass material
                 float density = i.params3.x;
                 float bright = i.params3.y;
                 float glowScale = i.params3.z;

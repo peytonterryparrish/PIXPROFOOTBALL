@@ -16,6 +16,7 @@ namespace PixFootball.Sim
             a.HasBall = true;
             Ball.Hold(a.Id, BallHandPos(a));
             a.Protecting = false;
+            ResetCarryStyle(a);      // v0.11.0 RB
             if (a.Side == SimSide.Offense) LastOffenseCarrier = a.Id;
         }
 

@@ -20,7 +20,7 @@ namespace PixFootball.UI
             try
             {
                 var m = CareerSession.Latest();
-                if (m != null) return "Continue: " + m.TeamName + ", " + m.Phase;
+                if (m != null) return m.TeamName + " - " + m.Phase;
             }
             catch (System.Exception e) { Debug.LogWarning("[PIX] career tile: " + e.Message); }
             return "Build a dynasty: 32 teams, endless seasons";
@@ -77,7 +77,7 @@ namespace PixFootball.UI
         {
             if (_franchise != null) { _franchise.Close(); Destroy(_franchise.gameObject); _franchise = null; }
             CareerSession.Close();
-            if (_stageView != null) _stageView.gameObject.SetActive(true);
+            if (_stageView != null) _stageView.gameObject.SetActive(StageInMenu);
             GlassSection("MAIN MENU");
             _menuRoot.SetActive(true); SetFooter(false);
             RefreshCareerTile();

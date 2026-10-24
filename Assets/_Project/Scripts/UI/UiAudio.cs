@@ -48,6 +48,7 @@ namespace PixFootball.UI
         {
             var rt = PixRuntimeAssets.Load();
             Play(rt != null ? rt.uiClick : null, 0.6f, 1f);
+            if (MusicDirector.Instance != null) MusicDirector.Instance.Duck(0.22f, 0.3f);      // v0.11.0 AUDIO: the music steps back under a UI selection
         }
     }
 

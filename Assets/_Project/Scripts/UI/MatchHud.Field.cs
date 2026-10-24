@@ -96,14 +96,14 @@ namespace PixFootball.UI
         void BuildWhistle()
         {
             _whistle = UiKit.Rect(_root, "Whistle"); _whistle.anchorMin = _whistle.anchorMax = new Vector2(0.5f, 1f); _whistle.pivot = new Vector2(0.5f, 1f);
-            _whistle.anchoredPosition = new Vector2(0f, -176f); _whistle.sizeDelta = new Vector2(760f, 60f);
+            _whistle.anchoredPosition = new Vector2(0f, -176f); _whistle.sizeDelta = new Vector2(640f, 46f);
             _whistleGroup = _whistle.gameObject.AddComponent<CanvasGroup>(); _whistleGroup.blocksRaycasts = false; _whistleGroup.interactable = false;
-            Graphic bg = UiTheme.IsGlass ? (Graphic)GlassKit.Panel(_whistle, "Bg", 1.4f, true, 30f) : UiKit.Panel(_whistle, "Bg", new Color(0.04f, 0.05f, 0.09f, 0.9f));
+            Graphic bg = UiKit.Panel(_whistle, "Bg", HudStyle.Tile);   // v0.11: flat tile, same as the banner
             UiKit.Stretch(bg.rectTransform);
-            var rail = UiKit.Panel(_whistle, "Rail", UiTheme.IsGlass ? GlassTheme.T.accent : new Color(1f, 0.78f, 0.22f, 1f));
-            UiKit.Anchor(rail.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(5f, 32f));
-            _whistleText = UiKit.Label(_whistle, "", 30, Color.white, true, TextAlignmentOptions.Center, "Text"); UiKit.Stretch(_whistleText.rectTransform, 40f, 0f, 24f, 0f);
-            _whistleText.characterSpacing = 2f; UiKit.Fit(_whistleText, 18f);
+            var rail = UiKit.Panel(_whistle, "Rail", HudStyle.Gold);
+            UiKit.Anchor(rail.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0f), new Vector2(5f, 46f));
+            _whistleText = UiKit.Label(_whistle, "", 24, Color.white, true, TextAlignmentOptions.Center, "Text"); UiKit.Stretch(_whistleText.rectTransform, 24f, 0f, 16f, 0f);
+            _whistleText.characterSpacing = 2f; UiKit.Fit(_whistleText, HudMetrics.MinFont);
             if (UiTheme.IsGlass) _whistleText.font = GlassTheme.Current.Title;
             _whistle.gameObject.SetActive(false);
         }
@@ -112,6 +112,8 @@ namespace PixFootball.UI
         public void ShowWhistle(string text, float seconds)
         {
             if (string.IsNullOrEmpty(text)) return;
+            if (BannerSays(text)) return;   // v0.11 B-044: the banner already says it (headline or sub-line)
+            seconds = Mathf.Min(seconds, 1.8f);
             if (_whistle == null) BuildWhistle();
             _whistleText.text = text.ToUpperInvariant();
             if (_whistleCo != null) StopCoroutine(_whistleCo);

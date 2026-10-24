@@ -26,11 +26,13 @@ namespace PixFootball.EditorTools
         public float score; public bool reject; public string faults = "";
         public bool fSlide, fGround, fHand, fTwist, fSkel, fYaw, fFloor, fRest;
         public float yaw0, footAsymCm, armsLead, armsTail, armsMax; public bool fArms;
+        // v0.11 leg metrics (FootAxes.cs): ankle displacement over planted frames (cm), foot yaw drift (deg), ankle roll while flat (deg), foot rotation pops
+        public float plantDisp, plantYaw, plantRoll, plantToe, footPops; public int plantN;
 
         public static string Header()
         {
             return "name,keys,length,loop,travel,rootSpeed,rootDir,hipMed,gaitSpeed,slideMean,slidePct,plantedPct,penPct,groundCm,floatCm,treadmill,waistTwist,torsoTwist,torsoBend,headTwist,kneeHyper,kneeHyperPct,elbowOverPct,popMax,popFrames,jitter,"
-                + "wristOverPct,wristMaxDeg,forearmTwistMax,forearmFlip,fingerStd,fingerOverPct,fingerCurl,fingerJitter,fingerStatic,tposeFrames,deadStart,deadEnd,seamPose,score,reject,faults,fSlide,fGround,fHand,fTwist,fSkel,yaw0,footAsymCm,fYaw,fFloor,fRest,armsLead,armsTail,armsMax,fArms,source";
+                + "wristOverPct,wristMaxDeg,forearmTwistMax,forearmFlip,fingerStd,fingerOverPct,fingerCurl,fingerJitter,fingerStatic,tposeFrames,deadStart,deadEnd,seamPose,score,reject,faults,fSlide,fGround,fHand,fTwist,fSkel,yaw0,footAsymCm,fYaw,fFloor,fRest,armsLead,armsTail,armsMax,fArms,source,plantN,plantDisp,plantYaw,plantRoll,footPops,plantToe";
         }
 
         public string Csv()
@@ -42,7 +44,7 @@ namespace PixFootball.EditorTools
             {
                 Q(name), Q(keys), F(length), B(loop), F(travel), F(rootSpeed), F(rootDir), F(hipMed), F(gaitSpeed), F(slideMean), F(slidePct), F(plantedPct), F(penPct), F(groundCm), F(floatCm), B(treadmill), F(waistTwist), F(torsoTwist), F(torsoBend), F(headTwist),
                 F(kneeHyper), F(kneeHyperPct), F(elbowOverPct), F(popMax), F(popFrames), F(jitter), F(wristOverPct), F(wristMaxDeg), F(forearmTwistMax), F(forearmFlip), F(fingerStd), F(fingerOverPct), F(fingerCurl), F(fingerJitter), B(fingerStatic),
-                tposeFrames.ToString(), F(deadStart), F(deadEnd), F(seamPose), F(score), B(reject), Q(faults), B(fSlide), B(fGround), B(fHand), B(fTwist), B(fSkel), F(yaw0), F(footAsymCm), B(fYaw), B(fFloor), B(fRest), F(armsLead), F(armsTail), F(armsMax), B(fArms), Q(source)
+                tposeFrames.ToString(), F(deadStart), F(deadEnd), F(seamPose), F(score), B(reject), Q(faults), B(fSlide), B(fGround), B(fHand), B(fTwist), B(fSkel), F(yaw0), F(footAsymCm), B(fYaw), B(fFloor), B(fRest), F(armsLead), F(armsTail), F(armsMax), B(fArms), Q(source), plantN.ToString(), F(plantDisp), F(plantYaw), F(plantRoll), F(footPops), F(plantToe)
             });
         }
     }
@@ -199,6 +201,7 @@ namespace PixFootball.EditorTools
                     i0 = i1 + 1;
                 }
             }
+            LegMetrics.Measure(r, fr, new[] { soleL, soleR }, ground, dt);
             r.plantedPct = 100f * planted / Mathf.Max(1, 2 * (N - 2));
             float rawMean = planted > 0 ? slideSum / planted : 0f;
             r.gaitSpeed = planted > 3 ? rawMean : 0f;

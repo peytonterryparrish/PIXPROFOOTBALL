@@ -601,7 +601,7 @@ namespace PixFootball.Tests
         public void TimeOfPossessionAddsUpToNearlyTheWholeGame()
         {
             double avg = Games.Where(g => !g.Overtime).Average(g => g.Home.TimeOfPossessionSeconds + g.Away.TimeOfPossessionSeconds);
-            Assert.GreaterOrEqual(avg, 3540.0, "average total possession seconds " + avg);
+            Assert.GreaterOrEqual(avg, 3525.0, "average total possession seconds " + avg);      // v0.11.0 SIM-FLOW (B-072): the touchback kickoff costs no clock, so a game leaves a little more than before unplayed
         }
 
         [Test]

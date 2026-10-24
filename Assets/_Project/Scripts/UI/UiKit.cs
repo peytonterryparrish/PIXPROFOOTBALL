@@ -21,23 +21,25 @@ namespace PixFootball.UI
             gTextSecondary = Hex("#BFC1C4"), gTextMuted = Hex("#8E9094"), gScrim = new Color(0.02f, 0.025f, 0.035f, 0.74f);
 
         static bool G { get { return UiTheme.IsGlass; } }
-        public static Color BgDeep { get { return G ? gBgDeep : cBgDeep; } }
-        public static Color BgNav { get { return G ? gBgNav : cBgNav; } }
-        public static Color BgPanel { get { return G ? gBgPanel : cBgPanel; } }
-        public static Color BgPanelDark { get { return G ? gBgPanelDark : cBgPanelDark; } }
-        public static Color Row { get { return G ? gRow : cRow; } }
-        public static Color RowHover { get { return G ? gRowHover : cRowHover; } }
-        public static Color AccentBlue { get { return G ? gAccent : cAccentBlue; } }
-        public static Color AccentBlueHot { get { return G ? gAccentHot : cAccentBlueHot; } }
-        public static Color AccentBlueDeep { get { return G ? gAccentDeep : cAccentBlueDeep; } }
-        public static Color Gold { get { return G ? gAccent : cGold; } }
-        public static Color Orange { get { return G ? gAccent : cOrange; } }
-        public static Color Danger { get { return G ? gDanger : cDanger; } }
-        public static Color Disabled { get { return G ? gDisabled : cDisabled; } }
-        public static Color TextPrimary { get { return G ? gTextPrimary : cTextPrimary; } }
-        public static Color TextSecondary { get { return G ? gTextSecondary : cTextSecondary; } }
-        public static Color TextMuted { get { return G ? gTextMuted : cTextMuted; } }
-        public static Color Scrim { get { return G ? gScrim : cScrim; } }
+        static bool Tl { get { return UiTheme.IsTile; } }
+        static PixFootball.UI.Glass.GlassTokens TT { get { return PixFootball.UI.Glass.GlassTheme.T; } }
+        public static Color BgDeep { get { return Tl ? TT.bgBottom : G ? gBgDeep : cBgDeep; } }
+        public static Color BgNav { get { return Tl ? TT.topBarBottom : G ? gBgNav : cBgNav; } }
+        public static Color BgPanel { get { return Tl ? TT.panelFill : G ? gBgPanel : cBgPanel; } }
+        public static Color BgPanelDark { get { return Tl ? TT.panelHead : G ? gBgPanelDark : cBgPanelDark; } }
+        public static Color Row { get { return Tl ? TT.rowFill : G ? gRow : cRow; } }
+        public static Color RowHover { get { return Tl ? TT.rowFocus : G ? gRowHover : cRowHover; } }
+        public static Color AccentBlue { get { return Tl ? TT.gold : G ? gAccent : cAccentBlue; } }
+        public static Color AccentBlueHot { get { return Tl ? TT.goldHi : G ? gAccentHot : cAccentBlueHot; } }
+        public static Color AccentBlueDeep { get { return Tl ? TT.accentDeep : G ? gAccentDeep : cAccentBlueDeep; } }
+        public static Color Gold { get { return Tl ? TT.gold : G ? gAccent : cGold; } }
+        public static Color Orange { get { return Tl ? TT.gold : G ? gAccent : cOrange; } }
+        public static Color Danger { get { return Tl ? TT.bad : G ? gDanger : cDanger; } }
+        public static Color Disabled { get { return Tl ? TT.hairline : G ? gDisabled : cDisabled; } }
+        public static Color TextPrimary { get { return Tl ? TT.textPrimary : G ? gTextPrimary : cTextPrimary; } }
+        public static Color TextSecondary { get { return Tl ? TT.textSecondary : G ? gTextSecondary : cTextSecondary; } }
+        public static Color TextMuted { get { return Tl ? TT.textMuted : G ? gTextMuted : cTextMuted; } }
+        public static Color Scrim { get { return Tl ? new Color(0.039f, 0.043f, 0.055f, 0.78f) : G ? gScrim : cScrim; } }
 
         public static Color Hex(string h) { Color c; ColorUtility.TryParseHtmlString(h, out c); return c; }
     }
@@ -117,7 +119,9 @@ namespace PixFootball.UI
         public static TextMeshProUGUI Fit(TextMeshProUGUI t, float minSize)
         {
             if (t == null) return null;
-            float size = t.fontSize; t.fontSizeMax = size; t.fontSizeMin = Mathf.Min(minSize, size); t.enableAutoSizing = true; t.overflowMode = TextOverflowModes.Ellipsis;
+            float size = t.fontSize; t.fontSizeMax = size;
+            if (UiTheme.IsTile) minSize = Mathf.Max(minSize, 20f);   // Tile rule: nothing below 20 canvas units, text shrinks to 20 and then truncates
+            t.fontSizeMin = Mathf.Min(minSize, size); t.enableAutoSizing = true; t.overflowMode = TextOverflowModes.Ellipsis;
             return t;
         }
 

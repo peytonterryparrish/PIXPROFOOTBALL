@@ -8,7 +8,7 @@ namespace PixFootball.Sim
     /// Ball-carrier moves (juke, spin, stiff-arm, truck, hurdle, dive) for the user and the AI. Each move has a duration,
     /// a cooldown and a rating-based contest against the nearest threatening defender.
     /// </summary>
-    internal sealed class CarrierMoves
+    internal sealed partial class CarrierMoves
     {
         private readonly PlaySimulation S;
 
@@ -318,6 +318,7 @@ namespace PixFootball.Sim
 
         public void ConsiderAIMoves(SimAgent c)
         {
+            if (StylePlanTick(c)) return;      // v0.11.0 RB: a move decided earlier is executed (or called off) here
             if (!CanMove(c) || c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.QbHasCrossedLos) return;
             float dirY = c.Side == SimSide.Offense ? 1f : -1f;
             Vec2 heading = c.Speed > 1.2f ? c.Vel.Norm() : c.Facing;
@@ -355,14 +356,16 @@ namespace PixFootball.Sim
                 if ((c.Vel - threat.Vel).Dot(rel0.Norm()) > 2.0f) { TryMove(c, CarrierMove.Slide); return; }
             }
             if (threat == null) return;
+            float ttcSel = 0.4f;
             // v0.9.0 (E-151): a move is decided once per threat, on the defender's commit (closing at over 3 yd/s, 0.20-0.45 s from contact), not on a 4.5 percent roll per tick at any distance
             {
                 Vec2 relT = threat.Pos - c.Pos;
                 float closeSp = (c.Vel - threat.Vel).Dot(relT.Norm());
                 float ttc = Math.Max(0f, td - (c.Body.Radius + threat.Body.Radius + 0.35f)) / Math.Max(0.5f, closeSp);
-                if (closeSp < 3.0f || ttc < 0.17f || ttc > 0.50f || c.MoveThreatId == threat.Id) return;
+                if (closeSp < 3.0f || ttc < 0.17f || ttc > StyleTtcMax || c.MoveThreatId == threat.Id) return;
+                ttcSel = ttc;
                 c.MoveThreatId = threat.Id;
-                if (S.Rng.NextFloat() > 0.75f) return;
+                if (S.Rng.NextFloat() > StylePass) return;
             }
 
             float elu = (c.R.Elusiveness + c.R.Agility) * 0.5f / 99f;
@@ -377,6 +380,7 @@ namespace PixFootball.Sim
             float wTruck = dist2 < 1.9f && ahead > 0.5f ? pow * 0.9f * SimMath.Clamp01((c.Body.Mass - threat.Body.Mass + 25f) / 50f) : 0f;
             bool low = threat.Body.FallenTime > 0f || threat.Move == CarrierMove.Dive;
             float wHurdle = low && dist2 < 2.4f ? 0.8f * SimMath.Rating01(c.R.Jumping) : 0f;
+            StyleWeights(c, threat, ref wJuke, ref wSpin, ref wStiff, ref wTruck, ref wHurdle);      // v0.11.0 RB: leverage, situation and budget
             float tot = wJuke + wSpin + wStiff + wTruck + wHurdle;
             if (tot < 0.05f) return;
             float roll = S.Rng.NextFloat() * tot;
@@ -384,12 +388,12 @@ namespace PixFootball.Sim
             {
                 // juke toward the open side (away from the defender's lateral lean)
                 float lat = rel2.Dot(heading.Perp());
-                TryMove(c, lat > 0f ? CarrierMove.JukeRight : CarrierMove.JukeLeft);
+                StyleQueue(c, StyleJukeSide(c, threat, heading, lat), ttcSel, threat.Id);
             }
-            else if ((roll -= wSpin) < 0f) TryMove(c, CarrierMove.Spin);
-            else if ((roll -= wStiff) < 0f) TryMove(c, CarrierMove.StiffArm);
-            else if ((roll -= wTruck) < 0f) TryMove(c, CarrierMove.Truck);
-            else TryMove(c, CarrierMove.Hurdle);
+            else if ((roll -= wSpin) < 0f) StyleQueue(c, CarrierMove.Spin, ttcSel, threat.Id);
+            else if ((roll -= wStiff) < 0f) StyleQueue(c, CarrierMove.StiffArm, ttcSel, threat.Id);
+            else if ((roll -= wTruck) < 0f) StyleQueue(c, CarrierMove.Truck, ttcSel, threat.Id);
+            else StyleQueue(c, CarrierMove.Hurdle, ttcSel, threat.Id);
         }
     }
 }

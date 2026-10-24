@@ -33,6 +33,7 @@ namespace PixFootball.UI.Glass
             if (img.type != Image.Type.Simple) return false;
             if (img.GetComponent<GlassGraphic>() != null) return false;
             if (img.GetComponent<Mask>() != null) return false;
+            if (img.GetComponent<GlassNoSkin>() != null) return false;
             return true;
         }
 
@@ -109,15 +110,16 @@ namespace PixFootball.UI.Glass
             switch (role)
             {
                 case GlassSkinRole.Well:
-                    _g.Kind = GlassKind.Well; _g.Density = 1f; _g.color = new Color(1f, 1f, 1f, 1f); break;
+                    _g.Kind = GlassKind.Well; _g.Density = 1f; _g.color = new Color(1f, 1f, 1f, t.flat ? Mathf.Clamp01(c.a * 1.05f) : 1f); break;
                 case GlassSkinRole.Glass:
-                    _g.Kind = GlassKind.Glass; _g.Density = Mathf.Lerp(0.7f, 1.4f, Mathf.Clamp01(c.a)); _g.color = Color.white; break;
+                    _g.Kind = t.flat ? GlassKind.Panel : GlassKind.Glass; _g.Density = Mathf.Lerp(0.7f, 1.4f, Mathf.Clamp01(c.a)); _g.color = t.flat ? new Color(1f, 1f, 1f, Mathf.Clamp01(0.35f + c.a)) : Color.white; break;
                 case GlassSkinRole.Selected:
+                    if (t.flat) { _g.Kind = GlassKind.Row; _g.Density = 0.7f; _g.Focus = 1f; _g.EdgeWidth = 1f; _g.FocusEdge = 4f; _g.color = Color.white; break; }
                     _g.Kind = GlassKind.Glass; _g.Density = 1.2f; _g.Focus = 0.9f; _g.color = new Color(1f, 0.84f, 0.66f, 1f); break;
                 default:
                     _g.Kind = GlassKind.Solid; _g.EdgeWidth = 0f; _g.Density = 1f; _g.color = c; break;
             }
-            if (role != GlassSkinRole.Solid) _g.EdgeWidth = -1f;
+            if (role != GlassSkinRole.Solid && !(t.flat && role == GlassSkinRole.Selected)) _g.EdgeWidth = -1f;
             _g.SetVerticesDirty();
         }
 

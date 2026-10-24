@@ -63,6 +63,9 @@ namespace PixFootball.Gameplay
         /// <summary>Tolerance (degrees) for pre-snap facing checks.</summary>
         public const float FacingToleranceDeg = 20f;
 
+        /// <summary>v0.11.0 CRITICAL: set by PlayStage.Begin for a goal-line / short-yardage down: the tackles and guards then stand in the true low three-point (hand on the turf) instead of the upright per-position stance of v0.10 (StanceSpec.Ol).</summary>
+        public static bool ShortYardage;
+
         /// <summary>Simulation-frame direction (x lateral, y downfield) a player must face before the snap.</summary>
         public static Vec2 ExpectedPreSnapFacing(SimSide side) { return side == SimSide.Offense ? new Vec2(0f, 1f) : new Vec2(0f, -1f); }
 
@@ -105,7 +108,7 @@ namespace PixFootball.Gameplay
             if (PositionGroup.IsOffensiveLine(pos))
             {
                 s.Kind = pos == Position.C ? StanceKind.CenterSnap : StanceKind.ThreePoint;
-                s.Ol = kind != PlayKind.Scrimmage ? (byte)0 : (byte)(pos == Position.C ? 3 : (pos == Position.LT || pos == Position.RT ? 1 : 2));      // v0.10.0: the per-position line stances are for scrimmage downs (kicks and the goal line keep the low three-point)
+                s.Ol = (kind != PlayKind.Scrimmage || (ShortYardage && pos != Position.C)) ? (byte)0 : (byte)(pos == Position.C ? 3 : (pos == Position.LT || pos == Position.RT ? 1 : 2));      // v0.10.0: the per-position line stances are for scrimmage downs (kicks and the goal line keep the low three-point)
                 return s;
             }
             if (PositionGroup.IsDefensiveLine(pos))

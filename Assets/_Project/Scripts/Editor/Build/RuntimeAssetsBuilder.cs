@@ -163,7 +163,7 @@ namespace PixFootball.EditorTools
             // audio
             if (lib != null)
             {
-                foreach (string k in new[] { "music_pp_gates_of_glory_9_10_25", "music_pp_peytonparrishfistsintotheairmixmasterrev6", "music_pp_carry_the_cross_9_10_25", "music_pp_catch_up_to_you_8_31_25", "music_pp_peytonparrishrefuseitallmixmasterrev92final" })
+                foreach (string k in new string[0])   // v0.11.0 AUDIO+CROWD: the owner's sung songs (music_pp_*) are not used any more; menu music comes from PixAudioBank (Draft Fever OST cues)
                 {
                     var c = lib.Audio(k); if (c != null) rt.menuMusic.Add(c); else Debug.LogWarning("[PIX] missing music key " + k);
                 }

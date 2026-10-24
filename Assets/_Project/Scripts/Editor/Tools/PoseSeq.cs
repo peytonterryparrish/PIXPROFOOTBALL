@@ -23,6 +23,21 @@ namespace PixFootball.EditorTools
         public static string[] MuscleNames { get { return HumanTrait.MuscleName; } }
         public static int MuscleCount { get { return HumanTrait.MuscleCount; } }
         static Dictionary<string, int> _idx;
+        static string[] _curveNames;
+        /// <summary>The animation curve property of a muscle. Body muscles use the HumanTrait name; the finger muscles use "LeftHand.Index.1 Stretched" (a curve named "Left Index 1 Stretched" is silently ignored by the Animator, which left every cleaned clip with the bind-pose fingers until v0.11).</summary>
+        public static string CurveName(int m)
+        {
+            if (_curveNames == null)
+            {
+                var n = MuscleNames; _curveNames = new string[n.Length];
+                for (int i = 0; i < n.Length; i++)
+                {
+                    var mt = System.Text.RegularExpressions.Regex.Match(n[i], @"^(Left|Right) (Thumb|Index|Middle|Ring|Little) (.*)$");
+                    _curveNames[i] = mt.Success ? mt.Groups[1].Value + "Hand." + mt.Groups[2].Value + "." + mt.Groups[3].Value : n[i];
+                }
+            }
+            return _curveNames[m];
+        }
         public static int Index(string name)
         {
             if (_idx == null) { _idx = new Dictionary<string, int>(); var n = MuscleNames; for (int i = 0; i < n.Length; i++) _idx[n[i]] = i; }
@@ -62,7 +77,7 @@ namespace PixFootball.EditorTools
             for (int m = 0; m < names.Length; m++)
             {
                 AnimationCurve c;
-                if (!curves.TryGetValue(names[m], out c)) continue;
+                if (!curves.TryGetValue(CurveName(m), out c) && !curves.TryGetValue(names[m], out c)) continue;
                 for (int i = 0; i < n; i++) s.M[m][i] = c.Evaluate(t0 + i / rate);
             }
             AnimationCurve tx = Get(curves, "RootT.x"), ty = Get(curves, "RootT.y"), tz = Get(curves, "RootT.z");
@@ -92,7 +107,7 @@ namespace PixFootball.EditorTools
         {
             var clip = new AnimationClip { name = name, frameRate = Rate };
             var names = MuscleNames;
-            for (int m = 0; m < names.Length; m++) clip.SetCurve("", typeof(Animator), names[m], Curve(M[m]));
+            for (int m = 0; m < names.Length; m++) clip.SetCurve("", typeof(Animator), CurveName(m), Curve(M[m]));
             var tx = new float[N]; var ty = new float[N]; var tz = new float[N];
             var qx = new float[N]; var qy = new float[N]; var qz = new float[N]; var qw = new float[N];
             for (int i = 0; i < N; i++)

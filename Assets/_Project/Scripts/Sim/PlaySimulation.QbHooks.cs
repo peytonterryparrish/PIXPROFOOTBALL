@@ -9,5 +9,11 @@ namespace PixFootball.Sim
         public int QbFakeTargetId { get { return OffAI != null ? OffAI.QbFakeTargetId : -1; } }
         /// <summary>v0.10.0 QB: agent id of the field-goal holder (-1 = none): the ball is spotted at his knee.</summary>
         public int KickHolderId { get { return Specials != null && Specials.HolderAgent != null && Kind == PlayKind.FieldGoal ? Specials.HolderAgent.Id : -1; } }
+        /// <summary>v0.11.0 QB: the quarterback is running with the ball on purpose (takeoff, keeper, sprinting user passer); false = he is in the throwing stance, in the pocket or on the move.</summary>
+        public bool QbTakeoff { get { return OffAI != null && OffAI.QbTakeoffNow; } }
+        /// <summary>v0.11.0 QB: simulation time the takeoff began (-1 = none).</summary>
+        public float QbTakeoffAt { get { return OffAI != null ? OffAI.QbTakeoffAt : -1f; } }
+        /// <summary>QA: the quarterback has decided to run (the audit measures against it in the v0.10.0 A/B mode too).</summary>
+        public bool QbTakeoffIntent { get { return OffAI != null && OffAI.QbTakeoffIntentNow; } }
     }
 }

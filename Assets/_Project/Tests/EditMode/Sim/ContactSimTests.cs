@@ -90,7 +90,7 @@ namespace PixFootball.Tests
             var sim = SimTestKit.RunNamed("Inside Zone Right", "I-Form", "Cover 3 Sky", "4-3 Base", 75, 75, 5, null, null, opts);
             sim.RunToCompletion();
             foreach (var e in sim.Log.Events)
-                if (e.Type == SimEventType.Tackle) Assert.GreaterOrEqual(e.Pos.Y, sim.LosY + 6f - 0.5f, "no tackle before the carrier was 6 yards past the line");
+                if (e.Type == SimEventType.Tackle && e.AgentA >= 0) Assert.GreaterOrEqual(e.Pos.Y, sim.LosY + 6f - 0.5f, "no tackle before the carrier was 6 yards past the line: " + e);      // v0.11.0: a runner who slides or dives himself down (AgentA -1) is not a defender
         }
 
         [Test]

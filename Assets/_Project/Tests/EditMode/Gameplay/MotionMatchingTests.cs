@@ -77,5 +77,39 @@ namespace PixFootball.Tests
             db.Normalise(raw, n);
             for (int i = 0; i < MotionDb.Dim; i++) Assert.AreEqual((i - i * 0.5f) * 2f, n[i], 1e-5f);
         }
+
+        // ---- v0.11.0
+
+        [Test]
+        public void TransitionTakesHaveNoSpeedPenalty()
+        {
+            // a stop take changes its speed through the clip: the root velocity and path features decide, the speed band does not (a loop is penalised outside +-15 percent)
+            var db = Make((5, true, 3f), (5, false, 6f));
+            db.clips[1].kind = (int)MotionDb.Kind.Stop;
+            Assert.AreEqual(0f, db.SpeedPenalty(5, 2f, 0.15f, 6f), 1e-6f);
+            Assert.Greater(db.SpeedPenalty(0, 5f, 0.15f, 6f), 0f);
+        }
+
+        [Test]
+        public void ForbiddenKindsAreNotSearched()
+        {
+            var db = Make((5, true, 3f), (5, false, 3f));
+            db.clips[1].kind = (int)MotionDb.Kind.Start;
+            var q = new float[MotionDb.Dim]; q[11] = 3f; q[0] = 0.2f;
+            float best; int row = db.Search(q, 3f, 0.15f, 6f, 0, MotionDb.TransitionKinds, out best);
+            Assert.Less(row, 5, "a start take must not be picked while transitions are forbidden");
+        }
+
+        [Test]
+        public void StagingDatabasePathFollowsTheCommandLine()
+        {
+            Assert.AreEqual(MotionDb.EditorPath, MotionDb.AssetPath);      // no -pixMmDb in the test run: the shipped database path
+        }
+
+        [Test]
+        public void FinalIkDoorIsSafeWithoutABody()
+        {
+            Assert.DoesNotThrow(() => { PixIk.Hand(null, true, Vector3.zero, Quaternion.identity); PixIk.Foot(null, false, Vector3.zero, Quaternion.identity); PixIk.Body(null, Vector3.zero); PixIk.Late(null, 0.016f); PixIk.Release(null); });
+        }
     }
 }

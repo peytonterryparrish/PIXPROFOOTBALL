@@ -59,7 +59,7 @@ namespace PixFootball.Gameplay
         }
 
         // ------------------------------------------------------------------------------------------ begin / end
-        struct Glide { public bool Init, Active, Huddle; public Vector3 Shown, LastTarget, HuddleFace; public float Speed, Wait; }
+        struct Glide { public bool Init, Active, Huddle; public Vector3 Shown, LastTarget, HuddleFace; public float Speed, Wait; public bool ToHuddle, Leader; public Vector3 HuddleSpot; public float BreakAt; }
         readonly Glide[] _g = new Glide[22];
         readonly float[] _catchAt = new float[22], _dropAt = new float[22];
         int _lastHolder = -1; BallState _lastBallState; float _holderSince = -99f;
@@ -82,7 +82,8 @@ namespace PixFootball.Gameplay
             sim.AfterStep += OnSimStep;
             bool huddle = NextBeginHuddle && sim.Kind == PlayKind.Scrimmage && sim.Phase == PlayPhase.PreSnap && GlideEnabled;
             NextBeginHuddle = false;
-            if (huddle) PlaceHuddle(sim, frame);
+            if (CarryActive && GlideEnabled) PlaceBetween(sim, frame, huddle);      // v0.11.0 SIM-FLOW: the bodies of the last play walk (or come on from the bench)
+            else if (huddle) PlaceHuddle(sim, frame);
             QbSeqBegin(sim, frame, huddle);      // v0.10.0 QB: walk, survey, step in, crouch
         }
 
@@ -158,7 +159,7 @@ namespace PixFootball.Gameplay
         bool GlideStep(int i, SimAgent a, SimAgentView v, ref Vector3 pos, ref Vector3 vel, ref Vector3 face, float dt)
         {
             var g = _g[i];
-            bool pre = Sim.Phase == PlayPhase.PreSnap && Sim.Kind == PlayKind.Scrimmage && GlideEnabled && !(_anyWalk && _walks[i].Active);
+            bool pre = Sim.Phase == PlayPhase.PreSnap && (Sim.Kind == PlayKind.Scrimmage || CarryActive) && GlideEnabled && !(_anyWalk && _walks[i].Active);
             Vector3 target = pos;
             if (!pre)
             {
@@ -168,10 +169,27 @@ namespace PixFootball.Gameplay
             }
             if ((target - g.LastTarget).sqrMagnitude > 0.36f) { g.Active = true; if (g.Speed < 0.2f) g.Speed = 0f; }   // the simulation moved him a long way in one go: walk it
             g.LastTarget = target;
+            if (g.ToHuddle)
+            {
+                Vector3 hto = g.HuddleSpot - g.Shown; hto.y = 0f; float hd = hto.magnitude;
+                if (hd > 0.12f)
+                {
+                    float hv = hd > 14f ? 5.4f : (hd > 6f ? 4.4f : 3.0f);
+                    float hw = Mathf.Min(hv, Mathf.Max(0.8f, hd * 2.2f));
+                    g.Speed = Mathf.MoveTowards(g.Speed, hw, 5.5f * Mathf.Max(dt, 0.0001f));
+                    float hs = Mathf.Min(hd, g.Speed * Mathf.Max(dt, 0.0001f));
+                    Vector3 hdir = hto / hd;
+                    g.Shown += hdir * hs;
+                    pos = new Vector3(g.Shown.x, pos.y, g.Shown.z); vel = hdir * g.Speed;
+                    face = hd < 0.9f ? Vector3.Slerp(hdir, g.HuddleFace, Mathf.Clamp01(1f - hd / 0.9f)) : hdir;
+                    _g[i] = g; return true;
+                }
+                g.ToHuddle = false; g.Speed = 0f; g.Wait = Mathf.Max(0.25f, g.BreakAt - _betweenClock); g.Shown = g.HuddleSpot;
+            }
             if (g.Wait > 0f)
             {
                 g.Wait -= dt;
-                v.SetHuddle(true, i * 7 + _playIndex);
+                v.SetHuddle(true, i * 7 + _playIndex, g.Leader);
                 pos = g.Shown; vel = Vector3.zero; face = g.HuddleFace;
                 _g[i] = g; return true;
             }
@@ -388,6 +406,7 @@ namespace PixFootball.Gameplay
         /// <summary>E-271: after the whistle the players do not freeze in the whistle pose: the ones near the pile gather round it at a walk, the rest drift toward it; the touchdown and kick plays keep their own choreography.</summary>
         void PostWhistleStart()
         {
+            AftermathBegin();      // v0.11.0 SIM-FLOW
             if (!GlideEnabled || Sim.Kind != PlayKind.Scrimmage || _anyWalk) return;
             var er = Sim.EndReason;
             if (er != EndReason.Tackle && er != EndReason.OutOfBounds && er != EndReason.Incomplete && er != EndReason.Sack) return;

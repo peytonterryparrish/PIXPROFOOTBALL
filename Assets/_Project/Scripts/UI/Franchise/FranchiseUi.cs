@@ -33,7 +33,7 @@ namespace PixFootball.UI.Franchise
         protected CareerSave Save { get { return Shell.Ctl.Save; } }
         public bool Built { get; protected set; }
 
-        /// <summary>Builds the page into <paramref name="parent"/> (size = <see cref="FranchiseUi.PageSize"/>).</summary>
+        /// <summary>Builds the page into <paramref name="parent"/> (size = <see cref="FranchiseUi.ContentSize"/>).</summary>
         public void EnsureBuilt(RectTransform parent)
         {
             if (Built) return;
@@ -58,14 +58,18 @@ namespace PixFootball.UI.Franchise
     }
 
     /// <summary>
-    /// The franchise shell (reference: the franchise hub of the console football sims): a tab strip HOME / TEAM / LEAGUE / OFFICE in the top bar (LB / RB), a design block with a sub-tab strip and
-    /// the page below (LT / RT), the league wire ticker along the bottom, toasts, a busy overlay for long simulations and an overlay slot for full screen flows (the draft). Everything is glass.
+    /// The franchise shell (direction 16 "Tile Hub", reference: the franchise hub of the console football sims): a skewed tab strip HOME / NEWS / ACTIONS / OWNER / TEAM / LEAGUE in the top bar with
+    /// the LB / RB caps and the team chip, a design block with a sub-tab row (LT / RT) or a title row and the page below, the league wire ticker along the bottom, toasts, a busy overlay for long
+    /// simulations and an overlay slot for full screen flows (the draft). Everything reads the theme tokens, so the shell follows the active theme.
     /// </summary>
     public sealed class FranchiseUi : MonoBehaviour
     {
-        public static readonly Vector2 PageSize = new Vector2(1728f, 732f);
-        public const float SubTabsHeight = 56f;
-        public static Vector2 ContentSize { get { return new Vector2(PageSize.x, PageSize.y - SubTabsHeight - 10f); } }
+        /// <summary>The design block: 1800 wide (the mock's 60 unit margins), 800 high between the top bar and the ticker. It stays centred and never scales below 1 on the supported aspects.</summary>
+        public static readonly Vector2 PageSize = new Vector2(1800f, 800f);
+        public const float SubTabsHeight = 56f, SubGap = 12f;
+        /// <summary>Side margin, top of the block (under the 112 unit bar) and the clearance at the bottom (ticker 46 + footer 62 + a gap).</summary>
+        public const float MarginX = 60f, TopY = 134f, TickerH = 46f, FooterH = 62f, BottomClear = TickerH + FooterH + 12f;
+        public static Vector2 ContentSize { get { return new Vector2(PageSize.x, PageSize.y - SubTabsHeight - SubGap); } }
 
         public FranchiseController Ctl { get; private set; }
         public FranchiseHost Host;
@@ -78,10 +82,13 @@ namespace PixFootball.UI.Franchise
 
         sealed class TabSlot { public List<FranchisePage> Pages = new List<FranchisePage>(); public Func<FranchisePage>[] Factories; public int Sub; }
         readonly List<TabSlot> _slots = new List<TabSlot>();
-        FranchisePage _homePage, _overlay;
+        FranchisePage _overlay;
         GameObject _busy; TextMeshProUGUI _busyText;
         RectTransform _subTabsHolder;
+        TextMeshProUGUI _title, _caption;
         bool _open; int _modalFrame = -10;
+
+        static readonly string[] TabTitles = { "FRANCHISE", "LEAGUE NEWS", "ACTIONS", "OWNER'S OFFICE", "TEAM", "LEAGUE" };
 
         // ------------------------------------------------------------------ construction
         public static FranchiseUi Build(RectTransform canvas, FranchiseController ctl, FranchiseHost host)
@@ -92,44 +99,70 @@ namespace PixFootball.UI.Franchise
             ui.Root = go; ui.Ctl = ctl; ui.Host = host;
             ctl.Changed += ui.OnChanged;
 
-            // ---- tab strip in the top bar (same place as the menu hub tabs)
+            // ---- tab strip in the 112 unit top bar (same place as the menu hub tabs): LB cap, tabs, RB cap; the team chip at the right end
             var bar = UiKit.Rect(go, "TabBar");
-            bar.anchorMin = new Vector2(0f, 1f); bar.anchorMax = new Vector2(1f, 1f); bar.pivot = new Vector2(0.5f, 1f); bar.anchoredPosition = new Vector2(0f, -t.safeMarginY); bar.sizeDelta = new Vector2(-t.safeMarginX * 2f, 76f);
-            ui.Tabs = GlassKit.Tabs(bar, FranchiseNav.Tabs, 0, i => ui.ShowTab(i), 56f, 24f, "MainTabs");
-            ui.Tabs.BumperPaging = false;
-            var tr = (RectTransform)ui.Tabs.transform; tr.anchorMin = tr.anchorMax = new Vector2(1f, 0.5f); tr.pivot = new Vector2(1f, 0.5f); tr.anchoredPosition = Vector2.zero;
-            var fit = tr.gameObject.AddComponent<ContentSizeFitter>(); fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize; fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            bar.anchorMin = new Vector2(0f, 1f); bar.anchorMax = new Vector2(1f, 1f); bar.pivot = new Vector2(0.5f, 1f); bar.anchoredPosition = Vector2.zero; bar.sizeDelta = new Vector2(0f, 112f);
+            ui.Tabs = GlassKit.TabBar(bar, FranchiseNav.Tabs, 0, i => ui.ShowTab(i), true, true, "MainTabs");   // skewed tabs with the LB / RB caps (underline tabs in the Glass look)
+            ui.Tabs.BumperPaging = false;   // the shell pages the tabs itself (it also closes overlays)
+            var tbr = ui.Tabs.Bar; tbr.anchorMin = tbr.anchorMax = new Vector2(0.5f, 0.5f); tbr.pivot = new Vector2(0.5f, 0.5f); tbr.anchoredPosition = Vector2.zero;
+            if (!ui.Tabs.Tile) { var tf = tbr.gameObject.AddComponent<ContentSizeFitter>(); tf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize; tf.verticalFit = ContentSizeFitter.FitMode.PreferredSize; }
+            ui.BuildChip(bar);
 
-            // ---- design block (shrinks on short canvases like the hub)
+            // ---- design block: centred, never scaled below 1 on the supported aspects (it shrinks on very short canvases like the hub)
             var hostRt = UiKit.Rect(go, "FitHost");
-            hostRt.anchorMin = Vector2.zero; hostRt.anchorMax = Vector2.one; hostRt.offsetMin = new Vector2(t.safeMarginX, 196f); hostRt.offsetMax = new Vector2(-t.safeMarginX, -152f);
+            hostRt.anchorMin = Vector2.zero; hostRt.anchorMax = Vector2.one; hostRt.offsetMin = new Vector2(MarginX, BottomClear); hostRt.offsetMax = new Vector2(-MarginX, -TopY);
             var block = UiKit.Rect(hostRt, "Block");
-            block.anchorMin = block.anchorMax = new Vector2(0f, 1f); block.pivot = new Vector2(0f, 1f); block.anchoredPosition = Vector2.zero; block.sizeDelta = PageSize;
+            block.anchorMin = block.anchorMax = new Vector2(0.5f, 0.5f); block.pivot = new Vector2(0.5f, 0.5f); block.anchoredPosition = Vector2.zero; block.sizeDelta = PageSize;
             var fs = hostRt.gameObject.AddComponent<FitScale>(); fs.Block = block; fs.DesignSize = PageSize;
             ui.Block = block;
 
             ui._subTabsHolder = Lay.Group(block, "SubTabs", 0f, 0f, PageSize.x, SubTabsHeight);
-            ui.ContentHost = Lay.Group(block, "Content", 0f, SubTabsHeight + 10f, ContentSize.x, ContentSize.y);
+            ui._title = Lay.Text(block, "", 30f, t.textPrimary, 0f, 0f, 700f, SubTabsHeight, true, TextAlignmentOptions.MidlineLeft, 5f, "Title");
+            ui._caption = Lay.Text(block, "", 22f, t.textMuted, PageSize.x - 760f, 0f, 760f, SubTabsHeight, true, TextAlignmentOptions.MidlineRight, 4f, "Caption");
+            ui.ContentHost = Lay.Group(block, "Content", 0f, SubTabsHeight + SubGap, ContentSize.x, ContentSize.y);
             ui.OverlayHost = Lay.Group(block, "Overlay", 0f, 0f, PageSize.x, PageSize.y); ui.OverlayHost.gameObject.SetActive(false);
 
-            // ---- ticker
-            var strip = UiKit.Rect(go, "TickerHost");
-            strip.anchorMin = new Vector2(0f, 0f); strip.anchorMax = new Vector2(1f, 0f); strip.pivot = new Vector2(0.5f, 0f);
-            strip.offsetMin = new Vector2(t.safeMarginX, 124f); strip.offsetMax = new Vector2(-t.safeMarginX, 124f + 52f);
-            ui.Ticker = GlassTicker.Build(strip, "LEAGUE WIRE", 52f, 24f);
+            // ---- ticker: full bleed above the footer, gold NEWS block
+            var tick = UiKit.Rect(go, "TickerHost");
+            tick.anchorMin = new Vector2(0f, 0f); tick.anchorMax = new Vector2(1f, 0f); tick.pivot = new Vector2(0.5f, 0f);
+            tick.offsetMin = new Vector2(0f, FooterH); tick.offsetMax = new Vector2(0f, FooterH + TickerH);
+            ui.Ticker = GlassTicker.Build(tick, "NEWS", TickerH, 20f);
 
             ui.ToastView = GlassToast.Create(go, 190f);
             ui.BuildBusy(go);
 
-            // ---- pages
-            ui._homePage = new HomePage { Shell = ui };
-            ui._slots.Add(new TabSlot());
+            // ---- pages (built on first visit)
+            ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new HomePage() } });
+            ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new NewsPage() } });
+            ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new CapPage(), () => new ReSignPage(), () => new FreeAgencyPage(), () => new TradesPage(), () => new StaffPage() } });
+            ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new OwnerPage() } });
             ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new RosterPage(), () => new DepthPage(), () => new SquadPage() } });
-            ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new SchedulePage(), () => new StandingsPage(), () => new LeadersPage(), () => new AwardsPage(), () => new RecordsPage(), () => new TrophyPage(), () => new NewsPage() } });
-            ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new CapPage(), () => new ReSignPage(), () => new FreeAgencyPage(), () => new TradesPage(), () => new StaffPage(), () => new OwnerPage() } });
-            for (int i = 1; i < ui._slots.Count; i++) foreach (var f in ui._slots[i].Factories) ui._slots[i].Pages.Add(null);
+            ui._slots.Add(new TabSlot { Factories = new Func<FranchisePage>[] { () => new SchedulePage(), () => new StandingsPage(), () => new LeadersPage(), () => new AwardsPage(), () => new RecordsPage(), () => new TrophyPage() } });
+            foreach (var s in ui._slots) foreach (var f in s.Factories) s.Pages.Add(null);
             ui.SubTabs = null;
             return ui;
+        }
+
+        /// <summary>The team chip at the right end of the bar: crest, team name, season and calendar line.</summary>
+        void BuildChip(RectTransform bar)
+        {
+            var u = Ctl.User;
+            _chip = GlassKit.PlayerChip(bar, u != null ? u.Nickname : "", "", null, TeamUi.Crest(u));
+        }
+
+        RectTransform _chip;
+
+        void RefreshChrome()
+        {
+            if (Ctl == null) return;
+            var u = Ctl.User; var s = Ctl.Save;
+            string phase = CareerText.PhaseLabel(s).ToUpperInvariant();
+            if (_chip != null)
+            {
+                var nm = _chip.Find("Name"); if (nm != null) nm.GetComponent<TextMeshProUGUI>().text = (u != null ? u.Nickname : "").ToUpperInvariant();
+                var sb = _chip.Find("Sub"); if (sb != null) sb.GetComponent<TextMeshProUGUI>().text = phase;
+            }
+            if (_caption != null) _caption.text = (u != null ? u.City + " " + u.Nickname : "").ToUpperInvariant() + "  -  " + s.Year;
         }
 
         void BuildBusy(RectTransform parent)
@@ -148,7 +181,7 @@ namespace PixFootball.UI.Franchise
         {
             _open = true; Root.gameObject.SetActive(true);
             if (Host != null && Host.Section != null) Host.Section("FRANCHISE");
-            RefreshTicker();
+            RefreshTicker(); RefreshChrome();
             ShowTab(tab, sub);
         }
 
@@ -156,7 +189,7 @@ namespace PixFootball.UI.Franchise
 
         void OnDestroy() { if (Ctl != null) Ctl.Changed -= OnChanged; }
 
-        void OnChanged() { if (_open) { RefreshTicker(); CurrentPage().Refresh(); } }
+        void OnChanged() { if (_open) { RefreshTicker(); RefreshChrome(); CurrentPage().Refresh(); } }
 
         public void RefreshTicker()
         {
@@ -171,53 +204,70 @@ namespace PixFootball.UI.Franchise
         FranchisePage CurrentPage()
         {
             if (_overlay != null) return _overlay;
-            if (TabIndex == 0) return _homePage;
             return PageAt(TabIndex, SubIndex);
         }
 
         FranchisePage PageAt(int tab, int sub)
         {
             var slot = _slots[tab];
+            sub = Mathf.Clamp(sub, 0, slot.Pages.Count - 1);
             if (slot.Pages[sub] == null) { var p = slot.Factories[sub](); p.Shell = this; slot.Pages[sub] = p; }
             return slot.Pages[sub];
         }
 
-        public FranchisePage PageOf(int tab, int sub) { return tab == 0 ? _homePage : PageAt(tab, sub); }
+        public FranchisePage PageOf(int tab, int sub) { return PageAt(tab, sub); }
+
+        /// <summary>True when the tab has a sub-tab row (LT / RT); the others are one screen with a title.</summary>
+        public static bool HasSubs(int tab) { return tab >= 0 && tab < FranchiseNav.SubTabs.Length && FranchiseNav.SubTabs[tab].Length > 0; }
+
+        void SyncChrome()
+        {
+            bool subs = HasSubs(TabIndex) && _overlay == null;
+            bool plain = !HasSubs(TabIndex) && _overlay == null;
+            _subTabsHolder.gameObject.SetActive(subs);
+            _title.gameObject.SetActive(plain);
+            _caption.gameObject.SetActive(_overlay == null);
+            if (plain) _title.text = TabTitles[Mathf.Clamp(TabIndex, 0, TabTitles.Length - 1)];
+        }
 
         public void ShowTab(int tab, int sub = -1)
         {
             tab = Mathf.Clamp(tab, 0, FranchiseNav.Tabs.Length - 1);
+            int prevTab = TabIndex;
             CloseOverlay(false);
             HidePage(CurrentPage());
             TabIndex = tab;
             Tabs.SetIndex(tab, false);
-            if (_subTabsHolder.childCount > 0) for (int i = _subTabsHolder.childCount - 1; i >= 0; i--) UiKit.Kill(_subTabsHolder.GetChild(i).gameObject);
+            if (!Application.isPlaying) Tabs.SnapPlate();   // edit-mode renders run no animation
+            for (int i = _subTabsHolder.childCount - 1; i >= 0; i--) UiKit.Kill(_subTabsHolder.GetChild(i).gameObject);
             SubTabs = null;
-            if (tab == 0) { SubIndex = 0; _subTabsHolder.gameObject.SetActive(false); ContentHost.anchoredPosition = new Vector2(0f, 0f); ContentHost.sizeDelta = PageSize; }
-            else
+            var slot = _slots[tab];
+            SubIndex = Mathf.Clamp(sub >= 0 ? sub : slot.Sub, 0, slot.Pages.Count - 1);
+            _subTabsHolder.gameObject.SetActive(HasSubs(tab));   // active before the tabs are built so their row lays out
+            if (HasSubs(tab))
             {
-                var slot = _slots[tab];
-                SubIndex = Mathf.Clamp(sub >= 0 ? sub : slot.Sub, 0, slot.Pages.Count - 1);
-                _subTabsHolder.gameObject.SetActive(true);
-                ContentHost.anchoredPosition = new Vector2(0f, -(SubTabsHeight + 10f)); ContentHost.sizeDelta = ContentSize;
-                SubTabs = GlassKit.Tabs(_subTabsHolder, FranchiseNav.SubTabs[tab], SubIndex, i => ShowSub(i), 52f, 22f, "SubTabs");
+                SubTabs = GlassKit.StripTabs(_subTabsHolder, FranchiseNav.SubTabs[tab], SubIndex, i => ShowSub(i), "SubTabs");
                 SubTabs.BumperPaging = false;
-                var rt = (RectTransform)SubTabs.transform; rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f); rt.pivot = new Vector2(0f, 1f); rt.anchoredPosition = Vector2.zero;
+                var rt = (RectTransform)SubTabs.transform; rt.anchorMin = rt.anchorMax = new Vector2(0f, 0.5f); rt.pivot = new Vector2(0f, 0.5f); rt.anchoredPosition = Vector2.zero;
                 var fit = rt.gameObject.AddComponent<ContentSizeFitter>(); fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize; fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
                 if (Application.isPlaying) GlassSkin.Apply(_subTabsHolder);
             }
+            SyncChrome();
             ShowPage(CurrentPage(), true);
+            if (GlassTheme.T.flat && Application.isPlaying && tab != prevTab) TileCrossfade.Play(ContentHost, tab > prevTab ? 1 : -1);   // 0.20 s crossfade with a 24 unit drift in the LB / RB direction
         }
 
         public void ShowSub(int sub)
         {
-            if (TabIndex == 0) return;
+            if (!HasSubs(TabIndex)) return;
             var slot = _slots[TabIndex];
             sub = Mathf.Clamp(sub, 0, slot.Pages.Count - 1);
+            int prevSubBefore = SubIndex;
             HidePage(CurrentPage());
             SubIndex = sub; slot.Sub = sub;
             if (SubTabs != null) SubTabs.SetIndex(sub, false);
             ShowPage(CurrentPage(), false);
+            if (GlassTheme.T.flat && Application.isPlaying && sub != prevSubBefore) TileCrossfade.Play(ContentHost, sub > prevSubBefore ? 1 : -1);
         }
 
         void HidePage(FranchisePage p) { if (p != null && p.Built) { p.OnHide(); p.Root.gameObject.SetActive(false); } }
@@ -229,7 +279,7 @@ namespace PixFootball.UI.Franchise
             p.Root.gameObject.SetActive(true);
             p.OnShow();
             UpdateFooter();
-            if (focusEntry || true) StartCoroutine(FocusLater(p));
+            StartCoroutine(FocusLater(p));
         }
 
         IEnumerator FocusLater(FranchisePage p)
@@ -237,7 +287,7 @@ namespace PixFootball.UI.Franchise
             yield return null;
             if (!_open || p == null || !p.Built) yield break;
             var e = p.Entry;
-            if (e == null || !e.gameObject.activeInHierarchy) e = TabIndex > 0 && SubTabs != null && SubTabs.Buttons.Length > 0 ? SubTabs.Buttons[Mathf.Clamp(SubIndex, 0, SubTabs.Buttons.Length - 1)] : Tabs.Buttons[TabIndex];
+            if (e == null || !e.gameObject.activeInHierarchy) e = SubTabs != null && SubTabs.Buttons.Length > 0 ? SubTabs.Buttons[Mathf.Clamp(SubIndex, 0, SubTabs.Buttons.Length - 1)] : Tabs.Buttons[TabIndex];
             if (e != null && EventSystem.current != null) { UiAudio.Mute(0.15f); EventSystem.current.SetSelectedGameObject(e.gameObject); }
         }
 
@@ -252,7 +302,8 @@ namespace PixFootball.UI.Franchise
             if (_overlay != null) CloseOverlay(false);
             HidePage(CurrentPage());
             _overlay = p; p.Shell = this;
-            OverlayHost.gameObject.SetActive(true); ContentHost.gameObject.SetActive(false); _subTabsHolder.gameObject.SetActive(false);
+            OverlayHost.gameObject.SetActive(true); ContentHost.gameObject.SetActive(false);
+            SyncChrome();
             p.EnsureBuilt(OverlayHost); p.Root.gameObject.SetActive(true); p.OnShow();
             UpdateFooter(); StartCoroutine(FocusLater(p));
         }
@@ -263,7 +314,8 @@ namespace PixFootball.UI.Franchise
             _overlay.OnHide(); if (_overlay.Built) _overlay.Root.gameObject.SetActive(false);
             _overlay = null;
             OverlayHost.gameObject.SetActive(false); ContentHost.gameObject.SetActive(true);
-            if (restore) { _subTabsHolder.gameObject.SetActive(TabIndex > 0); ShowPage(CurrentPage(), true); }
+            SyncChrome();
+            if (restore) ShowPage(CurrentPage(), true);
         }
 
         public bool HasOverlay { get { return _overlay != null; } }
@@ -308,7 +360,7 @@ namespace PixFootball.UI.Franchise
             if (_overlay == null)
             {
                 l.Add(new PromptItem(new[] { "glyph_lb", "glyph_rb" }, "TABS"));
-                if (TabIndex > 0) l.Add(new PromptItem(new[] { "glyph_lt", "glyph_rt" }, "SECTIONS"));
+                if (HasSubs(TabIndex)) l.Add(new PromptItem(new[] { "glyph_lt", "glyph_rt" }, "SECTIONS"));
             }
             Host.Footer(l);
         }
@@ -325,7 +377,7 @@ namespace PixFootball.UI.Franchise
                 int d = FranchiseInput.Pressed(PadBtn.LB) ? -1 : FranchiseInput.Pressed(PadBtn.RB) ? 1 : 0;
                 if (d != 0) { ShowTab(FranchiseInput.Wrap(TabIndex, d, FranchiseNav.Tabs.Length)); UiAudio.Click(); return; }
                 int s = FranchiseInput.Pressed(PadBtn.LT) ? -1 : FranchiseInput.Pressed(PadBtn.RT) ? 1 : 0;
-                if (s != 0 && TabIndex > 0) { ShowSub(FranchiseInput.Wrap(SubIndex, s, _slots[TabIndex].Pages.Count)); UiAudio.Click(); return; }
+                if (s != 0 && HasSubs(TabIndex)) { ShowSub(FranchiseInput.Wrap(SubIndex, s, _slots[TabIndex].Pages.Count)); UiAudio.Click(); return; }
             }
             if (FranchiseInput.BackPressed()) HandleBack();
         }

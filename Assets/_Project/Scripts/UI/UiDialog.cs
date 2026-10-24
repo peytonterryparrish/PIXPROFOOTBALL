@@ -33,6 +33,7 @@ namespace PixFootball.UI
             {
                 var gp = PixFootball.UI.Glass.GlassWidgets.BuildDialog(root, title, message, yesLabel, noLabel, () => d.Close(true), () => d.Close(false));
                 d._msg = gp.Message; yes = gp.Yes; no = gp.No;
+                if (gp.Box != null && message.Length <= 90 && countdownSeconds <= 0f) gp.Box.sizeDelta = new Vector2(gp.Box.sizeDelta.x, Mathf.Min(gp.Box.sizeDelta.y, 340f));   // a one-line question needs no tall box
             }
             else
             {

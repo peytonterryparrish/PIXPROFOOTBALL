@@ -9,7 +9,7 @@ using CoreTeam = PixFootball.Core.Team;
 
 namespace PixFootball.Gameplay
 {
-    public enum OfficialSignal { None, Touchdown, FirstDown, Incomplete, Penalty, Timeout, Safety, DeadBall }
+    public enum OfficialSignal { None, Touchdown, FirstDown, Incomplete, Penalty, Timeout, Safety, DeadBall, KickGood }
 
     /// <summary>Cross-fading clip player for the officials and coaches (no controller: two clips in a mixer, time driven by hand).</summary>
     public sealed class MiniAnim
@@ -252,6 +252,7 @@ namespace PixFootball.Gameplay
             switch (s)
             {
                 case OfficialSignal.Touchdown: key = "ref_signal_td"; all = true; break;
+                case OfficialSignal.KickGood: key = "ref_signal_td"; break;      // v0.11.0 ANIMLIB B-056: both arms up (the field goal / extra point is good): the referee and the two officials behind the uprights
                 case OfficialSignal.FirstDown: key = "ref_signal_first_down"; break;
                 case OfficialSignal.Incomplete: key = "ref_signal_incomplete"; break;
                 case OfficialSignal.Penalty: key = "ref_signal_penalty"; break;
@@ -275,6 +276,7 @@ namespace PixFootball.Gameplay
                 else if (s == OfficialSignal.Incomplete && (p.Role == "FJ" || p.Role == "BJ")) does = true;
                 else if (s == OfficialSignal.Timeout && p.Role == "U") does = true;
                 else if (s == OfficialSignal.Safety && p.Role == "HL") does = true;
+                else if (s == OfficialSignal.KickGood && (p.Role == "FJ" || p.Role == "BJ")) does = true;
                 var c = clip;
                 if (!does && whistle != null && (p.Role == "U" || p.Role == "HL" || p.Role == "LJ")) { does = true; c = whistle; }
                 if (!does) continue;
@@ -318,6 +320,7 @@ namespace PixFootball.Gameplay
                 p.Target = _frame.ToUnity(t);
                 if (p == _taker) p.Target = _takerSpot;      // v0.10.0 BODIES: the official who goes to collect the ball
                 Move(p, dt, 6.0f, _frame.ToUnity(new Vec2(sim.Ball.Pos.X, ballY)));
+                SeparateFromPlayers(p, sim, dt);      // v0.11.0 SIM-FLOW (B-029)
             }
             for (int i = 0; i < _coaches.Count; i++)
             {
@@ -327,6 +330,25 @@ namespace PixFootball.Gameplay
                 c.Target = new Vector3(sideX, 0f, z);
                 Move(c, dt, 2.2f, new Vector3(0f, 0f, c.Target.z));
             }
+        }
+
+        /// <summary>v0.11.0 SIM-FLOW (B-029): an official never stands inside a player: any body closer than 1.25 m (0.8 m for the man collecting the ball) pushes him aside at up to 4 m/s.</summary>
+        void SeparateFromPlayers(Person p, PlaySimulation sim, float dt)
+        {
+            float minD = p == _taker ? 0.8f : 1.25f;
+            Vector3 push = Vector3.zero; Vector3 pos = p.Tr.position;
+            for (int i = 0; i < 22; i++)
+            {
+                var a = sim.Agents[i]; if (a == null) continue;
+                Vector3 d = pos - _frame.ToUnity(a.Pos); d.y = 0f;
+                float dist = d.magnitude;
+                if (dist >= minD) continue;
+                if (dist < 0.02f) d = p.Tr.right; else d /= dist;
+                push += d * (minD - dist);
+            }
+            if (push.sqrMagnitude < 1e-6f) return;
+            Vector3 step = Vector3.ClampMagnitude(push * 6f * dt, 4f * dt + 0.02f);
+            p.Tr.position = new Vector3(pos.x + step.x, pos.y, pos.z + step.z);
         }
 
         void Move(Person p, float dt, float maxSpeed, Vector3 look)

@@ -296,7 +296,7 @@ namespace PixFootball.Tests
                 return new Tally(broken, 1);
             });
             Report(r);
-            Assert.Greater(r.With.Rate, r.Base.Rate * 1.10, "+10 break-tackle points");
+            Assert.Greater(r.With.Rate, r.Base.Rate * 1.04, "+10 break-tackle points");      // v0.11.0 SIM-FLOW: TackleGapScale 0.55 compresses a rating gap (the ability is a rating bonus): +6 percent instead of +10
             Result yards = Pair("wrecking_ball t3 yards per carry", 4000, 20000, (seed, with) =>
             {
                 Play off = runs[seed % runs.Length];

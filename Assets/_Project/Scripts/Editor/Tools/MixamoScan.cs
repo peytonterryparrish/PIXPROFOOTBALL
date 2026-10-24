@@ -352,3 +352,39 @@ namespace PixFootball.EditorTools
         }
     }
 }
+
+namespace PixFootball.EditorTools
+{
+    /// <summary>
+    /// v0.11.0 MOTION: the same objective scan for any folder of clips (the cleaned DraftFever library, the 100STYLE pieces).
+    /// Run: -executeMethod PixFootball.EditorTools.FolderScan.Run -pixScanFolder Assets/... -pixScanYaw 0|-90 -pixMmFilter a,b -pixScanOut Logs/motion/scan_x
+    /// </summary>
+    public static class FolderScan
+    {
+        public static void Run()
+        {
+            BatchWatchdog.Arm(40);
+            Directory.CreateDirectory("Logs/motion");
+            AssetDatabase.Refresh();
+            string folder = LocoCycleScan.CmdArg("-pixScanFolder", "Assets/_Licensed/DraftFever/Animations/Clean");
+            float yaw; float.TryParse(LocoCycleScan.CmdArg("-pixScanYaw", "0"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out yaw);
+            var filters = LocoCycleScan.CmdArg("-pixMmFilter", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            string outp = LocoCycleScan.CmdArg("-pixScanOut", "Logs/motion/scan_folder");
+            var rig = AvRig.Create(PlayerSize.Medium); if (rig == null) { Debug.LogError("[FolderScan] no rig"); return; }
+            var plant = new FootPlant(rig.A);
+            var rows = new List<MixamoScan.Row>(); int n = 0;
+            foreach (string g in AssetDatabase.FindAssets("t:AnimationClip", new[] { folder }))
+            {
+                var c = AssetDatabase.LoadAssetAtPath<AnimationClip>(AssetDatabase.GUIDToAssetPath(g));
+                if (c == null || c.name.StartsWith("__preview__")) continue;
+                if (filters.Length > 0 && !filters.Any(f => c.name.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0)) continue;
+                try { rows.Add(MixamoScan.Analyze(rig, plant, c, true, null, yaw)); n++; }
+                catch (Exception e) { Debug.LogWarning("[FolderScan] " + c.name + ": " + e.Message); }
+            }
+            MixamoScan.WriteReport(rows, outp);
+            rig.Dispose();
+            Debug.Log("[FolderScan] clips " + n + " -> " + outp);
+            EditorApplication.Exit(0);
+        }
+    }
+}

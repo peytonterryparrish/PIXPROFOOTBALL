@@ -309,7 +309,7 @@ namespace PixFootball.Tests
             try
             {
                 var cols = new List<TableColumn> { new TableColumn("N", 1f, i => "row " + i) };
-                var t = GlassTable.Create(root, "T", 600f, 40f + 5 * 50f, cols);
+                var t = GlassTable.Create(root, "T", 600f, GlassTable.HeaderHeight + 5 * 50f, cols);
                 Assert.AreEqual(5, t.VisibleRows);
                 t.SetCount(40);
                 Assert.AreEqual(0, t.Top);

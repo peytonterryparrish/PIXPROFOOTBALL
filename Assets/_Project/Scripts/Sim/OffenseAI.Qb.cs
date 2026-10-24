@@ -752,6 +752,7 @@ namespace PixFootball.Sim
             // v0.9.0 (E-094): a computer quarterback who leaves the pocket works the line first: he runs laterally in a band 0.8-3.5 yd behind the line looking for a receiver (the receivers
             // are doing the scramble drill) for up to about 2 s, and only commits to the run when nobody comes open; he used to be a runner within a second and could only throw behind the line.
             bool hold = !q.ControlledByUser && !S.QbHasCrossedLos && S.Time < 3.6f && since < 2.1f && q.Pos.Y < S.LosY - 0.6f && _qb.R.Speed < 92;
+            _scrambleHolding = hold; _scrambleHoldKnown = true;      // v0.11.0 QB: the escape work is the stance; the end of it is the takeoff
             if (hold)
             {
                 float vmax = q.Body.EffectiveVMax;
@@ -772,7 +773,7 @@ namespace PixFootball.Sim
                 if (away.Y > 0.3f) targetY = S.LosY - 3.5f;   // a rusher in front: give ground
                 Vec2 want = new Vec2(side * vmax * 0.86f, SimMath.Clamp((targetY - q.Pos.Y) * 2.5f, -2.5f, 2.5f));
                 q.Want = want;
-                q.HasFace = true; q.FaceDir = new Vec2(side * 0.5f, 0.87f).Norm();   // shoulders square to the line while he works across it
+                q.HasFace = true; q.FaceDir = QbStanceMoveFacing(new Vec2(side, 0f), 0.45f, 0.5f, 0.87f);   // v0.11.0 QB: square stance while he works across the line
                 q.Intent = AgentAction.Run;
                 HandleReads(q, true);
                 // out of the box near a sideline with nobody open and a rusher on him: he throws it away (instead of running out of bounds)

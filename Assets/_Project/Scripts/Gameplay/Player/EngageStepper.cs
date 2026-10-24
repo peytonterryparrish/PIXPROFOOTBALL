@@ -17,6 +17,10 @@ namespace PixFootball.Gameplay
         readonly F _l = new F(), _r = new F();
         readonly Animator _a; readonly bool _ok;
         float _w;
+        float _groundY = float.NaN;
+        /// <summary>v0.11.0: the ankle never goes lower than this over the turf (sole height of the foot model): blocks and hand fights showed the soles 5 to 10 cm into the grass (CRITICAL log).</summary>
+        public const float AnkleFloor = 0.085f;
+        public static bool FloorClamp = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoAnkleFloor") < 0;
         Vector3 _outL, _outR; bool _haveOut;
         /// <summary>The feet are never held further apart (m, on the turf) than the animation has them plus this slack, nor more than <see cref="MinSpread"/> where the animation is narrower; and a foot never reaches past this share of the leg.</summary>
         public const float AirHeight = 0.22f;
@@ -42,6 +46,7 @@ namespace PixFootball.Gameplay
         public void Late(float dt, bool active, Vector3 vel, Vector3 fwd, float groundY = float.NaN)
         {
             if (!_ok || dt <= 1e-5f) return;
+            _groundY = groundY;
             if (active) _w = Mathf.MoveTowards(_w, 1f, dt / 0.10f); else _w = Mathf.MoveTowards(_w, 0f, dt / 0.15f);
             if (_w <= 0.001f) { _l.Have = _r.Have = false; _l.Swing = _r.Swing = false; return; }
             Vector3 al = _l.E.position, ar = _r.E.position;      // the animated ankles of this frame
@@ -90,6 +95,7 @@ namespace PixFootball.Gameplay
             }
             else tgt = new Vector3(f.Anchor.x, anim.y, f.Anchor.z);
             tgt = Vector3.Lerp(anim, tgt, _w);
+            if (FloorClamp && _w > 0.01f && !float.IsNaN(_groundY)) tgt.y = Mathf.Max(tgt.y, _groundY + AnkleFloor);
             placed = tgt;
             LimbIK.Apply(f.U, f.L, f.E, tgt, pole, 1f);
         }

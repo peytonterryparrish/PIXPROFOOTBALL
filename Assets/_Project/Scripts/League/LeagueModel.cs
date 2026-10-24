@@ -158,7 +158,7 @@ namespace PixFootball.League
             get
             {
                 return PassAtt + RushAtt + Targets + Tackles + Sacks + Interceptions + PassesDefended + FgAtt + XpAtt
-                       + Punts + KrAtt + PrAtt + Fumbles + ForcedFumbles + FumbleRecoveries + Sacked + TacklesForLoss > 0;
+                       + Punts + KrAtt + PrAtt + Fumbles + ForcedFumbles + FumbleRecoveries + Sacked + TacklesForLoss + Penalties > 0;      // v0.11.0: a flagged bench player still gets a line, so the player penalties add up to the team box
             }
         }
 

@@ -346,9 +346,9 @@ namespace PixFootball.Tests
             TestContext.WriteLine("clean open-field contact: elite " + elite.ToString("0.00") + " average " + avg.ToString("0.00") + " poor " + poor.ToString("0.00"));
             Assert.That(elite, Is.InRange(0.74f, 0.95f), "elite tackler");
             Assert.That(avg, Is.InRange(0.54f, 0.76f), "average tackler");
-            Assert.That(poor, Is.InRange(0.30f, 0.52f), "poor tackler (was ~5%)");
-            Assert.Greater(elite, avg + 0.08f);
-            Assert.Greater(avg, poor + 0.08f);
+            Assert.That(poor, Is.InRange(0.30f, 0.68f), "poor tackler (was ~5%)");      // v0.11.0 SIM-FLOW: TackleGapScale 0.55 flattens the curve further (an elite back broke every tackle: 11.7 yd a carry)
+            Assert.Greater(elite, avg + 0.05f);
+            Assert.Greater(avg, poor + 0.03f);
             Assert.Less(elite - poor, 0.62f, "the curve is no longer a cliff (was 98: 78%, 35: 5.5%)");
         }
 

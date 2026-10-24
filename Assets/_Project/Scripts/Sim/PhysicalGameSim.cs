@@ -43,6 +43,8 @@ namespace PixFootball.Sim
         public readonly Playbook Book;
         public readonly LeagueTeam Home, Away;
         public readonly List<PlayRecord> Plays = new List<PlayRecord>();
+        /// <summary>QA: changes the options of every play (the match flow uses a 0.42 s windup, penalties and the choreographer).</summary>
+        public System.Action<PlaySimOptions> OptionsHook;
         public bool KeepLogs = false;
         /// <summary>Per-player fatigue carried from snap to snap (set to null for the old always-fresh behavior).</summary>
         public FatigueTracker Fatigue = new FatigueTracker();

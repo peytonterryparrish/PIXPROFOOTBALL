@@ -43,12 +43,12 @@ namespace PixFootball.UI
             b.Score = UiKit.Label(cell, "0", 52, Color.white, true, TextAlignmentOptions.MidlineRight, "Score");
             UiKit.Anchor(b.Score.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-18f, 3f), new Vector2(96f, 62f));
             var poss = UiKit.Panel(cell, "Poss", t.accent, Sp("sb_arrow")); poss.preserveAspect = true;
-            UiKit.Anchor(poss.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(206f, 4f), new Vector2(26f, 26f)); b.Poss = poss.gameObject;
+            UiKit.Anchor(poss.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(206f, 10f), new Vector2(26f, 26f)); b.Poss = poss.gameObject;
             b.Pips = new Image[3];
             for (int i = 0; i < 3; i++)
             {
                 var p = UiKit.Panel(cell, "TO" + i, Color.white);
-                UiKit.Anchor(p.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(80f + i * 22f, -8f), new Vector2(17f, 4f));
+                UiKit.Anchor(p.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(197f + i * 14f, -14f), new Vector2(10f, 6f));   // v0.11 B-080
                 b.Pips[i] = p;
             }
             return b;
@@ -74,22 +74,22 @@ namespace PixFootball.UI
             DividerV(row);
             var dd = BarCell(row, "DownCell", 210f);
             _bDown = BarLabel(dd, "1ST & 10", 34, t.accent, TextAlignmentOptions.Center, "Down", true); _bDown.characterSpacing = 2f;
-            var sp = BarCell(row, "SpotCell", 300f);
+            var sp = BarCell(row, "SpotCell", 220f);
             _bSpot = BarLabel(sp, "BALL ON BUF 25", 28, Color.white, TextAlignmentOptions.Center, "Spot", true);
             BarCell(row, "Spacer", 0f, true);
             var q = BarCell(row, "QuarterCell", 96f);
             _bQuarter = BarLabel(q, "1ST", 34, t.accent, TextAlignmentOptions.Center, "Quarter");
             var c = BarCell(row, "ClockCell", 172f);
             _bClock = BarLabel(c, "5:00", 54, Color.white, TextAlignmentOptions.Center, "Clock");
-            var pc = BarCell(row, "PlayClockCell", 92f);
+            var pc = BarCell(row, "PlayClockCell", 92f); _bPlayClockCell = pc.gameObject;
             _bPlayClockBg = UiKit.Panel(pc, "Box", new Color(1f, 1f, 1f, 0.10f)); UiKit.Stretch(_bPlayClockBg.rectTransform, 6, 12, 6, 12);
             _bPlayClock = UiKit.Label(_bPlayClockBg.rectTransform, "25", 36, UiColors.TextSecondary, true, TextAlignmentOptions.Center, "PlayClock"); UiKit.Stretch(_bPlayClock.rectTransform);
-            var cam = BarCell(row, "CamCell", 150f);
-            _bCam = BarLabel(cam, "BROADCAST", 17, UiColors.TextMuted, TextAlignmentOptions.MidlineRight, "Cam");
+            var cam = BarCell(row, "CamCell", 150f); _bCamCell = cam.gameObject;
+            _bCam = BarLabel(cam, "BROADCAST", 20, UiColors.TextMuted, TextAlignmentOptions.MidlineRight, "Cam");
 
             // penalty flag strip: a rounded yellow pill above the bar (the hint bar sits above it)
             var fg = GlassKit.Solid(_root, "FlagStripBottom", FlagYellow, 12f, 0f); _flagStripB = fg.rectTransform;
-            _flagTextB = UiKit.Label(_flagStripB, "", 26, Color.black, true, TextAlignmentOptions.MidlineLeft, "FlagText"); UiKit.Stretch(_flagTextB.rectTransform, 24, 0, 24, 0); _flagTextB.characterSpacing = 2f;
+            _flagTextB = UiKit.Label(_flagStripB, "", 24, Color.black, true, TextAlignmentOptions.Center, "FlagText"); UiKit.Stretch(_flagTextB.rectTransform, 24, 0, 24, 0); _flagTextB.characterSpacing = 2f; UiKit.Fit(_flagTextB, HudMetrics.MinFont);
             _flagStripB.gameObject.SetActive(false);
         }
 
@@ -147,8 +147,8 @@ namespace PixFootball.UI
             UiKit.Anchor(_flagStrip, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -140f), new Vector2(1000f, 44f));
             _flagText = UiKit.Label(_flagStrip, "", 26, Color.black, true, TextAlignmentOptions.MidlineLeft, "FlagText"); UiKit.Stretch(_flagText.rectTransform, 24, 0, 24, 0); _flagText.characterSpacing = 2f;
             _flagStrip.gameObject.SetActive(false);
-            _camLabel = UiKit.Label(bug, "BROADCAST", 18, UiColors.TextMuted, true, TextAlignmentOptions.MidlineRight, "Cam");
-            UiKit.Anchor(_camLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -106f), new Vector2(300f, 22f));
+            _camLabel = UiKit.Label(bug, "BROADCAST", 20, UiColors.TextMuted, true, TextAlignmentOptions.MidlineRight, "Cam");
+            UiKit.Anchor(_camLabel.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -132f), new Vector2(300f, 24f));   // v0.11 B-046: under the block, not across the clock digits
         }
 
         // ============================================================================================ banner + toast
@@ -181,15 +181,15 @@ namespace PixFootball.UI
         {
             var t = GlassTheme.T;
             var g = GlassKit.Panel(_root, "HintBar", 1.5f, true, 22f);
-            var rt = g.rectTransform; UiKit.Anchor(rt, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 36), new Vector2(400, 54));
+            var rt = g.rectTransform; UiKit.Anchor(rt, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 36), new Vector2(400, 44));
             _hintBar = g.gameObject;
-            var h = _hintBar.AddComponent<HorizontalLayoutGroup>(); h.padding = new RectOffset(30, 30, 0, 0); h.spacing = 16; h.childAlignment = TextAnchor.MiddleCenter; h.childControlWidth = true; h.childControlHeight = true; h.childForceExpandWidth = false; h.childForceExpandHeight = true;
+            var h = _hintBar.AddComponent<HorizontalLayoutGroup>(); h.padding = new RectOffset(22, 22, 0, 0); h.spacing = 14; h.childAlignment = TextAnchor.MiddleCenter; h.childControlWidth = true; h.childControlHeight = true; h.childForceExpandWidth = false; h.childForceExpandHeight = true;
             var fit = _hintBar.AddComponent<ContentSizeFitter>(); fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize; fit.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
             _hintGroup = _hintBar.AddComponent<CanvasGroup>(); _hintGroup.blocksRaycasts = false; _hintGroup.interactable = false;
-            _hint = UiKit.Label(rt, "", 24, UiColors.TextSecondary, true, TextAlignmentOptions.Center, "Hint");
+            _hint = UiKit.Label(rt, "", 20, UiColors.TextSecondary, true, TextAlignmentOptions.Center, "Hint");
             _hint.characterSpacing = 1.5f;
             _hintRow = UiKit.Rect(rt, "HintRow");
-            _hintFooter = PromptFooter.Attach(_hintRow, 38f, 23f, 28f);
+            _hintFooter = PromptFooter.Attach(_hintRow, 30f, 20f, 22f);
             _hintRow.gameObject.SetActive(false);
         }
 
@@ -225,6 +225,7 @@ namespace PixFootball.UI
             _pauseCam = UiControls.Selector(col, "Camera", new[] { "Classic", "Madden", "Wide", "Broadcast", "First person" }, 0, i => { if (CameraCycleRequested != null && _dir != null && _dir.Cams != null) { CameraMode m = i <= 2 ? CameraMode.Behind : (i == 3 ? CameraMode.Broadcast : CameraMode.FirstPerson); if (i <= 2) PixSettings.UserCameraStyle = (CameraStyle)i; _dir.Cams.SetMode(m, false); PixSettings.DefaultCamera = m; } }, w, rowH);
             _pauseLight = UiControls.Selector(col, "Lighting", new[] { "Night game", "Day game" }, 0, i => { if (LightingToggleRequested != null && _dir != null && _dir.Lighting != null && (int)_dir.Lighting.Current != i) LightingToggleRequested(); }, w, rowH);
             _pauseSb = UiControls.Selector(col, "Scorebug", PixSettings.ScorebugNames, (int)PixSettings.Scorebug, i => { PixSettings.Scorebug = (ScorebugStyle)i; ApplyScorebugLayout(); }, w, rowH);
+            _pauseHelper = WatchSettingsUi.AddPauseHelperRow(col, w, rowH);
             _pauseSettings = GlassKit.Button(col, "SOUND AND CONTROLS", ShowPauseSettings, GlassButtonStyle.Secondary, w, rowH, "ui_settings");
             GlassKit.Button(col, "QUIT TO MENU", ConfirmQuit, GlassButtonStyle.Secondary, w, rowH, "ui_close");
 
@@ -324,7 +325,7 @@ namespace PixFootball.UI
             var root = UiKit.Rect(_root, "Final"); UiKit.Stretch(root); _finalRoot = root.gameObject;
             var scrim = UiKit.Panel(root, "Scrim", new Color(0.02f, 0.025f, 0.035f, 0.55f)); UiKit.Stretch(scrim.rectTransform); scrim.raycastTarget = true;
             GlassWidgets.TopBar(root, "FINAL");
-            var block = UiKit.Rect(root, "Block"); block.anchorMin = block.anchorMax = new Vector2(0.5f, 0.5f); block.pivot = new Vector2(0.5f, 0.5f); block.anchoredPosition = new Vector2(0f, -30f); block.sizeDelta = new Vector2(1500, 960);
+            var block = UiKit.Rect(root, "Block"); block.anchorMin = block.anchorMax = new Vector2(0.5f, 0.5f); block.pivot = new Vector2(0.5f, 0.5f); block.anchoredPosition = new Vector2(0f, -58f); block.sizeDelta = new Vector2(1500, 960);   // v0.11: clear of the top bar
             var fit = root.gameObject.AddComponent<FitScale>(); fit.Block = block; fit.DesignSize = new Vector2(1500, 960);
 
             var head = GlassKit.Text(block, d.Headline, GlassText.Hero, TextAlignmentOptions.Center, "Headline");
@@ -335,7 +336,8 @@ namespace PixFootball.UI
             var line = GlassKit.Panel(block, "LineScore", 1.3f, true, t.cornerRadiusLarge);
             UiKit.Anchor(line.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -120f), new Vector2(1300f, 250f));
             string[] qn = { "1", "2", "3", "4", "OT" };
-            for (int i = 0; i < 5; i++)
+            _finalCols = 4; for (int oi = 5; oi < 8; oi++) if (d.HomeByQuarter[oi] + d.AwayByQuarter[oi] > 0) _finalCols = 5;   // v0.11 B-090
+            for (int i = 0; i < _finalCols; i++)
             {
                 var hl = GlassKit.Eyebrow(line.rectTransform, qn[i], TextAlignmentOptions.Center, "QH" + i); GlassKit.Style(hl, 22f, t.textSecondary, true, 3f);
                 UiKit.Anchor(hl.rectTransform, new Vector2(0f, 1f), new Vector2(0.5f, 1f), new Vector2(QuarterCellX(i), -14f), new Vector2(90f, 32f));
@@ -368,6 +370,7 @@ namespace PixFootball.UI
             StartCoroutine(SelectLater(btn.gameObject));
         }
 
+        int _finalCols = 5;
         void FinalRowGlass(RectTransform parent, float y, string abbr, string name, string crest, Color color, int[] byQ, int total, bool winner)
         {
             var t = GlassTheme.T;
@@ -378,7 +381,7 @@ namespace PixFootball.UI
             var n = GlassKit.Text(r, name.ToUpperInvariant(), GlassText.Heading, TextAlignmentOptions.MidlineLeft, "Name"); GlassKit.Style(n, 36f, t.textPrimary, true, 2f);
             UiKit.Anchor(n.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(150f, 0f), new Vector2(430f, 60f)); UiKit.Fit(n, 20f);
             int[] vals = LineScoreCells(byQ);
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < _finalCols; i++)
             {
                 var ql = GlassKit.Text(r, vals[i].ToString(), GlassText.Heading, TextAlignmentOptions.Center, "Q" + i); GlassKit.Style(ql, 34f, t.textSecondary, true);
                 UiKit.Anchor(ql.rectTransform, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(QuarterCellX(i), 0f), new Vector2(90f, 56f));
@@ -392,7 +395,7 @@ namespace PixFootball.UI
         {
             var t = GlassTheme.T;
             var bar = UiKit.Rect(_root, "TossCaption");
-            UiKit.Anchor(bar, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 44f), new Vector2(1500f, 72f));
+            UiKit.Anchor(bar, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, HudMetrics.BarLift + 72f + 16f), new Vector2(1500f, 72f));   // v0.11: above the score bar
             var g = GlassKit.Panel(bar, "Glass", 1.5f, true, 20f); UiKit.Stretch(g.rectTransform);
             var accent = GlassKit.Solid(bar, "Accent", t.accent, 3f); UiKit.Anchor(accent.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(6f, 40f));
             _tossCaptionText = UiKit.Label(bar, "", 34, Color.white, true, TextAlignmentOptions.MidlineLeft, "Text");

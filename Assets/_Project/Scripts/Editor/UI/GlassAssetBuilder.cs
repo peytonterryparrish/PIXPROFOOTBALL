@@ -13,7 +13,7 @@ namespace PixFootball.EditorTools
     /// and the licensed icon registry (Assets/_Licensed/Resources/PixGlassIcons.asset from the rasterised icons). Menu: PIX Football/Glass UI/Build assets.
     /// The icons themselves come from Tools/Glass/rasterize_icons.ps1 (headless-Edge SVG rasterisation at an exact pixel size).
     /// </summary>
-    public static class GlassAssetBuilder
+    public static partial class GlassAssetBuilder
     {
         public const string Root = "Assets/_Project/UI/Glass";
         public const string FontDir = Root + "/Fonts";

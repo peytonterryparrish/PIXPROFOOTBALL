@@ -54,13 +54,13 @@ namespace PixFootball.UI.Franchise
     {
         public static Button Tile(RectTransform parent, string name, float x, float y, float w, float h, Action onClick, out RectTransform body, float density = 1.1f)
         {
-            var g = GlassKit.Panel(parent, name, density, true, GlassTheme.T.cornerRadiusLarge);
+            var g = GlassKit.Surface(parent, name, GlassKind.Glass, GlassTheme.T.cornerRadiusLarge, true, density);   // the tile body (GlassKit.Panel is the flat panel in the Tile look)
             Lay.Place(g.rectTransform, x, y, w, h);
             g.raycastTarget = true;
             var b = g.gameObject.AddComponent<Button>(); b.targetGraphic = g; b.transition = Selectable.Transition.None;
             b.onClick.AddListener(UiAudio.Click);
             if (onClick != null) b.onClick.AddListener(() => onClick());
-            var f = g.gameObject.AddComponent<GlassFocusable>(); f.Surface = g; f.FocusScale = 1.02f; f.FocusBrighten = 0.05f; f.PlaySound = true;
+            var f = g.gameObject.AddComponent<GlassFocusable>(); f.Surface = g; f.FocusScale = 1.035f; f.FocusBrighten = 0.05f; f.PlaySound = true;
             body = g.rectTransform;
             return b;
         }

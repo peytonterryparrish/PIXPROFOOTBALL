@@ -76,6 +76,8 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0
 --- !u!1 &330957893483526335
 GameObject:
   m_ObjectHideFlags: 0
@@ -180,6 +182,8 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0
 --- !u!114 &196215518016039797
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -256,6 +260,7 @@ MonoBehaviour:
   PlaySound: 1
   KeepLabelColor: 0
   FocusBrighten: 0.035
+  RaiseTarget: {fileID: 0}
   Pinned: 0
   GhostSurface: 0
 --- !u!1 &1456670908938386377
@@ -509,6 +514,8 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0
 --- !u!1 &8382340886752487381
 GameObject:
   m_ObjectHideFlags: 0
@@ -758,3 +765,5 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0

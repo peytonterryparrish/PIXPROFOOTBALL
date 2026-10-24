@@ -12,9 +12,9 @@ namespace PixFootball.Tests
 {
     public class MatchFlowTests
     {
-        static MatchFlow NewFlow(int quarterMinutes = 5, float runoff = 0.5f, int seed = 11)
+        static MatchFlow NewFlow(int quarterMinutes = 5, float runoff = 0.5f, int seed = 11, bool naturalPace = false)
         {
-            var cfg = new MatchConfig { QuarterMinutes = quarterMinutes, RunoffScale = runoff, CpuVsCpu = true, Seed = seed };
+            var cfg = new MatchConfig { QuarterMinutes = quarterMinutes, RunoffScale = runoff, CpuVsCpu = true, Seed = seed, NaturalPace = naturalPace };      // v0.11.0 SIM-FLOW: the old accelerated clock unless a test asks for the natural pace
             var home = MatchData.TeamByKey("buffalo_ironhorns");
             var away = MatchData.TeamByKey("miami_reefrunners");
             return new MatchFlow(cfg, home, away, Team.Away, new Rng(seed));
@@ -127,6 +127,15 @@ namespace PixFootball.Tests
             float avg = (float)counts.Average();
             Debug.Log("[MatchFlowTests] snaps per 5-min game: " + string.Join(",", counts));
             Assert.That(avg, Is.InRange(55f, 80f), "snaps " + string.Join(",", counts));
+        }
+
+        [Test]
+        public void NaturalPaceGivesAShortQuarterGameTheSnapsOfARealOne()
+        {
+            // v0.11.0 SIM-FLOW: a 3-minute-quarter simulated game with the compressed clock plays about as many snaps as a real game (125 to 180 with the kicks), not 35
+            var counts = new List<int>();
+            for (int seed = 1; seed <= 3; seed++) { var f = NewFlow(3, 1.0f, seed, true); RunGame(f); Assert.IsTrue(f.State.IsFinal, "seed " + seed); counts.Add(f.Snaps); Assert.AreEqual(0.2f, f.State.ClockScale, 0.001f); }
+            Assert.That(counts.Average(), Is.InRange(110f, 215f), "snaps " + string.Join(",", counts));
         }
 
         static int RunGame(MatchFlow f)

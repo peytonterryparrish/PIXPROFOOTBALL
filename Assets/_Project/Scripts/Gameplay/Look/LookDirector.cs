@@ -85,6 +85,7 @@ namespace PixFootball.Gameplay
                 _footY[k] = y; _footVy[k] = vy; _footCool[k] -= dt;
                 if (!plant || speed <= 2.2f) continue;
                 _footCool[k] = 0.14f;
+                MatchAudio.FootPlant(i, bone.position, speed);      // v0.11.0 AUDIO: cleats on the turf
                 float s = Mathf.Clamp01((speed - 2f) / 7f);
                 bool art = weather != null && weather.ArtificialTurf;
                 wear.Footstep(bone.position, 0.2f + 0.08f * s, art ? 0.002f : 0.011f * (0.5f + s), art ? 0f : wet * 0.045f * s, snowy ? 0.55f : 0f);   // two feet at about 3 plants per second replace the one-per-0.16 s root stamp

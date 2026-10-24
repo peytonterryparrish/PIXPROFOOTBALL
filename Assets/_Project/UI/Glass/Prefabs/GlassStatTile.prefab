@@ -353,6 +353,8 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0
 --- !u!114 &3978189907535851777
 MonoBehaviour:
   m_ObjectHideFlags: 0

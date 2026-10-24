@@ -8,6 +8,8 @@ namespace PixFootball.Gameplay
         public const float Bullet = 3000f, Touch = 2400f, Lob = 1800f;
         /// <summary>Degrees per second of the ball in the air after a pass.</summary>
         public static float PassSpin = Bullet;
+        /// <summary>v0.11.0 QB: the wobble (degrees of nose precession) of the ball in the air after a pass: a clean set-feet throw is nearly perfect, a hurried one, a throw on the run, a hit arm wobbles. Set by the stage at the release.</summary>
+        public static float Wobble = 1.2f;
 
         public static float For(ThrowStyle style)
         {

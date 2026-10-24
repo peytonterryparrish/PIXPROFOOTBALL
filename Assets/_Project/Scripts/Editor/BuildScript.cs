@@ -37,6 +37,7 @@ namespace PixFootball.EditorTools
 
         static void SwapInSlimLibrary()
         {
+            CriticalAudit.EnsureRoster();      // v0.11.0 CRITICAL: the library rebuild drops the 12 roster prefabs (photo_player_{size}_{base}); put them back before the slim copy is made
             ArtLibrary.ResetCache();
             var full = AssetDatabase.LoadAssetAtPath<ArtLibrary>(ArtLibrary.EditorAssetPath);
             if (full == null || !File.Exists(ResLib)) return;

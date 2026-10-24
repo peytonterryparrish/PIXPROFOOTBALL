@@ -98,7 +98,7 @@ namespace PixFootball.UI.Franchise
             var box = GlassKit.Panel(block, "Box", 1.7f, true, t.cornerRadiusLarge); Lay.Place(box.rectTransform, 0f, 0f, size.x, size.y); box.SetFocus(0f);
             var br = box.rectTransform;
             LeagueTeam home = save.Pro.GetTeam(r.HomeTeamId), away = save.Pro.GetTeam(r.AwayTeamId);
-            Lay.Text(br, kicker.ToUpperInvariant(), 20f, t.accent, 40f, 24f, 700f, 30f, true, TextAlignmentOptions.MidlineLeft, 4f, "Kicker");
+            Lay.Head(br, kicker, 0f, 0f, size.x, 56f, null, 24f);
 
             // score header
             float cy = 66f;

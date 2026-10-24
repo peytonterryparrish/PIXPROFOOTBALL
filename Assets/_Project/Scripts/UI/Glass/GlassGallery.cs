@@ -10,7 +10,7 @@ namespace PixFootball.UI.Glass
     /// A living style sheet of the glass library (two pages: the "franchise hub" composition from the pack's style sample and a controls sheet). Built from the same factory the screens use; the
     /// QA renders and Docs/UIStyleGuide_Glass.md show it. Pure presentation: no game state is read or written.
     /// </summary>
-    public static class GlassGallery
+    public static partial class GlassGallery
     {
         public static RectTransform Build(Transform parent, int page, bool livePortrait = false)
         {

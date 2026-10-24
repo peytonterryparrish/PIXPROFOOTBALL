@@ -23,10 +23,12 @@ namespace PixFootball.Sim
             float tau = Math.Max(0.15f, a.Body.Tau), cap = Math.Max(3f, a.Body.AccelCap);
             float vx = a.Vel.X, vy = a.Vel.Y, px = 0f, py = 0f, t = 0f;
             float wx = a.Want.X, wy = a.Want.Y;
+            float cutT = -1f, cwx = 0f, cwy = 0f; CarryPlanAhead(a, out cutT, out cwx, out cwy);      // v0.11.0 RB: an announced cut shows in the planned path before the plant
             p1 = p2 = p3 = a.Pos;
             bool d1 = false, d2 = false;
             while (t < t3 - 1e-4f)
             {
+                if (cutT >= 0f && t >= cutT) { wx = cwx; wy = cwy; }
                 float ax = (wx - vx) / tau, ay = (wy - vy) / tau;
                 float am = (float)Math.Sqrt(ax * ax + ay * ay);
                 if (am > cap) { ax *= cap / am; ay *= cap / am; }

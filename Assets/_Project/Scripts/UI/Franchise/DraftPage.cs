@@ -56,14 +56,14 @@ namespace PixFootball.UI.Franchise
         protected override void Build(RectTransform root)
         {
             var t = GlassTheme.T;
-            var back = GlassKit.Panel(root, "HeaderBack", 1.2f, false, t.cornerRadius); Lay.Place(back.rectTransform, 0f, -4f, 1728f, 94f);
-            _title = Lay.Text(root, "", 44f, t.textPrimary, 20f, 0f, 1000f, 56f, true, TextAlignmentOptions.MidlineLeft, 3f, "Title");
-            _hint = Lay.Text(root, "", 22f, t.accent, 20f, 54f, 1100f, 32f, true, TextAlignmentOptions.MidlineLeft, 2f, "Clock");
-            _clock = Lay.Text(root, "", 54f, t.textPrimary, 1380f, 0f, 328f, 70f, true, TextAlignmentOptions.MidlineRight, 2f, "ClockTime");
-            _points = Lay.Caps(root, "", 1100f, 62f, 608f, 28f, t.textSecondary, 18f, TextAlignmentOptions.MidlineRight);
+            var back = GlassKit.Panel(root, "HeaderBack", 1.2f, false, t.cornerRadius); Lay.Place(back.rectTransform, 0f, 0f, 1800f, 96f);
+            _title = Lay.Text(root, "", 44f, t.textPrimary, 24f, 2f, 1100f, 56f, true, TextAlignmentOptions.MidlineLeft, 3f, "Title");
+            _hint = Lay.Text(root, "", 22f, t.accent, 24f, 56f, 1300f, 32f, true, TextAlignmentOptions.MidlineLeft, 2f, "Clock");
+            _clock = Lay.Text(root, "", 54f, t.textPrimary, 1420f, 0f, 356f, 70f, true, TextAlignmentOptions.MidlineRight, 2f, "ClockTime");
+            _points = Lay.Caps(root, "", 1168f, 64f, 608f, 28f, t.textSecondary, 18f, TextAlignmentOptions.MidlineRight);
             _needs = Lay.Group(root, "Needs", 1000f, 0f, 380f, 1f);
 
-            _posSel = GlassKit.Stepper(root, "Position", PosFilter.Names, 0, i => Refresh(), 400f, 52f); Lay.Place((RectTransform)_posSel.transform, 0f, 96f, 400f, 52f);
+            _posSel = GlassKit.Stepper(root, "Position", PosFilter.Names, 0, i => Refresh(), 400f, 52f); Lay.Place((RectTransform)_posSel.transform, 0f, 108f, 400f, 52f);
             var bc = new List<TableColumn>
             {
                 new TableColumn("RK", 0.6f, i => _rows[i].ConsensusRank.ToString(), false),
@@ -75,15 +75,15 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("     PROJECTED", 1.9f, i => "     " + _rows[i].ProjectedRound, false, null, false),
                 new TableColumn("STAR", 0.8f, i => _rows[i].Starred ? "YES" : "", true, i => GlassTheme.T.accent)
             };
-            _board = GlassTable.Create(root, "Board", 1000f, 470f, bc, 46f); Lay.Place((RectTransform)_board.transform, 0f, 156f, 1000f, 470f);
+            _board = GlassTable.Create(root, "Board", 1060f, 542f, bc, 46f); Lay.Place((RectTransform)_board.transform, 0f, 168f, 1060f, 542f);
             _board.CursorChanged = i => ShowProspect();
             _board.Activated = i => PickCurrent();
             _board.AltAction = i => { var r = Cur; if (r != null) { CareerDraft.SetStarred(Save, r.Id, !r.Starred); Refresh(); } };
             _board.HeaderClicked = SortBy; _board.SortRequested = SortBy;
             _board.EmptyText = "Nobody left on the board.";
 
-            _detail = Lay.Group(root, "Detail", 1016f, 96f, 712f, 290f);
-            _picks = GlassTable.Create(root, "Picks", 712f, 236f, new List<TableColumn>
+            _detail = Lay.Group(root, "Detail", 1076f, 108f, 724f, 290f);
+            _picks = GlassTable.Create(root, "Picks", 724f, 300f, new List<TableColumn>
             {
                 new TableColumn("#", 0.6f, i => _slots[i].Overall.ToString(), false, null, false),
                 new TableColumn("TEAM", 1.2f, i => CareerText.TeamNick(Save, _slots[i].TeamId), false, i => _slots[i].TeamId == Save.UserTeamId ? (Color?)GlassTheme.T.accent : null, false),
@@ -91,7 +91,7 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("POS", 0.6f, i => _slots[i].Made ? _slots[i].Pos.ToString() : "", false, null, false),
                 new TableColumn("GRADE", 0.8f, i => _slots[i].Made ? _slots[i].Grade : "", true, null, false)
             }, 40f);
-            Lay.Place((RectTransform)_picks.transform, 1016f, 396f, 712f, 236f);
+            Lay.Place((RectTransform)_picks.transform, 1076f, 410f, 724f, 300f);
             _picks.HandleSortKey = false; _picks.EmptyText = "The pick order is set when the draft starts.";
 
             // rookie signing
@@ -104,13 +104,13 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("     ROOKIE DEAL", 2.2f, i => { var c = CareerDraft.RookieDeal(Save, _rights[i]); return "     " + Fmt.MoneyShort(c.Aav) + " x " + c.Years; }, false, null, false),
                 new TableColumn("STATUS", 1.1f, i => _rights[i].Signed ? "SIGNED" : "UNSIGNED", true, i => _rights[i].Signed ? (Color?)GlassTheme.T.success : GlassTheme.T.warning, false)
             };
-            _rookies = GlassTable.Create(root, "Rookies", 1000f, 526f, rc, 50f); Lay.Place((RectTransform)_rookies.transform, 0f, 96f, 1000f, 526f);
+            _rookies = GlassTable.Create(root, "Rookies", 1060f, 602f, rc, 50f); Lay.Place((RectTransform)_rookies.transform, 0f, 108f, 1060f, 602f);
             _rookies.HandleSortKey = false; _rookies.EmptyText = "You made no picks.";
             _rookies.CursorChanged = i => ShowRookie();
             _rookies.Activated = i => { var r = CareerDraft.SignRookie(Save, _rights[i].PlayerId); Shell.Toast(r.Message, r.Ok ? "ui_check" : "ui_info"); Ctl.Touch(); };
-            _rookieCard = PlayerCardPanel.Create(root, 1016f, 96f, 712f, 536f);
+            _rookieCard = PlayerCardPanel.Create(root, 1076f, 108f, 724f, 602f);
 
-            _bar = Lay.Group(root, "Bar", 0f, 646f, 1728f, 78f);
+            _bar = Lay.Group(root, "Bar", 0f, 722f, 1800f, 78f);
         }
 
         string NameOf(int id) { var p = Save.FindPlayer(id); return p != null ? p.Name : "?"; }
@@ -205,7 +205,7 @@ namespace PixFootball.UI.Franchise
         {
             var t = GlassTheme.T;
             for (int i = _detail.childCount - 1; i >= 0; i--) UiKit.Kill(_detail.GetChild(i).gameObject);
-            var card = GlassKit.Panel(_detail, "Card", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 0f, 0f, 712f, 290f);
+            var card = GlassKit.Panel(_detail, "Card", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 0f, 0f, 724f, 290f);
             var r = Cur;
             if (r == null) return;
             var cr = card.rectTransform;

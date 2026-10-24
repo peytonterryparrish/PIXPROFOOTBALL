@@ -31,6 +31,9 @@ namespace PixFootball.Core
         public RuleSet Rules;
         public int Quarter = 1;
         public float ClockSeconds;
+        /// <summary>v0.11.0 SIM-FLOW: a simulated game with a short quarter plays as many snaps as a real one: every spend of the clock is multiplied by this (quarter minutes / 15), and the late-game rules (hurry-up, kneel, timeouts, two-minute warning, desperation) read <see cref="NormClock"/>, the clock in real-game seconds. 1 = the clock as the rule book has it.</summary>
+        public float ClockScale = 1f;
+        public float NormClock { get { return ClockSeconds / ClockScale; } }
         public float PlayClock;
         public int Down = 1;
         public int Distance = 10;
@@ -114,7 +117,7 @@ namespace PixFootball.Core
 
         public bool InLastTwoMinutesOfHalf
         {
-            get { return (Quarter == 2 || Quarter == 4) && ClockSeconds <= Rules.LastMinutesWindowSeconds; }
+            get { return (Quarter == 2 || Quarter == 4) && NormClock <= Rules.LastMinutesWindowSeconds; }
         }
 
         public string ClockDisplay
@@ -205,8 +208,8 @@ namespace PixFootball.Core
             PenaltyEnforcer.Enforce(this, r.Penalty, r);
             StopClock();
             // the 10-second runoff: an offensive foul in the last minute of a half, with the clock running, takes ten seconds off it
-            if (!defenseFoul && clockWasRunning && (Quarter == 2 || Quarter == 4) && ClockSeconds <= 60f && ClockSeconds > 0f && !IsOvertime)
-                ClockSeconds = Math.Max(0f, ClockSeconds - 10f);
+            if (!defenseFoul && clockWasRunning && (Quarter == 2 || Quarter == 4) && NormClock <= 60f && ClockSeconds > 0f && !IsOvertime)
+                ClockSeconds = Math.Max(0f, ClockSeconds - 10f * ClockScale);
             if (defenseFoul && r.Type != PlayType.Penalty && ClockSeconds <= 0f && !IsCollegeOvertime
                 && Phase != GamePhase.Final)
                 UntimedDown = true;
@@ -405,7 +408,7 @@ namespace PixFootball.Core
 
         private void ApplyKickoff(PlayResult r)
         {
-            SpendClock(r.TimeElapsed);
+            { bool tb0 = r.Touchback || (KickSpot + r.Yards >= 100 && r.ReturnYards <= 0); SpendClock(tb0 ? 0f : Math.Max(0f, r.TimeElapsed - 4f)); }      // v0.11.0 SIM-FLOW (B-072): the clock starts when the receiving team touches the kick: no time for the flight or a touchback
             Team kicker = Possession;
             Team receiver = kicker.Opponent();
             bool free = FreeKick;
@@ -423,7 +426,7 @@ namespace PixFootball.Core
             }
             if (r.Touchdown) { ScoreTouchdown(receiver); return; }
 
-            bool touchback = r.Touchback || land >= 100;
+            bool touchback = r.Touchback || (land >= 100 && r.ReturnYards <= 0);      // v0.11.0 SIM-FLOW (B-033): a kickoff that landed in the end zone and was brought out is a return, not a touchback
             int spot;
             if (touchback) spot = free ? Rules.PuntTouchbackSpot : Rules.KickoffTouchbackSpot;
             else if (r.OutOfBounds) spot = Rules.KickoffOutOfBoundsSpot;
@@ -561,7 +564,7 @@ namespace PixFootball.Core
         {
             if (Rules.ClockStopsOnFirstDown) return true;
             return Rules.FirstDownStopWindowSeconds > 0 && (Quarter == 2 || Quarter == 4)
-                   && ClockSeconds <= Rules.FirstDownStopWindowSeconds;
+                   && NormClock <= Rules.FirstDownStopWindowSeconds;
         }
 
         private void ClockAfterLivePlay(bool outOfBounds, bool firstDown, float explicitRunoff, bool incomplete)
@@ -589,11 +592,13 @@ namespace PixFootball.Core
         private void SpendClock(float seconds)
         {
             if (seconds <= 0f || IsCollegeOvertime) return;
+            seconds *= ClockScale;
             float before = ClockSeconds;
             ClockSeconds = Math.Max(0f, before - seconds);
-            if (WarningApplies && before > 120f && ClockSeconds <= 120f && ClockSeconds > 0f)
+            if (WarningApplies && before > 120f * ClockScale && ClockSeconds <= 120f * ClockScale && ClockSeconds > 0f)
             {
                 GiveWarning();
+                ClockSeconds = 120f * ClockScale;      // v0.11.0 SIM-FLOW (B-076): the clock is stopped at 2:00 exactly
                 _warn = true;
             }
         }
@@ -601,14 +606,14 @@ namespace PixFootball.Core
         private bool BurnRunoff()
         {
             if (PendingRunoff <= 0f) return false;
-            float run = PendingRunoff;
+            float run = PendingRunoff * ClockScale;
             PendingRunoff = 0f;
             if (IsCollegeOvertime || Phase == GamePhase.Final) return false;
             float before = ClockSeconds;
-            if (WarningApplies && before > 120f && before - run <= 120f)
+            if (WarningApplies && before > 120f * ClockScale && before - run <= 120f * ClockScale)
             {
                 GiveWarning();
-                ClockSeconds = 120f;
+                ClockSeconds = 120f * ClockScale;
                 ClockRunning = false;
                 PlayClock = Rules.PlayClockDead;
                 return false;

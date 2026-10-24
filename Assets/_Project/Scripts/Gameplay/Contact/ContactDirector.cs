@@ -191,6 +191,7 @@ namespace PixFootball.Gameplay
             if (tackler >= 22 || carrier >= 22) return;
             var vc = View(carrier); var vt = View(tackler);
             if (vc == null || vt == null) return;
+            if (e.Tackle == TackleType.BigHit && e.Note == "BlowUp" && TryBlowUp(e)) return;      // v0.11.0 SIM-FLOW
             var existing = SessionOf(carrier);
             bool drag = e.Tackle == TackleType.Drag;
             if (!drag && existing != null && HasUnstartedBooking(carrier, tackler)) { EndSession(existing, false); existing = null; }      // v0.10.0 CHOREO: the booked take replaces the drag struggle (the simulation moves both bodies along it now)

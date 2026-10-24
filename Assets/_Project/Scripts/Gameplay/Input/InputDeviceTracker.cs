@@ -17,6 +17,9 @@ namespace PixFootball.Gameplay
         /// <summary>True while the controller is the active device.</summary>
         public static bool GamepadActive { get { EnsureInit(); return _pad; } }
 
+        /// <summary>v0.11: the unscaled time of the last real input (a button, a key, the stick); the HUD helper bar shows itself again after it.</summary>
+        public static float LastActivityTime = -100f;
+
         /// <summary>Test / autotest hook: force a scheme.</summary>
         public static void Force(bool gamepad) { _init = true; _pad = gamepad; }
 
@@ -30,9 +33,9 @@ namespace PixFootball.Gameplay
             if (f == _frame) return;
             _frame = f;
             var pad = Gamepad.current;
-            if (pad != null && PadActivity(pad)) _pad = true;
+            if (pad != null && PadActivity(pad)) { _pad = true; LastActivityTime = Time.unscaledTime; }
             var kb = Keyboard.current;
-            if (kb != null && kb.anyKey.wasPressedThisFrame) _pad = false;
+            if (kb != null && kb.anyKey.wasPressedThisFrame) { _pad = false; LastActivityTime = Time.unscaledTime; }
             var m = Mouse.current;
             if (m != null && (m.delta.ReadValue().sqrMagnitude > 9f || m.leftButton.wasPressedThisFrame || m.rightButton.wasPressedThisFrame)) _pad = false;
         }

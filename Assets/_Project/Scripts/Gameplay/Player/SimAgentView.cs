@@ -76,7 +76,7 @@ namespace PixFootball.Gameplay
             v.Avatar = PlayerAvatar.Spawn(go.transform, size, TeamColors.Home, "Avatar");
             v.Anim = go.AddComponent<LocomotionAnimator>();
             v.Rig = go.AddComponent<ActionAnimator>();
-            if (v.Avatar.Animator != null) v.Avatar.Animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;   // players outside the camera are not posed
+            if (v.Avatar.Animator != null) v.Avatar.Animator.cullingMode = PlayerLod.MatchCulling;   // v0.11.0 CRITICAL: was CullUpdateTransforms (an off-screen body kept a stale pose that the ground fit, stance and foot layers then worked on); see PlayerLod.MatchCulling
             v.Ragdoll = go.AddComponent<RagdollRig>(); v.Ragdoll.Setup(v.Avatar.Animator);
             v.Motion = new BodyMotion(v.Avatar);
             v.InitStanceLayer();      // v0.9.0 QBSTANCE
@@ -109,6 +109,7 @@ namespace PixFootball.Gameplay
         public void Apply(Vector3 position, Vector3 velocity, Vector3 facing, AgentAction action, float lateralHint, float dt)
         {
             transform.position = position;
+            facing = LocoFacing(velocity, facing, action, dt);      // v0.11.0 MOTION B-018: no running backwards at sprint speed
             float target = Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg;
             _yaw = Mathf.MoveTowardsAngle(_yaw, target, 900f * dt);
             transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
@@ -190,8 +191,9 @@ namespace PixFootball.Gameplay
             position = ApplyViewOffset(position, dt);                                    // v0.9.0 CONNECT E-231: a player who lay elsewhere catches up at a walking pace
             bool ragdollOn = Ragdoll != null && Ragdoll.Active && Ragdoll.Machine.Phase != RagdollPhase.Recover;
             if (!ragdollOn) transform.position = position;                               // v0.9.0 CONNECT E-228: the ragdoll's bones are children of this root: it stays where the hit began
+            facing = LocoFacing(velocity, facing, action, dt);      // v0.11.0 MOTION B-018: no running backwards at sprint speed
             float target = Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg;
-            float turnRate = (action == AgentAction.Tackled || action == AgentAction.Fallen) ? 120f : 720f;
+            float turnRate = (action == AgentAction.Tackled || action == AgentAction.Fallen) ? 120f : LocoTurnRate;      // v0.11.0 MOTION B-017: the body turns no faster than a runner can (SimAgentView.Loco.cs)
             _yaw = Mathf.MoveTowardsAngle(_yaw, target, turnRate * dt);
             if (!ragdollOn) transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
             Vector3 f = Forward;
@@ -208,6 +210,7 @@ namespace PixFootball.Gameplay
             }
 
             ChoreoLocoHandoff();      // v0.10.0 CHOREO: the legs go to a full-body take and come back with the foot phase
+            CarryTakeService();      // v0.11.0 RB: the planned move's take starts across the sim's lead
             if (Motion != null) DriveGait(velocity, f, action, h.Carrying, dt);
             _clock += dt;
             if (Motion != null && !h.IsQb)
@@ -224,7 +227,8 @@ namespace PixFootball.Gameplay
             ServiceEngageLoop(action);                                                                   // v0.9.0 CONNECT E-185: the hand fight loops after the pair take
             action = ConnectAction(action, h);                                                           // v0.9.0 CONNECT E-248 / E-259: stance holds through the snap Idle, no clip thrash
             action = CommitFilter(action);                                                               // v0.7.0: a throw / catch / hand-off plays out unless a higher priority event arrives
-            bool changed = action != _lastAction || (action == AgentAction.Engaged && h.Rush != _lastRush);
+            if (CarryOwnsMove(action)) { _lastAction = action; _lastRush = h.Rush; return; }      // v0.11.0 RB: the carry take / stiff-arm layer plays this move
+            bool changed = action != _lastAction || (action == AgentAction.Engaged && h.Rush != _lastRush && _clock - _lastChangeAt >= 0.45f);      // v0.11.0 ANIMLIB B-057: a rush-move change re-picks the pair clip at most once per move length (43 DL clip switches <0.13 s apart per game)
             if (changed && action == AgentAction.Engaged && _lastAction == AgentAction.Engaged && ChoreoDeferEngage()) changed = false;      // v0.10.0 CHOREO: the take that is playing plays out before the next move starts
             if (!changed) return;
             var prevAction = _lastAction;
@@ -374,8 +378,12 @@ namespace PixFootball.Gameplay
             if (Motion != null) Motion.Late(Time.deltaTime);
             LateStancePose(Time.deltaTime);      // v0.9.0 QBSTANCE: the authored stance poses (hand on the turf, hips high, QB crouch) over the animation
             ArmIkLate(Time.deltaTime);          // v0.9.0 CONNECT E-125 / E-127 / E-146
+            CarryLate(Time.deltaTime);          // v0.11.0 RB: ball high and tight, free arm, lean, sink, stiff arm (SimAgentView.Carry.cs)
+            EyesLate(Time.deltaTime);           // v0.11.0 QB: the receiver's head on the ball in flight
             ActionGroundLate(Time.deltaTime);   // v0.9.0 LOCOMOTION LOCO-015: ground contact of the action clips, on the final pose (after the stance / QB pose IK and the arm IK)
             EngageStepLate(Time.deltaTime);       // v0.10.0 CHOREO: engaged bodies step instead of skating
+            HipsLeashLate(Time.deltaTime);      // v0.11.0 MOTION B-020: the skeleton stays within 0.3 m of the simulated position
+            PixIk.Late(this, Time.deltaTime);   // v0.11.0 MOTION: Final IK (bridge, absent in the public repo) solves the hand / foot / body effectors other systems asked for this frame
             KickIkLate(Time.deltaTime);         // v0.10.0 QB: the kicking foot meets the ball on the contact frame
             if (_kickT < 0f || Avatar == null || Avatar.RightUpperLeg == null || Avatar.RightLowerLeg == null) return;
             _kickT += Time.deltaTime;

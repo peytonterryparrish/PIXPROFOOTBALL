@@ -18,7 +18,9 @@ namespace PixFootball.UI
         // ---- meter
         RectTransform _meterRoot;
         Row _timing, _aim;
-        bool _chrome = true, _meterWanted;
+        bool _chrome = true, _meterWanted, _chromeVis = true, _windShown = true;
+        /// <summary>v0.11 B-077: the wind dial matters only on a kickoff, punt or kick; the match HUD shows it just then.</summary>
+        public void SetWindShown(bool shown) { if (shown == _windShown) return; _windShown = shown; if (_windRoot != null) _windRoot.gameObject.SetActive(shown && _chromeVis); }
         float _baseY = 170f;
 
         sealed class Row { public TextMeshProUGUI Value; public RectTransform Marker; public Image MarkerImg; public float BarWidth; }
@@ -40,16 +42,16 @@ namespace PixFootball.UI
         // ============================================================================================ wind
         void BuildWind(RectTransform root)
         {
-            _windRoot = UiKit.Rect(root, "Wind"); UiKit.Anchor(_windRoot, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -44), new Vector2(150, 160));
+            _windRoot = UiKit.Rect(root, "Wind"); UiKit.Anchor(_windRoot, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-HudMetrics.SafeX, -HudMetrics.SafeY), new Vector2(150, 160)); _windRoot.localScale = Vector3.one * 0.8f;   // v0.11: smaller, on the title-safe margin
             var ring = UiKit.Panel(_windRoot, "Ring", UiColors.Gold, Disc()); UiKit.Anchor(ring.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), Vector2.zero, new Vector2(112, 112));
             var inner = UiKit.Panel(ring.rectTransform, "Inner", new Color(0.05f, 0.06f, 0.1f, 0.96f), Disc()); UiKit.Anchor(inner.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(98, 98));
             // compass tick for north
-            var n = UiKit.Label(inner.rectTransform, "N", 20, UiColors.TextMuted, true, TextAlignmentOptions.Center, "North");
-            UiKit.Anchor(n.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -2), new Vector2(30, 24));
+            var n = UiKit.Label(inner.rectTransform, "", 20, UiColors.TextMuted, true, TextAlignmentOptions.Center, "North"); n.characterSpacing = 1f;   // v0.11 B-083: the arrow is drawn in screen space, so the dial no longer pretends to have a compass north
+            UiKit.Anchor(n.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -2), new Vector2(70, 24));
             _arrowImg = UiKit.Panel(inner.rectTransform, "Arrow", Color.white, Arrow()); _arrowImg.preserveAspect = true;
             _arrow = _arrowImg.rectTransform; UiKit.Anchor(_arrow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(58, 58));
             var plate = UiKit.Panel(_windRoot, "Plate", new Color(0.05f, 0.06f, 0.1f, 0.92f)); UiKit.Anchor(plate.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 0), new Vector2(150, 40));
-            _windText = UiKit.Label(plate.rectTransform, "CALM", 28, Color.white, true, TextAlignmentOptions.Center, "Text"); UiKit.Stretch(_windText.rectTransform); _windText.characterSpacing = 1.5f;
+            _windText = UiKit.Label(plate.rectTransform, "CALM", 28, Color.white, true, TextAlignmentOptions.Center, "Text"); UiKit.Stretch(_windText.rectTransform, 8, 0, 8, 0); _windText.characterSpacing = 1.5f; UiKit.Fit(_windText, HudMetrics.MinFont);   // v0.11 B-082
         }
 
         /// <summary>Wind indicator. <paramref name="degreesFromNorth"/> is the heading the wind blows TOWARD, clockwise from the compass "N" (screen up); 0 mph = calm (no arrow).</summary>
@@ -60,8 +62,8 @@ namespace PixFootball.UI
             bool calm = m <= 0;
             _arrowImg.enabled = !calm;
             _arrow.localRotation = Quaternion.Euler(0f, 0f, -degreesFromNorth);
-            _windText.text = calm ? "CALM 0 MPH" : m + " MPH";
-            _windText.fontSize = calm ? 22f : 28f;
+            _windText.text = calm ? "CALM" : m + " MPH";
+            _windText.fontSize = 28f;
             _arrowImg.color = m >= 15 ? UiColors.Orange : (m >= 8 ? UiColors.Gold : Color.white);
         }
 
@@ -136,7 +138,8 @@ namespace PixFootball.UI
         public void SetChrome(bool visible)
         {
             _chrome = visible;
-            if (_windRoot != null) _windRoot.gameObject.SetActive(visible);
+            _chromeVis = visible;
+            if (_windRoot != null) _windRoot.gameObject.SetActive(visible && _windShown);
             if (_meterRoot != null) _meterRoot.gameObject.SetActive(visible && _meterWanted);
         }
 

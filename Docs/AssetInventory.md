@@ -88,6 +88,7 @@ Importer settings (all FBX): Humanoid + avatar from the file, cameras/lights/ble
 | SFX | `Audio/SFX/` Footsteps (carpet/concrete/dirt/grass/snow/wet/wood, 82), Ball Bounce (grass/snow/wet, 18), Ball hit (10), Catch (5+), Tackles/Hits (45), Kicks (5), Whoosh, Grunts, Whistle (2), UI (32), Team screen, Scout booster, client assets (20) | 244 WAV total | ADPCM, decompress on load. `Cliente SFX edited/Client SFX Project` (Ableton `.als/.asd`) skipped. |
 | Ambience | `Audio/Ambience/` crowd loops (11), loading loop, rain (4), winds (3), locker room (2) | 21 | Vorbis in memory. |
 | Music | `Audio/Music/DraftFeverBowlOST`, `DraftHouseOST` (1 mix each, stems skipped 800 MB), `PeytonParrish/` (17 tracks, the user's own releases, 920 MB) | 19 | Streaming Vorbis. |
+| v0.11 curated set | `Assets/_Licensed/PIX/Audio/{Music,Stingers,Sfx,Crowd}` (made by `Tools/AudioTool` from the Draft Fever OST stems, Draft Fever SFX and the owner packs Gamemaster Pro, Soundstripe Sports, AD Ball Sports, rawAmbience; see `Docs/QA/v0110/audio*.md`) | 355 clips, 61 bank groups | `PixAudioBank.asset` (Resources). The owner's sung songs in `Music/PeytonParrish` are no longer played. |
 
 ## 7. Other
 

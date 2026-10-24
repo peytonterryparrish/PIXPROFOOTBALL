@@ -1,0 +1,164 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 29d4bfe338433f24c99a19b404f153e6, type: 3}
+  m_Name: TileTheme
+  m_EditorClassIdentifier: PixFootball.UI::PixFootball.UI.Glass.GlassTheme
+  tokens:
+    surfaceTop: {r: 0.17254902, g: 0.18431373, b: 0.20784314, a: 1}
+    surfaceMid: {r: 0.14509805, g: 0.15294118, b: 0.17254902, a: 1}
+    surfaceBottom: {r: 0.11372549, g: 0.12156863, b: 0.14117648, a: 1}
+    opacityTop: 1
+    opacityMid: 1
+    opacityBottom: 1
+    edgeA: {r: 0.20392157, g: 0.21568628, b: 0.24313726, a: 1}
+    edgeB: {r: 0.22745098, g: 0.23921569, b: 0.27058825, a: 1}
+    edgeC: {r: 0.17254902, g: 0.18431373, b: 0.20784314, a: 1}
+    edgeWidth: 2
+    edgeOpacity: 1
+    actionLeft: {r: 1, g: 0.8117647, b: 0.47843137, a: 1}
+    actionRight: {r: 0.9490196, g: 0.6509804, b: 0.22745098, a: 1}
+    sheen: 0
+    noise: 0.004
+    blurRadius: 0
+    blurPasses: 0
+    backdropDim: 0
+    backdropDesaturate: 0
+    refraction: 0
+    frostDark: {r: 0.0627451, g: 0.06666667, b: 0.078431375, a: 1}
+    frostLight: {r: 0.09019608, g: 0.09411765, b: 0.10980392, a: 1}
+    textPrimary: {r: 1, g: 1, b: 1, a: 1}
+    textSecondary: {r: 0.75686276, g: 0.77254903, b: 0.8117647, a: 1}
+    textMuted: {r: 0.5529412, g: 0.5686275, b: 0.60784316, a: 1}
+    textOnAction: {r: 0.09019608, g: 0.07450981, b: 0.039215688, a: 1}
+    accent: {r: 0.9490196, g: 0.6509804, b: 0.22745098, a: 1}
+    accentHot: {r: 1, g: 0.8117647, b: 0.47843137, a: 1}
+    accentDeep: {r: 0.7882353, g: 0.5411765, b: 0.16470589, a: 1}
+    lightGrey: {r: 0.9019608, g: 0.9098039, b: 0.93333334, a: 1}
+    midGrey: {r: 0.654902, g: 0.67058825, b: 0.70980394, a: 1}
+    danger: {r: 1, g: 0.47843137, b: 0.41568628, a: 1}
+    success: {r: 0.49411765, g: 0.8784314, b: 0.56078434, a: 1}
+    warning: {r: 0.9490196, g: 0.6509804, b: 0.22745098, a: 1}
+    cornerRadius: 0
+    cornerRadiusSmall: 0
+    cornerRadiusLarge: 0
+    grid: 8
+    panelPadding: 24
+    gutter: 20
+    rowHeight: 64
+    safeMarginX: 60
+    safeMarginY: 28
+    motionFast: 0.12
+    motionBase: 0.16
+    motionSlow: 0.2
+    focusScale: 1.035
+    sizeCaption: 20
+    sizeLabel: 24
+    sizeBody: 26
+    sizeHeading: 34
+    sizeTitle: 56
+    sizeHero: 62
+    trackingCaps: 10.714286
+    trackingTitle: 2.631579
+    flat: 1
+    gold: {r: 0.9490196, g: 0.6509804, b: 0.22745098, a: 1}
+    goldHi: {r: 1, g: 0.8117647, b: 0.47843137, a: 1}
+    onGold: {r: 0.09019608, g: 0.07450981, b: 0.039215688, a: 1}
+    bgTop: {r: 0.09019608, g: 0.09411765, b: 0.10980392, a: 1}
+    bgBottom: {r: 0.0627451, g: 0.06666667, b: 0.078431375, a: 1}
+    bgGlow: {r: 0.16470589, g: 0.1764706, b: 0.20392157, a: 1}
+    topBarTop: {r: 0.047058824, g: 0.050980393, b: 0.05882353, a: 1}
+    topBarBottom: {r: 0.08235294, g: 0.08627451, b: 0.101960786, a: 1}
+    topBarLine: {r: 0.16862746, g: 0.1764706, b: 0.2, a: 1}
+    tickerBg: {r: 0.047058824, g: 0.050980393, b: 0.0627451, a: 1}
+    footerBg: {r: 0.039215688, g: 0.043137256, b: 0.050980393, a: 1}
+    tileFill: {r: 0.14509805, g: 0.15294118, b: 0.17254902, a: 1}
+    tileFlatA: {r: 0.17254902, g: 0.18431373, b: 0.20784314, a: 1}
+    tileFlatB: {r: 0.11372549, g: 0.12156863, b: 0.14117648, a: 1}
+    panelFill: {r: 0.1254902, g: 0.13333334, b: 0.15686275, a: 1}
+    panelHead: {r: 0.08235294, g: 0.09019608, b: 0.105882354, a: 1}
+    panelHeadAlt: {r: 0.09411765, g: 0.101960786, b: 0.12156863, a: 1}
+    rowFill: {r: 0.101960786, g: 0.10980392, b: 0.1254902, a: 1}
+    rowFocus: {r: 0.15294118, g: 0.16470589, b: 0.19215687, a: 1}
+    tabOff: {r: 0.11372549, g: 0.12156863, b: 0.14117648, a: 1}
+    textTab: {r: 0.6039216, g: 0.61960787, b: 0.65882355, a: 1}
+    border: {r: 0.20392157, g: 0.21568628, b: 0.24313726, a: 1}
+    borderPanel: {r: 0.22745098, g: 0.23921569, b: 0.27058825, a: 1}
+    hairline: {r: 0.17254902, g: 0.18431373, b: 0.20784314, a: 1}
+    shade: {r: 0.039215688, g: 0.043137256, b: 0.05490196, a: 1}
+    shadeAlpha0: 0.92
+    shadeAlpha45: 0.35
+    shadeAlpha75: 0.05
+    tagPass: {r: 0.30980393, g: 0.7647059, b: 1, a: 1}
+    tagRun: {r: 1, g: 0.56078434, b: 0.22745098, a: 1}
+    tagText: {r: 0.043137256, g: 0.047058824, b: 0.05490196, a: 1}
+    good: {r: 0.49411765, g: 0.8784314, b: 0.56078434, a: 1}
+    bad: {r: 1, g: 0.47843137, b: 0.41568628, a: 1}
+    fieldTop: {r: 0.11764706, g: 0.3529412, b: 0.17254902, a: 1}
+    fieldBottom: {r: 0.07058824, g: 0.22745098, b: 0.11372549, a: 1}
+    glyphA: {r: 0.18431373, g: 0.61960787, b: 0.30980393, a: 1}
+    glyphB: {r: 0.8235294, g: 0.25882354, b: 0.23137255, a: 1}
+    glyphX: {r: 0.18431373, g: 0.43529412, b: 0.8392157, a: 1}
+    glyphY: {r: 0.8980392, g: 0.6901961, b: 0.12941177, a: 1}
+    glyphKeyTop: {r: 0.46666667, g: 0.46666667, b: 0.46666667, a: 1}
+    glyphKeyBottom: {r: 0.23529412, g: 0.23529412, b: 0.23529412, a: 1}
+    glyphKeyText: {r: 0.9490196, g: 0.9490196, b: 0.9490196, a: 1}
+    restEdge: 2
+    focusEdge: 4
+    ringWidth: 2
+    ringAlpha: 0.35
+    glowAlpha: 0.55
+    glowRadius: 46
+    sheenAlpha: 0.16
+    shadowAlpha: 0.5
+    pressScale: 0.985
+    tileScale: 1.035
+    heroScale: 1.02
+    cardScale: 1.04
+    tabSkew: -14
+    tabGap: 6
+    tabPadX: 34
+    tabHeight: 54
+    topBarHeight: 112
+    tickerHeight: 46
+    footerHeight: 62
+    tickerSpeed: 96
+    tileGutter: 20
+    cardGutter: 32
+    marginX: 60
+    contentTop: 138
+    listRowHeight: 124
+    tableRowHeight: 50
+    tableHeadHeight: 56
+    tabSlide: 0.16
+    crossfade: 0.2
+    crossDrift: 24
+    revealStagger: 0.04
+    revealRise: 18
+    revealScale: 0.97
+    glowPulse: 0
+    sizeTab: 28
+    sizeTabSmall: 25
+    sizeTileTitle: 38
+    sizeHeroTitle: 56
+    sizePanelTitle: 30
+    sizeGroupTitle: 24
+    sizeSelectedPlay: 44
+    sizeCardTitle: 28
+    sizeRowTitle: 27
+    sizeTableBody: 22
+    sizeTableHead: 20
+    sizeSub: 20
+    sizeBadge: 20
+    sizeLegend: 22
+  fontTitle: {fileID: 11400000, guid: 6ca2bd5ab7d18b2439d6778f18268fce, type: 2}
+  fontBody: {fileID: 11400000, guid: dcd9474e0b73d694da412c57429e19ec, type: 2}
+  material: {fileID: 2100000, guid: 2225d4645c840e34abd0ef54d2c9b38f, type: 2}

@@ -6,6 +6,45 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 Next: **College Network** returns (paused in 0.9.0): a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools. Its logic is in main (`League/Career/College*`); its screens live on the local branch `wip/v0.9-college-ui`.
 
+## [0.11.0] - 2026-10-23 - "Broadcast"
+
+Answers the v0.10.0 playtest notes (`Docs/QA/v0110/PLAYTEST_v0100.md`) with eleven tracks (AUDIT, CRITICAL, WATCH+HUD, QB, RB, MOTION, ANIMLIB, SIM-FLOW, AUDIO+CROWD and three menu tracks). Status of every note in `Docs/QA/v0110/STATUS.md`, the 120-row bug list and its tally in `Docs/QA/v0110/BUGS.md`, track logs next to them. Built player, 80 s of live play, 2560 x 1440 High: 144.7 fps average, 116.1 1 %-low (v0.10.0: 148.5 / 114.5), 0 exceptions. 1,324 EditMode tests green (5 fixed at integration).
+
+### Added
+- **Watch mode** (`Gameplay/Input/WatchMode.cs`, `MatchDirector.Watch.cs`, `MatchHud.Watch.cs`, `WatchSettingsUi`): every game is CPU vs CPU on a broadcast camera that stays on one sideline and glides between plays; coin-toss scene, huddle, replays and postgame run; controller input is a setting (off by default, `-pixUserControl`); pause, camera cycle, HUD hide, helper bar and 1x / 2x speed on the pad and keyboard. A receiver cannot be steered until he holds the ball (`ReceiverInputLock`).
+- **Match flow** (`PlayStage.Between`, `PlayStage.Scenes`, `MatchDirector.Flow`, `ContactDirector.Scenes`, `CarrierAI.Scenes`): the same 22 bodies play the whole game (no cut to black): huddle, break, walk to the line, substitutions, timeouts at the sideline, halftime leave; first-down measurement, frustration and cheer scenes, runners who take it out of bounds, pile-ons with strips, blow-up hits.
+- **Ball carrier style** (`SimAgent.Carry`, `CarrierAI.Style`, `CarrierMoves.Style`, `SimAgentView.Carry*`): outside arm, five points of pressure, announced cuts with a plant, planned jukes and stiff arms, two hands in traffic.
+- **Quarterback** (`OffenseAI.QbStance`, `SimAgentView.QbThrow`, `QbTrack`): the throwing stance until he decides to run, set-feet throw with hips before shoulders, follow-through, receiver and defender head-turn to the ball, ball wobble by throw quality.
+- **Audio and crowd** (`Gameplay/Audio/*`, `MatchAudio.Events`, `PixAudioBank`, `AudioBankBuilder`, `Presentation/Crowd`, `Tools/AudioTool`): instrumental cinematic music (menu playlist, pre-game, between plays, two-minute, stingers, halftime), sound for 32 sim event types plus every contact and foot plant, 10 crowd layers and 11 reactions, a compute-shader crowd animation.
+- **Menus: Tile Hub Modern** (`Glass/Hub/*`, `GlassKit.Tile`, `TileFactory`, 29 franchise pages): the default theme, Barlow Semi Condensed (OFL), HOME / PLAY / SETTINGS hub, team select, matchup, settings, career start; the match HUD uses the same tokens. College and Road to Heisman are not in the menus.
+- **Final IK bridge** (`PixIk`, `Editor/Tools/FinalIk`): hands and feet can be driven to world targets; off by default (`-pixGrounder`). The asset itself stays out of the repository.
+- **Tools:** `MatchWatchAudit` (full CPU games with per-frame body, camera and HUD checks), `BodyWatch`, `CriticalAudit` / `CriticalStances`, `CarryAudit`, `SimFlowAudit`, `FormProbe`, `FranchiseShots`, `Style100Import`, `HandLab`, `FootIk`.
+
+### Changed
+- Off-screen bodies keep animating (`Animator.cullingMode` `AlwaysAnimate`): they used to sink 3 m a second into the turf (the "half bodies", "team vanishes on kickoff" notes). The library rebuild now keeps all 15 photoreal bodies.
+- Camera: kickoffs and punts are framed for all 22 bodies (ball in picture on a kickoff 25 -> 88-90 %), no 88 m sideline flips, lens 22 degrees.
+- HUD: one centred pop-up lane, a 30-unit helper strip that can be toggled, overlapping elements in the stress frame 8 -> 3.
+- Match engine: tackle contest flattened (`TackleGapScale` 0.55, the star effect is gone: 20.5 points a team, 4.5 yd a carry), pass block no longer loses to every rush (`PassBias` 0.06), fumbles 1.1 -> 2.4 a game, assisted tackles 9.7 -> 35 %, a short quarter keeps the snap count of a real one (`ClockScale`), whistle to snap 6.3 -> 16 s.
+- Running: back-pedal leans over bent knees, coverage men turn and run instead of running backwards, hips held within 0.30 m of the simulated spot.
+- Hands: every cleaned clip since v0.8 had its finger curves dropped by a naming bug; 694 clips now carry real finger mocap. Clip QA mean 81.8 -> 87.0, knee over-extension 7 -> 0 clips.
+- Tests re-banded for the new realism: `RunBlockingRatingsMoveTheYardage` (+0.4 -> +0.3 yd), `RunoffBurnsBeforeNextSnap`, `TwoMinuteWarningStopsClockOncePerHalf`, `TackleSuccessCurveIsFlatterButStillRewardsSkill`, `ImmovableAnchorProtectsTheQuarterback`, `QuickSimTests.PlaysPerTeam`, `TimeOfPossession...`, `WreckingBall...`, `PullingLinemen...`.
+
+### Fixed
+- B-001 to B-008 (all S1 rows of the new bug list), and 81 more of the 120: floating or buried bodies, folded returner legs, centre handstand, OL stance at the goal line, hip pops, kickoff tee, ball left behind after a whistle, the offence that could not score, silent trenches and a single crowd layer, helper bar. Tally in `Docs/QA/v0110/BUGS.md`.
+- `HasActivity` ignored penalties, so a flagged bench player's flag was missing from the player totals; offsetting fouls left a -1 yardage; the engaged arm tackle ignored the open-field test hook.
+- Automatic replays held the field 70-120 s in slow-frame runs: now capped at 10 s of wall time, skippable with Start / Esc.
+
+### Known Issues
+- Watch mode only: controller input is off by default, and the user-mode play-call and pre-snap panels are not reworked (B-047, 048, 049, 092, 093).
+- Music needs an ear check for vocals (`menu_calm`, `menu_house`, `halftime_loop`); there is no cadence voice (no source audio); replays are silent; the crowd animation is hard to see on the broadcast camera.
+- Players read about 10 cm off the turf in their pre-snap stance in the audit harness (not seen in the build screenshots); wrap tackles still slide at the start of the hit (1.98 m/s); jogging and shuffling slide 0.17 / 0.21 m/s; slow gaits float 17-34 % of mid-contact frames; flight ratio 0.25 at a sprint.
+- 9.9 players a play stand still after the whistle; whistle to snap is 16 s (the 25 s default lands in v0.12); out-of-bounds plays 0.6 a game (NFL about 7).
+- Quarterback: kneel and spike unverified, play-action fake reaches too deep, stumble recovery, scissored feet on some under-center throws, 28 % of throws land more than 1 m from the target.
+- Players are 50-60 px tall on a normal play and 34-56 px on a kickoff (B-058). Director shots for celebrations and touchbacks are not done (B-111, 112, 116, 117).
+- Menus: the ticker's NEWS block renders dark, two franchise pages need four presses, no hero art yet, Online, Superstar, Trophy Room and Mini Games are locked tiles.
+- Purchases waiting on the owner: Cascadeur, Tomasi, Mobility Pro. The MoCap Online crowd pack, a real sprint capture and the field-goal take are for v0.12.
+- Everything listed under Known Issues in v0.10.0 that is not named above still applies.
+
 ## [0.10.0] - 2026-10-23 - "Choreography"
 
 Answers the v0.9.0 playtest notes (`Docs/QA/v0100/PLAYTEST_v090.md`) with seven tracks (MOTION, QB, CHOREO, DEFENSE, BODIES, ANIMLIB, UI); status of every note in `Docs/QA/v0100/STATUS.md`, track logs next to it. Built player, 80 s live play, 2560 x 1440 High: 148.5 fps average, 114.5 1 %-low (v0.9.1: 145 / 82). 1,248 EditMode tests in the `!Slow` run, all green after two re-baselines.
@@ -408,7 +447,8 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 - Some head models and logo source files still carry real-person / real-school names internally; to be replaced before any public release.
 
 
-[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.8.0...v0.9.0

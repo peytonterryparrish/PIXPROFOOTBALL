@@ -61,6 +61,24 @@ namespace PixFootball.Tests
         }
 
         [Test]
+        public void RedZoneTripsAndTouchdownsAreCounted()
+        {
+            // B-050: the live tracker never touched RedZoneTrips / RedZoneTds, so the halftime and final stat card always said 0/0
+            int trips = 0, tds = 0;
+            foreach (int seed in new[] { 41, 42, 43, 44 })
+            {
+                var g = PlayGame(seed, 110);
+                foreach (var b in new[] { g.Tracker.HomeBox, g.Tracker.AwayBox })
+                {
+                    Assert.LessOrEqual(b.RedZoneTds, b.RedZoneTrips, "a touchdown needs a trip");
+                    trips += b.RedZoneTrips; tds += b.RedZoneTds;
+                }
+            }
+            Assert.Greater(trips, 0, "four simulated games reach the red zone");
+            Assert.Greater(tds, 0, "and score from it");
+        }
+
+        [Test]
         public void ScoringEventsAddUpToTheScore()
         {
             var g = PlayGame(32, 90);

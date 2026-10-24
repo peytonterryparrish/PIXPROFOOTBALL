@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!1 &207970933162060615
+--- !u!1 &968285145473148259
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -8,11 +8,11 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1569939954333861985}
-  - component: {fileID: 348509331212522925}
-  - component: {fileID: 4477840654238395324}
-  - component: {fileID: 141422987697892187}
-  - component: {fileID: 6743526567087403754}
+  - component: {fileID: 7100063318757041499}
+  - component: {fileID: 8135727875876984807}
+  - component: {fileID: 5738378118731994476}
+  - component: {fileID: 2776018322860479980}
+  - component: {fileID: 3596979382937466004}
   m_Layer: 0
   m_Name: Icon_ui_arrow_right
   m_TagString: Untagged
@@ -20,125 +20,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!224 &1569939954333861985
+--- !u!224 &7100063318757041499
 RectTransform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 207970933162060615}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 7947555152505123488}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0.5}
-  m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 34.9184, y: 34.9184}
-  m_Pivot: {x: 0.5, y: 0.5}
---- !u!222 &348509331212522925
-CanvasRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 207970933162060615}
-  m_CullTransparentMesh: 1
---- !u!114 &4477840654238395324
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 207970933162060615}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
-  m_Material: {fileID: 0}
-  m_Color: {r: 0.88235295, g: 0.8862745, b: 0.89411765, a: 1}
-  m_RaycastTarget: 0
-  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
-  m_Maskable: 1
-  m_OnCullStateChanged:
-    m_PersistentCalls:
-      m_Calls: []
-  m_Sprite: {fileID: 0}
-  m_Type: 0
-  m_PreserveAspect: 1
-  m_FillCenter: 1
-  m_FillMethod: 4
-  m_FillAmount: 1
-  m_FillClockwise: 1
-  m_FillOrigin: 0
-  m_UseSpriteMesh: 0
-  m_PixelsPerUnitMultiplier: 1
---- !u!114 &141422987697892187
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 207970933162060615}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 57e247bcc0661e140a38a6cc005015d5, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: PixFootball.UI::PixFootball.UI.Glass.GlassIconKey
-  Key: ui_arrow_right
---- !u!114 &6743526567087403754
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 207970933162060615}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.LayoutElement
-  m_IgnoreLayout: 0
-  m_MinWidth: 34.9184
-  m_MinHeight: 34.9184
-  m_PreferredWidth: 34.9184
-  m_PreferredHeight: 34.9184
-  m_FlexibleWidth: -1
-  m_FlexibleHeight: -1
-  m_LayoutPriority: 1
-  m_MaxWidth: -1
-  m_MaxHeight: -1
---- !u!1 &2960926088903906912
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 5541875698234683535}
-  - component: {fileID: 5563496017438094134}
-  - component: {fileID: 4451741364586511760}
-  - component: {fileID: 3265921745157672729}
-  - component: {fileID: 1082459329724529803}
-  m_Layer: 0
-  m_Name: Icon_ui_arrow_right
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!224 &5541875698234683535
-RectTransform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2960926088903906912}
+  m_GameObject: {fileID: 968285145473148259}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
@@ -151,21 +39,21 @@ RectTransform:
   m_AnchoredPosition: {x: -21.84, y: 0}
   m_SizeDelta: {x: 28.16, y: 28.16}
   m_Pivot: {x: 1, y: 0.5}
---- !u!222 &5563496017438094134
+--- !u!222 &8135727875876984807
 CanvasRenderer:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2960926088903906912}
+  m_GameObject: {fileID: 968285145473148259}
   m_CullTransparentMesh: 1
---- !u!114 &4451741364586511760
+--- !u!114 &5738378118731994476
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2960926088903906912}
+  m_GameObject: {fileID: 968285145473148259}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
@@ -189,26 +77,26 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
---- !u!114 &3265921745157672729
+--- !u!114 &2776018322860479980
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2960926088903906912}
+  m_GameObject: {fileID: 968285145473148259}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 57e247bcc0661e140a38a6cc005015d5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: PixFootball.UI::PixFootball.UI.Glass.GlassIconKey
   Key: ui_arrow_right
---- !u!114 &1082459329724529803
+--- !u!114 &3596979382937466004
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2960926088903906912}
+  m_GameObject: {fileID: 968285145473148259}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
@@ -361,6 +249,118 @@ MonoBehaviour:
   m_hasFontAssetChanged: 0
   m_baseMaterial: {fileID: 0}
   m_maskOffset: {x: 0, y: 0, z: 0, w: 0}
+--- !u!1 &4738528917492423286
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6003381959368434181}
+  - component: {fileID: 7432359657165042626}
+  - component: {fileID: 695239050466231232}
+  - component: {fileID: 5922993277544517798}
+  - component: {fileID: 969177562630401206}
+  m_Layer: 0
+  m_Name: Icon_ui_arrow_right
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &6003381959368434181
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4738528917492423286}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7947555152505123488}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 34.9184, y: 34.9184}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!222 &7432359657165042626
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4738528917492423286}
+  m_CullTransparentMesh: 1
+--- !u!114 &695239050466231232
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4738528917492423286}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
+  m_Material: {fileID: 0}
+  m_Color: {r: 0.88235295, g: 0.8862745, b: 0.89411765, a: 1}
+  m_RaycastTarget: 0
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 0}
+  m_Type: 0
+  m_PreserveAspect: 1
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!114 &5922993277544517798
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4738528917492423286}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 57e247bcc0661e140a38a6cc005015d5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: PixFootball.UI::PixFootball.UI.Glass.GlassIconKey
+  Key: ui_arrow_right
+--- !u!114 &969177562630401206
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4738528917492423286}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.LayoutElement
+  m_IgnoreLayout: 0
+  m_MinWidth: 34.9184
+  m_MinHeight: 34.9184
+  m_PreferredWidth: 34.9184
+  m_PreferredHeight: 34.9184
+  m_FlexibleWidth: -1
+  m_FlexibleHeight: -1
+  m_LayoutPriority: 1
+  m_MaxWidth: -1
+  m_MaxHeight: -1
 --- !u!1 &4824806410369833118
 GameObject:
   m_ObjectHideFlags: 0
@@ -437,6 +437,8 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0
 --- !u!1 &6805734321207821188
 GameObject:
   m_ObjectHideFlags: 0
@@ -472,7 +474,7 @@ RectTransform:
   m_Children:
   - {fileID: 7947555152505123488}
   - {fileID: 7517188748623570068}
-  - {fileID: 5541875698234683535}
+  - {fileID: 7100063318757041499}
   - {fileID: 3089714538140451635}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -542,6 +544,8 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0
 --- !u!114 &5695331393483890063
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -600,7 +604,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: PixFootball.UI::PixFootball.UI.Glass.GlassFocusable
   Surface: {fileID: 8637346805477927582}
   Label: {fileID: 1025334744046308371}
-  Icon: {fileID: 4451741364586511760}
+  Icon: {fileID: 5738378118731994476}
   Rail: {fileID: 2884316357178902809}
   LabelNormal: {r: 0.7490196, g: 0.75686276, b: 0.76862746, a: 1}
   LabelFocus: {r: 1, g: 1, b: 1, a: 1}
@@ -611,6 +615,7 @@ MonoBehaviour:
   PlaySound: 1
   KeepLabelColor: 0
   FocusBrighten: 0.035
+  RaiseTarget: {fileID: 0}
   Pinned: 0
   GhostSurface: 0
 --- !u!1 &7818341875271384121
@@ -643,7 +648,7 @@ RectTransform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 1569939954333861985}
+  - {fileID: 6003381959368434181}
   m_Father: {fileID: 8351758634451103848}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0.5}
@@ -690,3 +695,5 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0

@@ -96,6 +96,8 @@ namespace PixFootball.EditorTools
                 }
                 else res.notes += r2.notes;
             }
+            // v0.11: pin the planted feet with a leg IK baked into the muscles, level the flat foot (FootIk.cs)
+            { QaRow q4; string note4; if (FootIk.Try(rig, seq, q0, out q4, out note4)) { q0 = q4; res.feet = true; res.notes += " " + note4; } }
             res.after = q0;
             return res;
         }
@@ -223,9 +225,9 @@ namespace PixFootball.EditorTools
             /* Relaxed */ new[] { -0.20f, -0.26f, -0.32f, -0.38f,   -0.26f, -0.32f, -0.38f, -0.44f,   -0.16f, -0.22f, -0.26f, -0.30f,    0.04f,  -0.05f, -0.12f, -0.10f,  0.0f },
             /* Run     */ new[] { -0.52f, -0.58f, -0.62f, -0.66f,   -0.60f, -0.66f, -0.70f, -0.74f,   -0.40f, -0.46f, -0.50f, -0.54f,    0.00f,  -0.20f, -0.30f, -0.25f,  0.0f },
             /* Grip    */ new[] { -0.34f, -0.40f, -0.44f, -0.48f,   -0.44f, -0.50f, -0.52f, -0.54f,   -0.30f, -0.34f, -0.36f, -0.38f,    0.00f,  -0.10f, -0.22f, -0.18f,  0.05f },      // fingers together around the ball
-            /* Open    */ new[] { 0.30f, 0.30f, 0.26f, 0.22f,       0.22f, 0.22f, 0.18f, 0.16f,       0.14f, 0.14f, 0.12f, 0.10f,         0.22f,   0.15f, 0.10f, 0.10f,    0.2f },      // straight is about +0.4 (probe), a relaxed open hand a little under it
+            /* Open    */ new[] { 0.30f, 0.30f, 0.26f, 0.22f,       0.22f, 0.22f, 0.18f, 0.16f,       0.14f, 0.14f, 0.12f, 0.10f,         0.08f,   0.15f, 0.10f, 0.10f,    0.1f },      // straight is about +0.4 (probe), a relaxed open hand a little under it
             /* Wrap    */ new[] { -0.46f, -0.50f, -0.54f, -0.58f,   -0.58f, -0.62f, -0.64f, -0.66f,   -0.40f, -0.44f, -0.46f, -0.48f,    0.00f,  -0.15f, -0.25f, -0.20f,  0.0f },
-            /* Flat    */ new[] { 0.38f, 0.38f, 0.34f, 0.30f,       0.30f, 0.30f, 0.28f, 0.26f,       0.20f, 0.20f, 0.18f, 0.16f,         0.22f,   0.20f, 0.15f, 0.15f,    0.2f },
+            /* Flat    */ new[] { 0.38f, 0.38f, 0.34f, 0.30f,       0.30f, 0.30f, 0.28f, 0.26f,       0.20f, 0.20f, 0.18f, 0.16f,         0.08f,   0.20f, 0.15f, 0.15f,    0.1f },
         };
         static readonly string[] Fingers = { "Index", "Middle", "Ring", "Little" };
 

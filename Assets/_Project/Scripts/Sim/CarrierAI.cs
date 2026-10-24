@@ -102,7 +102,7 @@ namespace PixFootball.Sim
     }
 
     /// <summary>Drives whichever agent holds the ball: reads blocks, follows designed paths, picks lanes, uses moves.</summary>
-    internal sealed class CarrierAI
+    internal sealed partial class CarrierAI
     {
         private readonly PlaySimulation S;
 
@@ -183,6 +183,8 @@ namespace PixFootball.Sim
                 }
             }
             Vec2 dir = c.LastTargetDir;
+            dir = StyleCut(c, dir, guide);      // v0.11.0 RB: a sharp lane change is announced (Approach), planted off the outside foot, then driven out of (CarrierAI.Style.cs)
+            dir = SceneSideline(c, dir);      // v0.11.0 SIM-FLOW: the runner who takes it out of bounds (CarrierAI.Scenes.cs)
             float cap = c.Body.EffectiveVMax * 0.955f;   // a carrier with the ball, reading blocks and protecting it, runs about 92% of his open-field top speed
             // v0.9.0 (E-157): a planned cut is made from a brake, not from full speed (the cut model always started at top speed)
             if (c.Speed > 3.5f)
@@ -193,6 +195,8 @@ namespace PixFootball.Sim
             if (S.Kind == PlayKind.Punt && c.ReturnerRole) cap *= 0.90f;   // a punt returner fields the ball on the move and looks for the fair-catch, then the coverage: slower to the open field
             if (c.PathIdxOpen < 1.8f) cap *= 0.88f + 0.06f * c.PathIdxOpen;
             if (c.Protecting && c.ControlledByUser) cap *= 0.94f;
+            cap = StyleCap(c, cap, pastLos);      // v0.11.0 RB: press before the hole / defender
+            StyleArm(c, nearDef);      // v0.11.0 RB: carry arm, crouch, two hands in traffic
             c.Want = dir * cap;
             c.Intent = AgentAction.Carry;
             c.Exertion = 0f;

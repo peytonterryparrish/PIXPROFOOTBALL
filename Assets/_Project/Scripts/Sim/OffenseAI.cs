@@ -526,7 +526,7 @@ namespace PixFootball.Sim
             if (route != null && !a.RouteDone && a.PathIdx < route.Waypoints.Count && tt > 0.25f && !a.ControlledByUser)
             {
                 Vec2 routeAt = PredictPos(a, tt);
-                if ((routeAt - pt).Length < 0.9f) return false;
+                if ((routeAt - pt).Length < 0.9f) return false;      
             }
             float vmax = a.Body.EffectiveVMax;
             float targetZ = catchZ;
@@ -562,7 +562,7 @@ namespace PixFootball.Sim
             Vec2 to = pt - a.Pos;
             float dist2 = to.Length;
             float need2 = dist2 / Math.Max(0.2f, tt);
-            float speed = Math.Min(vmax, Math.Max(need2 * 1.05f, 2.0f));
+            float speed = QbV11.Legacy ? Math.Min(vmax, Math.Max(need2 * 1.05f, 2.0f)) : Math.Min(vmax, Math.Max(need2 * 1.6f, 3.8f));      // v0.11.0 QB: he gets to the ball early and has to wait for it (a receiver who times his arrival to the tick is late to every ball that is a yard off)
             if (dist2 < 0.35f)
             {
                 // v0.9.0 (E-135): a catch above the knees is made in stride (he runs through the point at his own pace, never stops dead under the ball); only a low ball is gathered standing

@@ -65,9 +65,15 @@ namespace PixFootball.UI.Franchise
         public static string Plural(int n, string one, string many) { return n + " " + (n == 1 ? one : many); }
     }
 
-    /// <summary>An absolute-position layout helper: top-left anchored placement inside a design block (1728 x 732 reference units for the franchise pages).</summary>
+    /// <summary>An absolute-position layout helper: top-left anchored placement inside a design block (<see cref="FranchiseUi.PageSize"/> reference units for the franchise pages).</summary>
     public static class Lay
     {
+        /// <summary>Nothing below 20 canvas units (SPEC section 1: the mock's 16 to 19 px labels are raised): every helper clamps to it.</summary>
+        public const float MinText = 20f;
+        /// <summary>Width and height of the content area under the sub tabs (what a page lays out in).</summary>
+        public static float W { get { return FranchiseUi.ContentSize.x; } }
+        public static float H { get { return FranchiseUi.ContentSize.y; } }
+
         public static RectTransform Place(RectTransform rt, float x, float y, float w, float h)
         {
             rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f); rt.pivot = new Vector2(0f, 1f); rt.anchoredPosition = new Vector2(x, -y); rt.sizeDelta = new Vector2(w, h);
@@ -90,6 +96,7 @@ namespace PixFootball.UI.Franchise
         /// <summary>A glass pill behind a text that sits straight on the 3D scene (keeps it readable over a bright stadium).</summary>
         public static TextMeshProUGUI Under(TextMeshProUGUI t, float padX = 16f, float padY = 4f)
         {
+            if (GlassTheme.T.cornerRadius <= 0.5f) return t;   // the Tile theme has a flat charcoal backdrop: the text is readable without a pill
             var g = GlassKit.Panel(t.transform.parent, "TextBack", 1.2f, false, 14f);
             var rt = g.rectTransform; var tr = t.rectTransform;
             rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f); rt.pivot = new Vector2(0f, 1f);
@@ -108,19 +115,32 @@ namespace PixFootball.UI.Franchise
 
         public static TextMeshProUGUI Text(RectTransform parent, string text, float size, Color color, float x, float y, float w, float h, bool bold = false, TextAlignmentOptions align = TextAlignmentOptions.MidlineLeft, float tracking = 0f, string name = "Text", bool fit = true)
         {
+            size = Mathf.Max(MinText, size);
             var tx = GlassKit.Text(parent, text, bold ? GlassText.Heading : GlassText.Body, align, name);
-            GlassKit.Style(tx, size, color, bold, tracking);
+            GlassKit.Style(tx, size, color, bold, GlassTokens.Em(tracking, size));   // tracking = CSS letter-spacing in px
             Place(tx.rectTransform, x, y, w, h);
-            if (fit) UiKit.Fit(tx, Mathf.Max(11f, size * 0.62f));
+            if (fit) UiKit.Fit(tx, Mathf.Max(MinText, size * 0.62f));
             return tx;
         }
 
-        public static TextMeshProUGUI Caps(RectTransform parent, string text, float x, float y, float w, float h = 28f, Color? color = null, float size = 18f, TextAlignmentOptions align = TextAlignmentOptions.MidlineLeft)
+        public static TextMeshProUGUI Caps(RectTransform parent, string text, float x, float y, float w, float h = 28f, Color? color = null, float size = 20f, TextAlignmentOptions align = TextAlignmentOptions.MidlineLeft)
         {
             var tx = GlassKit.Eyebrow(parent, text, align, "Caps");
-            GlassKit.Style(tx, size, color ?? GlassTheme.T.textSecondary, true, 2f);
-            Place(tx.rectTransform, x, y, w, h); UiKit.Fit(tx, 11f);
+            GlassKit.Style(tx, Mathf.Max(MinText, size), color ?? GlassTheme.T.textSecondary, true, GlassTokens.Em(3f, Mathf.Max(MinText, size)));
+            Place(tx.rectTransform, x, y, w, h); UiKit.Fit(tx, MinText);
             return tx;
+        }
+
+        /// <summary>A panel head: a darker strip with the title in tracked caps and a gold hairline under it; <paramref name="right"/> is an optional muted caption at the right end. Returns the strip.</summary>
+        public static RectTransform Head(RectTransform parent, string title, float x, float y, float w, float h = 56f, string right = null, float size = 26f)
+        {
+            var t = GlassTheme.T;
+            var strip = GlassKit.Solid(parent, "Head", t.flat ? t.panelHead : new Color(0f, 0f, 0f, 0.30f), 0f);
+            Place(strip.rectTransform, x, y, w, h);
+            Text(strip.rectTransform, title.ToUpperInvariant(), size, t.textPrimary, 20f, 0f, w * (right != null ? 0.62f : 1f) - 40f, h, true, TextAlignmentOptions.MidlineLeft, 4f, "Title");
+            if (!string.IsNullOrEmpty(right)) Text(strip.rectTransform, right, 20f, t.textMuted, w * 0.55f, 0f, w * 0.45f - 20f, h, false, TextAlignmentOptions.MidlineRight, 1.5f, "Right");
+            var line = GlassKit.Solid(strip.rectTransform, "Gold", t.accent, 0f); Place(line.rectTransform, 0f, h - 2f, w, 2f);
+            return strip.rectTransform;
         }
     }
 
@@ -170,7 +190,7 @@ namespace PixFootball.UI.Franchise
         public void Bar(string label, float v01, string valueText, bool accent = false, float height = 34f)
         {
             var t = GlassTheme.T;
-            Lay.Text(Root, label.ToUpperInvariant(), 17f, t.textSecondary, 0f, Y, Width * 0.34f, height, true, TextAlignmentOptions.MidlineLeft, 1.5f, "BarLabel");
+            Lay.Text(Root, label.ToUpperInvariant(), 20f, t.textSecondary, 0f, Y, Width * 0.34f, height, true, TextAlignmentOptions.MidlineLeft, 1.5f, "BarLabel");
             var bar = GlassKit.ProgressBar(Root, Mathf.Clamp01(v01), Width * 0.46f, 8f, accent, "Bar");
             Lay.Unlayout(bar.gameObject);
             Lay.Place((RectTransform)bar.transform, Width * 0.36f, Y + (height - 8f) * 0.5f, Width * 0.46f, 8f);
@@ -178,9 +198,10 @@ namespace PixFootball.UI.Franchise
             Y += height;
         }
 
-        public TextMeshProUGUI Para(string text, float size = 21f, Color? c = null, float maxHeight = 0f)
+        public TextMeshProUGUI Para(string text, float size = 22f, Color? c = null, float maxHeight = 0f)
         {
             var tx = GlassKit.Text(Root, text ?? "", GlassText.Body, TextAlignmentOptions.TopLeft, "Para");
+            size = Mathf.Max(Lay.MinText, size);
             GlassKit.Style(tx, size, c ?? GlassTheme.T.textSecondary, false, 0f); tx.textWrappingMode = TextWrappingModes.Normal; tx.overflowMode = TextOverflowModes.Ellipsis;
             float h = tx.GetPreferredValues(text ?? "", Width, 0f).y + 4f;
             if (maxHeight > 0f) h = Mathf.Min(h, maxHeight);
@@ -223,8 +244,8 @@ namespace PixFootball.UI.Franchise
             h = Mathf.Min(h, 900f);
             var box = GlassKit.Panel(root, "Box", 1.7f, true, t.cornerRadiusLarge);
             UiKit.Anchor(box.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(w, h)); box.SetFocus(0f);
-            var ti = Lay.Text(box.rectTransform, title.ToUpperInvariant(), 34f, t.textPrimary, 40f, 26f, w - 80f, 48f, true, TextAlignmentOptions.MidlineLeft, 3f, "Title");
-            if (!string.IsNullOrEmpty(subtitle)) Lay.Text(box.rectTransform, subtitle, 21f, t.textSecondary, 40f, 72f, w - 80f, 30f, false, TextAlignmentOptions.MidlineLeft, 0f, "Sub");
+            Lay.Head(box.rectTransform, title, 0f, 0f, w, 64f, null, 28f);
+            if (!string.IsNullOrEmpty(subtitle)) Lay.Text(box.rectTransform, subtitle, 22f, t.textSecondary, 40f, 74f, w - 80f, 30f, false, TextAlignmentOptions.MidlineLeft, 0f, "Sub");
             var rule = GlassKit.Rule(box.rectTransform); Lay.Place(rule.rectTransform, 40f, 108f, w - 80f, 1.4f);
             var btns = new List<Button>();
             float y = head;
@@ -238,16 +259,18 @@ namespace PixFootball.UI.Franchise
                 if (it.Danger) { var tx = b.GetComponentInChildren<TextMeshProUGUI>(); if (tx != null) { var f = b.GetComponent<GlassFocusable>(); if (f != null) f.LabelNormal = t.danger; tx.color = t.danger; } }
                 if (!string.IsNullOrEmpty(it.Hint))
                 {
-                    var hint = Lay.Text((RectTransform)b.transform, it.Hint, 18f, t.textMuted, 0f, 0f, 330f, rowH, false, TextAlignmentOptions.MidlineRight, 0f, "Hint");
+                    var hint = Lay.Text((RectTransform)b.transform, it.Hint, 20f, t.textMuted, 0f, 0f, 330f, rowH, false, TextAlignmentOptions.MidlineRight, 0f, "Hint");
                     var hr = hint.rectTransform; hr.anchorMin = hr.anchorMax = new Vector2(1f, 0.5f); hr.pivot = new Vector2(1f, 0.5f); hr.anchoredPosition = new Vector2(-24f, 0f);
                 }
                 btns.Add(b); y += rowH + gap;
             }
-            for (int i = 0; i < btns.Count; i++)
+            var live = btns.FindAll(b => b.interactable);   // disabled rows stay visible but the pad skips them (the cycle runs over the enabled ones only)
+            for (int i = 0; i < live.Count; i++)
             {
-                var nv = new Navigation { mode = Navigation.Mode.Explicit, selectOnUp = btns[(i + btns.Count - 1) % btns.Count], selectOnDown = btns[(i + 1) % btns.Count] };
-                btns[i].navigation = nv;
+                var nv = new Navigation { mode = Navigation.Mode.Explicit, selectOnUp = live[(i + live.Count - 1) % live.Count], selectOnDown = live[(i + 1) % live.Count] };
+                live[i].navigation = nv;
             }
+            foreach (var b in btns) if (!b.interactable) b.navigation = new Navigation { mode = Navigation.Mode.None };
             sheet.First = null;
             foreach (var b in btns) if (b.interactable) { sheet.First = b; break; }
             root.transform.SetAsLastSibling();
@@ -461,14 +484,14 @@ namespace PixFootball.UI.Franchise
             float h = 200f + rows * 38f + 100f;
             var size = new Vector2(1100f, Mathf.Clamp(h, 420f, 860f));
             var m = ModalView.Create(shell, size, onClosed);
-            Lay.Text(m.Box, kicker.ToUpperInvariant(), 20f, t.accent, 44f, 26f, 800f, 28f, true, TextAlignmentOptions.MidlineLeft, 4f, "Kicker");
-            Lay.Text(m.Box, title.ToUpperInvariant(), 42f, t.textPrimary, 44f, 54f, size.x - 88f, 60f, true, TextAlignmentOptions.MidlineLeft, 3f, "Title");
+            Lay.Head(m.Box, kicker, 0f, 0f, size.x, 56f, null, 24f);
+            Lay.Text(m.Box, title.ToUpperInvariant(), 42f, t.textPrimary, 44f, 62f, size.x - 88f, 56f, true, TextAlignmentOptions.MidlineLeft, 2f, "Title");
             var rule = GlassKit.Rule(m.Box); Lay.Place(rule.rectTransform, 44f, 122f, size.x - 88f, 1.4f);
             float y = 138f;
             for (int i = 0; i < rows; i++)
             {
                 string l = lines[i];
-                if (l.StartsWith("#")) Lay.Caps(m.Box, l.Substring(1).Trim(), 44f, y + 4f, size.x - 88f, 28f, t.textSecondary, 18f);
+                if (l.StartsWith("#")) Lay.Caps(m.Box, l.Substring(1).Trim(), 44f, y + 4f, size.x - 88f, 28f, t.textSecondary, 20f);
                 else Lay.Text(m.Box, l, 22f, t.textPrimary, 44f, y, size.x - 88f, 36f, false, TextAlignmentOptions.MidlineLeft, 0f, "Line" + i);
                 y += 38f;
             }

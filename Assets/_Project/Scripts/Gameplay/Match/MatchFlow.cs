@@ -25,6 +25,8 @@ namespace PixFootball.Gameplay
         public float RunoffScale = 1.0f;
         /// <summary>Used by the autotest: both teams are CPU controlled.</summary>
         public bool CpuVsCpu;
+        /// <summary>v0.11.0 SIM-FLOW: in a simulated game the clock is compressed by quarter minutes / 15 instead of the plays being cut (a 3-minute quarter is a 15-minute quarter played faster: about 125 snaps and NFL-like scores); the late-game rules read the clock in real-game seconds. False = the old accelerated clock.</summary>
+        public bool NaturalPace = true;
         /// <summary>v0.6: what the team-select screen chose for the weather and the time of day (Random is resolved with the game seed when the match starts).</summary>
         public WeatherChoice Weather = WeatherChoice.Clear;
         public TimeChoice Time = TimeChoice.Night;
@@ -150,6 +152,7 @@ namespace PixFootball.Gameplay
             Rules.OvertimeMinutes = Math.Min(Rules.OvertimeMinutes, Math.Max(2, cfg.QuarterMinutes));
             Book = book ?? DefaultPlaybooks.Create();
             State = new GameState(Rules, openingKicker);
+            if (cfg.CpuVsCpu && cfg.NaturalPace) State.ClockScale = Math.Max(0.1f, Math.Min(1f, Rules.QuarterMinutes / 15f));
             State.Conditions = MatchConditions.Generate(cfg.Seed != 0 ? cfg.Seed : 1234);   // the game wind (engine SIM-021): the sim, the kick meter and the HUD all read it
             Cpu = new PhysicalGameSim(home, away, State, rng.Fork(), Book);
         }
@@ -178,14 +181,14 @@ namespace PixFootball.Gameplay
         {
             team = CoreTeam.Home;
             if (State.Phase != GamePhase.Scrimmage || !State.ClockRunning || State.PendingRunoff <= 0f) return false;
-            if (!(State.Quarter == 2 || State.Quarter == 4) || State.ClockSeconds > 130f) return false;
+            if (!(State.Quarter == 2 || State.Quarter == 4) || State.NormClock > 130f) return false;
             foreach (CoreTeam t in new[] { CoreTeam.Home, CoreTeam.Away })
             {
                 if (IsUser(t) || State.TimeoutsOf(t) <= 0) continue;
                 int diff = State.ScoreOf(t) - State.ScoreOf(t.Opponent());
                 bool wantsClock = diff < 0 || (State.Quarter == 2 && diff <= 0 && State.Possession == t);
                 if (!wantsClock) continue;
-                if (State.Possession == t && State.ClockSeconds > 90f) continue;
+                if (State.Possession == t && State.NormClock > 90f) continue;
                 if (!Rng.Chance(0.5f)) continue;
                 if (State.CallTimeout(t)) { team = t; return true; }
             }
@@ -258,10 +261,10 @@ namespace PixFootball.Gameplay
             Add(l, "Four Verticals", "PASS", "Four Verticals", SG);
             Add(l, "PA Boot", "PASS", "PA Boot", SB);
             Add(l, "Mesh", "PASS", "Mesh", SG);
-            bool late = (State.Quarter == 2 || State.Quarter == 4) && State.ClockSeconds <= 75f;
+            bool late = (State.Quarter == 2 || State.Quarter == 4) && State.NormClock <= 75f;
             int diff = State.PossessionScoreDiff;
             if (late && diff <= 0) { l.RemoveAt(l.Count - 1); Add(l, "Spike Ball", "CLOCK", "Spike", SG); }
-            else if (State.Quarter == 4 && diff > 0 && State.ClockSeconds <= 150f) { l.RemoveAt(l.Count - 1); Add(l, "Kneel Down", "CLOCK", "Kneel", SB); }
+            else if (State.Quarter == 4 && diff > 0 && State.NormClock <= 150f) { l.RemoveAt(l.Count - 1); Add(l, "Kneel Down", "CLOCK", "Kneel", SB); }
             return l;
         }
 
@@ -381,6 +384,7 @@ namespace PixFootball.Gameplay
                 }
                 catch (Exception) { o.PenaltyYards = Math.Abs(r.Penalty.Def.YardsFor(Rules, r.Penalty.FoulSpotYards)); }
             }
+            else if (r.Penalty != null && o.PenaltyAccepted) o.PenaltyYards = 0;      // v0.11.0: offsetting fouls (both teams): the down is replayed, no yards are enforced (it stayed -1 and broke the flag-yard totals)
             // the energy the players burned carries into the next snap (engine SIM-024); quarter breaks and halftime rest everyone a little
             try
             {
@@ -395,6 +399,7 @@ namespace PixFootball.Gameplay
             catch (Exception) { }
             o.Applied = State.Apply(r);
             Cpu.ApplyTempo(State.Possession);   // v0.8: the staff's no-huddle rate shortens the runoff between snaps
+            if (State.Phase == GamePhase.Scrimmage && State.ClockRunning && State.PendingRunoff > 0f && PlayCaller.IsHurryUp(State)) State.PendingRunoff = Math.Min(State.PendingRunoff, 9f);      // v0.11.0 SIM-FLOW (B-032): a hurry-up offense snaps from the whistle without a huddle: about 9 s of clock between snaps
             State.PendingRunoff *= Config.RunoffScale;
             Snaps++;
 
@@ -411,6 +416,7 @@ namespace PixFootball.Gameplay
             // hash for the next snap (field X mirrors when the ball changes hands)
             if (State.Phase == GamePhase.Scrimmage && phase0 == GamePhase.Scrimmage && !(r.Type == PlayType.Punt))
             {
+                if (r.Type == PlayType.Incomplete || o.PenaltyAccepted) ballX = sim.BallX0;      // v0.11.0 SIM-FLOW (B-073): an incompletion or an accepted flag replays the down from the same hash
                 float x = Math.Max(0f, Math.Min(FieldGeometry.Width, ballX));
                 if (State.Possession != poss0) x = FieldGeometry.Width - x;
                 _nextHash = FieldGeometry.NearestHash(x, Rules);

@@ -63,7 +63,7 @@ namespace PixFootball.UI
             BuildScorebug();
             BuildBottomBar();
             BuildBanner();
-            BuildHint();
+            BuildHint(); if (_hintBar != null) _hintBar.SetActive(false);   // v0.11: no empty plate before the first hint
             // v0.7: the glass theme opens the call sheet (an overlay strip over the live field); Classic keeps the full-screen three-stage page
             MatchFlow.UseCallSheet = _glassHud;
             _callScreen = PlayCallScreen.Create(_root); _callScreen.Hide();
@@ -168,12 +168,16 @@ namespace PixFootball.UI
             for (int i = 0; i < 3; i++) b.Pips[i].color = i < timeouts ? UiColors.Gold : new Color(1f, 1f, 1f, 0.18f);
         }
 
-        public void SetCameraLabel(string label) { if (_camLabel != null) _camLabel.text = label; if (_bCam != null) _bCam.text = label; }
+        public void SetCameraLabel(string label)
+        {
+            if (_camLabel != null) _camLabel.text = label; if (_bCam != null) _bCam.text = label;
+            if (_bCamCell != null) { bool show = !(_watchMode && label == "BROADCAST"); if (_bCamCell.activeSelf != show) _bCamCell.SetActive(show); }   // v0.11 B-081: the default camera is not worth a cell
+        }
 
         // ---------------------------------------------------------------------------------------- banner and toast
         void BuildBanner()
         {
-            if (_glassHud) { BuildBannerGlass(); return; }
+            if (BuildBannerTile()) return;   // v0.11: one tile-style banner and toast for both themes (the pop-up lane)
             _banner = UiKit.Rect(_root, "Banner"); UiKit.Anchor(_banner, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -250), new Vector2(1160, 176));
             // fully opaque base (the glassy kit art is only used as a subtle tint on top) so the headline always reads
             var baseRect = UiKit.Rect(_banner, "Base"); UiKit.Stretch(baseRect);
@@ -195,7 +199,7 @@ namespace PixFootball.UI
         }
 
         /// <summary>The event banner sits below whichever scorebug is showing: the top-left block and its flag strip reach y=-174, the bottom bar leaves the top free (QA-746).</summary>
-        float BannerY { get { return _bottomActive ? -250f : -316f; } }
+        float BannerY { get { return _laneBannerY; } }
 
         public void ShowBanner(string text, Color color, float seconds, string sub)
         {
@@ -206,11 +210,12 @@ namespace PixFootball.UI
 
         IEnumerator BannerRoutine(string text, Color color, float seconds, string sub)
         {
+            ApplyBannerTier(text, ref seconds);   // v0.11: big card or slim strip, shorter on screen
             _banner.gameObject.SetActive(true);
             _bannerBg.color = new Color(color.r, color.g, color.b, 0.30f);
             _bannerSlab.color = color; _bannerRail.color = color;
             Color sc = Color.Lerp(color, Color.white, 0.45f);
-            _bannerText.text = text; _bannerText.color = Color.white; _bannerSub.text = sub ?? ""; _bannerSub.color = sc;
+            _bannerText.text = text; _bannerText.color = Color.white; _bannerSub.text = sub ?? ""; _bannerSub.color = HudStyle.Text2; CenterBannerText();   // v0.11: a light sub-line reads on every event colour
             var cg = UiKit.GetOrAdd<CanvasGroup>(_banner.gameObject);
             float t = 0f;
             while (t < 0.28f) { t += Time.unscaledDeltaTime; float u = Mathf.SmoothStep(0, 1, t / 0.28f); _banner.anchoredPosition = new Vector2(Mathf.Lerp(-900f, 0f, u), BannerY); cg.alpha = u; yield return null; }
@@ -244,15 +249,15 @@ namespace PixFootball.UI
         {
             if (_glassHud) { BuildHintGlass(); return; }
             var bar = UiKit.Panel(_root, "HintBar", new Color(0.04f, 0.05f, 0.08f, 0.78f));
-            UiKit.Anchor(bar.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 36), new Vector2(400, 54));
+            UiKit.Anchor(bar.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 36), new Vector2(400, 44));
             _hintBar = bar.gameObject;
             var h = _hintBar.AddComponent<HorizontalLayoutGroup>(); h.padding = new RectOffset(28, 28, 0, 0); h.spacing = 16; h.childAlignment = TextAnchor.MiddleCenter; h.childControlWidth = true; h.childControlHeight = true; h.childForceExpandWidth = false; h.childForceExpandHeight = true;
             var fit = _hintBar.AddComponent<ContentSizeFitter>(); fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize; fit.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
             _hintGroup = _hintBar.AddComponent<CanvasGroup>(); _hintGroup.blocksRaycasts = false; _hintGroup.interactable = false;
-            _hint = UiKit.Label(bar.rectTransform, "", 26, UiColors.TextSecondary, true, TextAlignmentOptions.Center, "Hint");
+            _hint = UiKit.Label(bar.rectTransform, "", 20, UiColors.TextSecondary, true, TextAlignmentOptions.Center, "Hint");
             _hint.characterSpacing = 1.5f;
             _hintRow = UiKit.Rect(bar.rectTransform, "HintRow");
-            _hintFooter = PromptFooter.Attach(_hintRow, 40f, 25f, 30f);
+            _hintFooter = PromptFooter.Attach(_hintRow, 30f, 20f, 22f);
             _hintRow.gameObject.SetActive(false);
         }
 
@@ -274,7 +279,7 @@ namespace PixFootball.UI
             if (glyphs) { _hintFooter.SetItems(items); _hint.text = ""; }
             else _hint.text = _hintRaw;
             _hint.gameObject.SetActive(!glyphs); _hintRow.gameObject.SetActive(glyphs);
-            _hintBar.SetActive(!string.IsNullOrEmpty(_hintRaw) && _chromeVisible);
+            _hintBar.SetActive(!string.IsNullOrEmpty(_hintRaw) && _chromeVisible && WatchMode.Helper != HelperBarMode.Off);
         }
 
         public void SetFade(float alpha) { if (_fade != null) _fade.color = new Color(0, 0, 0, Mathf.Clamp01(alpha)); }
@@ -345,10 +350,12 @@ namespace PixFootball.UI
             // full-screen panels hide the scorebug, banner and hint bar (nothing may show through the final screen, the coin toss, the call screen or the pause menu)
             bool want = !(_callShown || _tossRoot != null || _finalRoot != null || PauseOpen);
             if (want != _chromeVisible) SetChrome(want);
+            TickHelper(); FitBottomBar(); RestackPopups(); UpdateWindShown();
             if (_hintGroup != null)
             {
                 _hintAge += Time.unscaledDeltaTime;
-                _hintGroup.alpha = Mathf.MoveTowards(_hintGroup.alpha, _hintAge > 8f ? 0.5f : 1f, Time.unscaledDeltaTime * 1.5f);   // the long controls line steps back after a few seconds
+                bool hintGone = WatchMode.Helper == HelperBarMode.Off || (WatchMode.Helper == HelperBarMode.Auto && _hintAge > HudMetrics.HintSeconds);   // v0.11: the controls line leaves after a few seconds (Auto) or never shows (Off)
+                _hintGroup.alpha = Mathf.MoveTowards(_hintGroup.alpha, hintGone ? 0f : 1f, Time.unscaledDeltaTime * 2.5f);
                 if (_hintScheme != (InputDeviceTracker.GamepadActive ? 1 : 0) && !string.IsNullOrEmpty(_hintRaw)) RenderHint();
             }
         }
@@ -358,7 +365,7 @@ namespace PixFootball.UI
         {
             if (_scorebugRoot != null) _scorebugRoot.gameObject.SetActive(visible);
             if (!visible) UpdateFlag(false, null);
-            if (_hintBar != null) _hintBar.SetActive(visible && !string.IsNullOrEmpty(_hintRaw));
+            if (_hintBar != null) _hintBar.SetActive(visible && !string.IsNullOrEmpty(_hintRaw) && WatchMode.Helper != HelperBarMode.Off);
             if (_banner != null && !visible) _banner.gameObject.SetActive(false);
             _chromeVisible = visible;
             if (_kick != null) _kick.SetChrome(visible);
@@ -674,6 +681,7 @@ namespace PixFootball.UI
             // the selector says what it means: choosing the preset that is already on does nothing, choosing the other one switches (it used to toggle blindly) (QA-744)
             _pauseLight = UiControls.Selector(col, "Lighting", new[] { "Night game", "Day game" }, 0, i => { if (LightingToggleRequested != null && _dir != null && _dir.Lighting != null && (int)_dir.Lighting.Current != i) LightingToggleRequested(); }, 720, rowH);
             _pauseSb = UiControls.Selector(col, "Scorebug", PixSettings.ScorebugNames, (int)PixSettings.Scorebug, i => { PixSettings.Scorebug = (ScorebugStyle)i; ApplyScorebugLayout(); }, 720, rowH);
+            _pauseHelper = WatchSettingsUi.AddPauseHelperRow(col, 720, rowH);
             _pauseSettings = UiKit.MenuButton(col, "SOUND AND CONTROLS", ShowPauseSettings, 720, rowH, 36);
             UiKit.MenuButton(col, "QUIT TO MENU", ConfirmQuit, 720, rowH, 36);
 
@@ -736,6 +744,7 @@ namespace PixFootball.UI
         public void SetReplayMode(bool on)
         {
             _replayMode = on;
+            if (_kick != null) _kick.SetChrome(!on && _chromeVisible);   // v0.11 B-084: the compass no longer straddles the replay letterbox
             if (on) { if (_hintBar != null) _hintBar.SetActive(false); if (_marker != null) _marker.gameObject.SetActive(false); if (_whistle != null) _whistle.gameObject.SetActive(false); SetRouteBadges(null, null); if (_preSnap != null) _preSnap.Hide(); SetReceiverIcons(null, null); UpdateFlag(false, null); if (_banner != null) _banner.gameObject.SetActive(false); }
             // a replay shows no live camera name or play clock, and the top-left block sits below the letterbox bar instead of straddling it (QA-132 / 206)
             if (_camLabel != null) _camLabel.gameObject.SetActive(!on && !_hudMinimal);
@@ -746,7 +755,8 @@ namespace PixFootball.UI
             ApplyScorebugScale();
         }
 
-        public void SetHudVisible(bool visible) { if (_canvas != null) _canvas.enabled = visible; }
+        bool _broadcastVisible = true;
+        public void SetHudVisible(bool visible) { _broadcastVisible = visible; if (_canvas != null) _canvas.enabled = visible && !_userHidden; }
 
         /// <summary>First-person camera: a small scorebug and a quiet hint bar.</summary>
         public void SetHudMinimal(bool minimal)
@@ -772,6 +782,7 @@ namespace PixFootball.UI
                 if (_dir != null && _dir.Cams != null) _pauseCam.SetOptions(_pauseCam.Options, _dir.Cams.Mode == CameraMode.Broadcast ? 3 : _dir.Cams.Mode == CameraMode.FirstPerson ? 4 : (int)PixSettings.UserCameraStyle);
                 if (_dir != null && _dir.Lighting != null) _pauseLight.SetOptions(_pauseLight.Options, (int)_dir.Lighting.Current);
                 if (_pauseSb != null) _pauseSb.SetOptions(_pauseSb.Options, (int)PixSettings.Scorebug);
+                if (_pauseHelper != null) _pauseHelper.SetOptions(_pauseHelper.Options, (int)WatchMode.Helper);
                 if (_glassHud) FillStateCard();
                 StartCoroutine(SelectLater(_pauseResume.gameObject));
             }

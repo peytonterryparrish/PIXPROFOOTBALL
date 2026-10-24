@@ -30,6 +30,11 @@ namespace PixFootball.Gameplay
             if (System.Array.IndexOf(args, "-pixLocoNoDonor") >= 0) GaitPlayer.DebugNoDonor = true;
             if (System.Array.IndexOf(args, "-pixMmNoInertia") >= 0) MmNoInertia = true;
             if (System.Array.IndexOf(args, "-pixMmNoOrientWarp") >= 0) MmNoOrientWarp = true;
+            if (System.Array.IndexOf(args, "-pixMmNoPosture") >= 0) MotionMatcher.NoPosture = true;
+            if (System.Array.IndexOf(args, "-pixMmNoTrans") >= 0) MotionMatcher.NoTransitions = true;
+            if (System.Array.IndexOf(args, "-pixNoTurnRun") >= 0) NoTurnRun = true;
+            { int ti = System.Array.IndexOf(args, "-pixTurnRate"); float tv; if (ti >= 0 && ti + 1 < args.Length && float.TryParse(args[ti + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out tv)) LocoTurnRate = tv; }
+            { int li = System.Array.IndexOf(args, "-pixHipsLeash"); float lv; if (li >= 0 && li + 1 < args.Length && float.TryParse(args[li + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out lv)) HipsLeash = lv; }
             if (System.Array.IndexOf(args, "-pixMmNoPlan") >= 0) MmNoPlan = true;
             if (System.Array.IndexOf(args, "-pixMmLog") >= 0) MmLog = true;
             if (System.Array.IndexOf(args, "-pixMmLogQb") >= 0) MmLogQb = true;
@@ -42,9 +47,15 @@ namespace PixFootball.Gameplay
             if (System.Array.IndexOf(args, "-pixFpNoYawHold") >= 0) FootPlant.YawHoldOn = false;
             if (System.Array.IndexOf(args, "-pixFpNoMmLift") >= 0) FootPlant.MmLift = false;
             { int hi = System.Array.IndexOf(args, "-pixFpHeelShare"); float hv; if (hi >= 0 && hi + 1 < args.Length && float.TryParse(args[hi + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out hv)) FootPlant.HeelShare = hv; }
+            { int bi = System.Array.IndexOf(args, "-pixFpBallRel"); float bv; if (bi >= 0 && bi + 1 < args.Length && float.TryParse(args[bi + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out bv)) FootPlant.BallReleaseH = bv; }
+            { int pi2 = System.Array.IndexOf(args, "-pixFpPeak"); float pv; if (pi2 >= 0 && pi2 + 1 < args.Length && float.TryParse(args[pi2 + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out pv)) FootPlant.PeakFlatten = pv; }
+            { int ci2 = System.Array.IndexOf(args, "-pixMmLead"); float cv; if (ci2 >= 0 && ci2 + 1 < args.Length && float.TryParse(args[ci2 + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out cv)) MotionMatcher.ContactLead = cv; }
+            { int fi = System.Array.IndexOf(args, "-pixFpFlightDrop"); float fv; if (fi >= 0 && fi + 1 < args.Length && float.TryParse(args[fi + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out fv)) FootPlant.FlightDrop = fv; }
             { int ei = System.Array.IndexOf(args, "-pixFpEnter"); float ev; if (ei >= 0 && ei + 1 < args.Length && float.TryParse(args[ei + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ev)) FootPlant.EnterHinted = ev; }
         }
         public static bool MmNoInertia, MmNoOrientWarp, MmNoPlan, MmLog, MmLogQb, LegsToLocoOff; static int MmLogFrom = -1, MmLogTo = -1;
+        /// <summary>v0.11.0: per-body state of the Final IK bridge (see PixIk); opaque to everyone else.</summary>
+        public object PixIkState;
         public float GaitBias { get { return _gaitBias; } }
         public GaitPlayer Gait { get { return Rig != null ? Rig.Gait : null; } }
         /// <summary>The motion matcher of this player (null with -pixLocoLegacy or without the database).</summary>
@@ -130,7 +141,7 @@ namespace PixFootball.Gameplay
 
         // ------------------------------------------------------------------------------------------ v0.10.0 motion matching
         Vector3 _plan1, _plan2, _plan3; bool _hasPlan; float _planAge = 9f;
-        Inertializer _inert; Transform _mmHips, _mmSpine;
+        Inertializer _inert; Transform _mmHips, _mmSpine, _mmRU, _mmLU;
         readonly float[] _live = new float[10]; Vector3 _livePrevL, _livePrevR; bool _liveHave;
 
         /// <summary>The simulation's planned path: offsets (Unity world, metres) of the agent's position at +0.33 / +0.66 / +1.0 s from where it is now. Set by the stage every frame.</summary>
@@ -237,13 +248,52 @@ namespace PixFootball.Gameplay
             if (owning && !_mmWasOwning) { _loopYaw = 0f; _loopHeld = 0f; Avatar.SetVisualYaw(_tableYaw); }      // the facing loop chased the old pose: the matcher plays facing the simulated heading, the body model is turned at once and the inertialized pelvis carries the swing
             _mmWasOwning = owning;
             ChestDebug(dt, false, m.OrientationWarp, own);
-            m.Late(dt, _mmHips, _mmSpine, Avatar.Animator.transform, (m.LegacyConv ? 0f : -PlayerAvatar.ModelYaw * own), m.Floor * Mathf.Max(0.5f, _legScale) * own);
+            if (_mmRU == null) { _mmRU = Avatar.Animator.GetBoneTransform(HumanBodyBones.RightUpperLeg); _mmLU = Avatar.Animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg); }
+            Vector3 lat = _mmRU != null && _mmLU != null ? _mmRU.position - _mmLU.position : Vector3.zero; lat.y = 0f;
+            float ls = Mathf.Max(0.5f, _legScale);
+            m.Late(dt, _mmHips, _mmSpine, Avatar.Animator.transform, (m.LegacyConv ? 0f : -PlayerAvatar.ModelYaw * own), (m.Floor + m.PostureW * m.PostureDropW * MotionMatcher.PostureDrop) * ls * own, lat);
             ChestDebug(dt, true, m.OrientationWarp, own);
         }
 
         /// <summary>Owns the body heading while the matcher plays: the facing loop (which chases the pose heading) stands down.</summary>
         bool MmOwnsFacing { get { var m = Mm; return m != null && m.Ready && !DebugNoGait && m.Layer > 0.5f; } }
 
+
+        // ------------------------------------------------------------------------------------------ v0.11.0 B-018 turn and run
+        float _turnRun; bool _turnRunOn; public static bool NoTurnRun;
+        /// <summary>Degrees per second the visible body heading may chase the simulated facing (was 720).</summary>
+        public static float LocoTurnRate = 720f;
+        /// <summary>Nobody runs backwards at 7 m/s: when the simulation faces a body more than 100 degrees away from the way it travels at over 4.5 m/s (kickoff and punt coverage runs the lane with the facing left on the ball, a defender chases a receiver
+        /// that passed him) the body turns to face its travel over a quarter of a second and runs; it keeps the simulated facing again once the speed falls below 3.5 m/s or the two agree within 60 degrees.</summary>
+        Vector3 LocoFacing(Vector3 velocity, Vector3 facing, AgentAction action, float dt)
+        {
+            if (NoTurnRun) return facing;
+            Vector3 v = new Vector3(velocity.x, 0f, velocity.z); float sp = v.magnitude;
+            Vector3 f = new Vector3(facing.x, 0f, facing.z);
+            float ang = f.sqrMagnitude > 1e-4f && sp > 0.5f ? Vector3.Angle(f, v) : 0f;
+            bool actionOk = action != AgentAction.Engaged && action != AgentAction.Block && action != AgentAction.Tackled && action != AgentAction.Fallen && action != AgentAction.Dive;
+            if (!_turnRunOn && actionOk && sp > 4.5f && ang > 100f) _turnRunOn = true;
+            else if (_turnRunOn && (!actionOk || sp < 3.5f || ang < 60f)) _turnRunOn = false;
+            _turnRun = Mathf.MoveTowards(_turnRun, _turnRunOn ? 1f : 0f, dt / 0.25f);
+            if (_turnRun < 0.005f) return facing;
+            float fy = Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg, vy = Mathf.Atan2(v.x, v.z) * Mathf.Rad2Deg;
+            float y = fy + Mathf.DeltaAngle(fy, vy) * Mathf.SmoothStep(0f, 1f, _turnRun);
+            return new Vector3(Mathf.Sin(y * Mathf.Deg2Rad), 0f, Mathf.Cos(y * Mathf.Deg2Rad));
+        }
+
+        // ------------------------------------------------------------------------------------------ v0.11.0 B-020 hips leash
+        public static float HipsLeash = 0.30f; Transform _leashHips;
+        /// <summary>The skeleton of a body is never drawn further than <see cref="HipsLeash"/> from the point the simulation (and its collider) has him: block, drive and engage takes carry root offsets of up to 1.5 m that the sim does not know about.
+        /// The excess is taken off the whole body (the hips and everything under them), on the final pose, before Final IK.</summary>
+        void HipsLeashLate(float dt)
+        {
+            if (HipsLeash <= 0f || Avatar == null || Avatar.Animator == null || !Avatar.Animator.isHuman || (Ragdoll != null && Ragdoll.Active)) return;
+            if (_leashHips == null) _leashHips = Avatar.Animator.GetBoneTransform(HumanBodyBones.Hips);
+            if (_leashHips == null) return;
+            Vector3 off = _leashHips.position - transform.position; off.y = 0f;
+            float d = off.magnitude; if (d <= HipsLeash) return;
+            _leashHips.position -= off / d * (d - HipsLeash);
+        }
         void ResetGait()
         {
             _gaitBias = 0f; _actOff = 0f; _hasPlan = false; _liveHave = false;

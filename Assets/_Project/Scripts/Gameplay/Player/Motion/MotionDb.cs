@@ -19,8 +19,11 @@ namespace PixFootball.Gameplay
     {
         public const string ResourcesName = "PixMotionDb";
         public const string EditorPath = "Assets/_Licensed/Resources/PixMotionDb.asset";
+        /// <summary>QA / staging: -pixMmDb <asset path> loads (and the builder writes) another database next to the shipped one, so a private experiment never changes what the other tracks play.</summary>
+        public static string AssetPath { get { var a = System.Environment.GetCommandLineArgs(); int i = System.Array.IndexOf(a, "-pixMmDb"); return i >= 0 && i + 1 < a.Length ? a[i + 1] : EditorPath; } }
         public const int Dim = 21;
         public const float Fps = 30f;
+        public const int TransitionKinds = (int)Kind.Start | (int)Kind.Stop | (int)Kind.Turn | (int)Kind.Cut;
         public static readonly float[] Horizon = { 0.33f, 0.66f, 1.0f };
 
         [Flags] public enum Kind { Loop = 1, Start = 2, Stop = 4, Turn = 8, Strafe = 16, Back = 32, Idle = 64, Cut = 128 }
@@ -65,7 +68,7 @@ namespace PixFootball.Gameplay
             if (_tried && !Application.isEditor) return null;
             _tried = true;
 #if UNITY_EDITOR
-            _inst = UnityEditor.AssetDatabase.LoadAssetAtPath<MotionDb>(EditorPath);
+            _inst = UnityEditor.AssetDatabase.LoadAssetAtPath<MotionDb>(AssetPath);
 #endif
             if (_inst == null) _inst = Resources.Load<MotionDb>(ResourcesName);
             return _inst;
@@ -107,6 +110,7 @@ namespace PixFootball.Gameplay
         public float SpeedPenalty(int row, float wantSpeed, float limit, float k)
         {
             if (wantSpeed < 0.5f) return 0f;
+            if ((Kinds()[row] & TransitionKinds) != 0) return 0f;          // a start / stop / cut changes its speed through the clip: the root velocity and path features decide, the rate follows the distance
             float g = Gv()[row];
             if (g < 0.9f) return 0f;                       // a start / stop / turn row: its speed is not a gait speed
             float r = wantSpeed / g;

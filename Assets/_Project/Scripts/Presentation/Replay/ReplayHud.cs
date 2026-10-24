@@ -60,7 +60,7 @@ namespace PixFootball.Presentation
             _slowText = TvUi.Text(_slowTag, "SLOW MOTION 0.25x", 26, Color.white, true, TextAlignmentOptions.Center, new Vector2(1, 1), new Vector2(1, 1), Vector2.zero, new Vector2(340, 44), 2f);
 
             // skip hint (auto replay)
-            _skip = UiKit.Rect(_root, "Skip"); UiKit.Anchor(_skip, new Vector2(1, 0), new Vector2(1, 0), new Vector2(-70, 24), new Vector2(520, 56));
+            _skip = UiKit.Rect(_root, "Skip"); UiKit.Anchor(_skip, new Vector2(1, 0), new Vector2(1, 0), new Vector2(-HudMetrics.SafeX, HudMetrics.BarLift + 72f + 16f), new Vector2(520, 56));   // v0.11 B-045: above the score bar, not over its clock
             var skh = _skip.gameObject.AddComponent<HorizontalLayoutGroup>(); skh.spacing = 12; skh.childAlignment = TextAnchor.MiddleRight; skh.childControlWidth = true; skh.childControlHeight = true; skh.childForceExpandWidth = false;
             _skipFooter = PromptFooter.Attach(_skip, 48, 26, 12);
             _skipFooter.Set(PromptFooter.Item("glyph_a", "SKIP REPLAY"));
@@ -110,7 +110,7 @@ namespace PixFootball.Presentation
             _canvas.gameObject.SetActive(true); _letterCanvas.gameObject.SetActive(true);
             _transport.gameObject.SetActive(manual);
             _skip.gameObject.SetActive(!manual);
-            _titleText.text = title ?? "";
+            _titleText.text = manual && (title == null || title.ToUpperInvariant().StartsWith("INSTANT REPLAY")) ? "" : (title ?? "");   // v0.11 B-094: the same words three times in 400 px
             _tagText.text = manual ? "INSTANT REPLAY  -  FREE CAMERA" : (reel ? "HIGHLIGHTS" : "INSTANT REPLAY");
             var tagBg = _tag.GetChild(0).GetComponent<RectTransform>();
             tagBg.sizeDelta = new Vector2(manual ? 640f : (reel ? 360f : 430f), 52f); _tagText.rectTransform.sizeDelta = tagBg.sizeDelta - new Vector2(UiTheme.IsGlass ? 44f : 0f, 0f); _tagText.rectTransform.anchoredPosition = new Vector2(UiTheme.IsGlass ? -22f : 0f, -2f);

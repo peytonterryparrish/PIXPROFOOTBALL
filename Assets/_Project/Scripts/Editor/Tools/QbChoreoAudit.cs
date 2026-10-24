@@ -49,7 +49,7 @@ namespace PixFootball.EditorTools
         }
     }
 
-    public sealed class QbChoreoRunner : MonoBehaviour
+    public sealed partial class QbChoreoRunner : MonoBehaviour
     {
         string _out;
         Camera _cam; PlayStage _stage; Playbook _book; RuleSet _rules;
@@ -116,6 +116,7 @@ namespace PixFootball.EditorTools
                 }
                 WriteSummary(results);
             }
+            if (phase == "flow") yield return FlowAudit(QbChoreoAudit.Arg("-pixQbChoreoStrips", "1") == "1");      // v0.11.0 QB: CPU vs CPU flow audit (QbChoreoAudit.Flow.cs)
             if (phase == "all" || phase == "kicks")
             {
                 string ko = QbChoreoAudit.Arg("-pixQbChoreoKickStrips", "1");

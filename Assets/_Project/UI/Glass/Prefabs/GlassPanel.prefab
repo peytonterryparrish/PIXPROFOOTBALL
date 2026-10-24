@@ -76,3 +76,5 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0

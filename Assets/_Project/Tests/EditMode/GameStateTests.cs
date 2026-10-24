@@ -612,7 +612,7 @@ namespace PixFootball.Tests
             var g = Start();
             g.Apply(PlayResult.Run(3, 6f));
             float afterPlay = g.ClockSeconds;
-            Assert.AreEqual(888f, afterPlay, 0.01f);
+            Assert.AreEqual(894f, afterPlay, 0.01f);      // v0.11.0 SIM-FLOW (B-072): the touchback kickoff costs no clock (900 - the 6 s play)
             g.Apply(PlayResult.Run(3, 6f));
             Assert.AreEqual(afterPlay - 30f - 6f, g.ClockSeconds, 0.01f);
         }
@@ -637,7 +637,7 @@ namespace PixFootball.Tests
             g.Apply(PlayResult.Run(3, 6f));
             Assert.IsTrue(g.TwoMinuteWarningFirstHalf);
             Assert.IsFalse(g.ClockRunning);
-            Assert.AreEqual(119f, g.ClockSeconds, 0.01f);
+            Assert.AreEqual(120f, g.ClockSeconds, 0.01f);      // v0.11.0 SIM-FLOW (B-076): the warning stops the clock at 2:00 exactly
             g.Apply(PlayResult.Run(3, 6f));
             Assert.IsTrue(g.ClockRunning);
         }

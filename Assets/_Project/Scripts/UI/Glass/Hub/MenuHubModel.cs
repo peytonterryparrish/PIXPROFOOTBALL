@@ -150,6 +150,27 @@ namespace PixFootball.UI.Glass
             return list;
         }
 
+        // ------------------------------------------------------------------ power rankings (hub info panel)
+        /// <summary>The <paramref name="n"/> best teams by overall (ties go to the earlier team): the "power rankings" panel of the hub.</summary>
+        public static List<LeagueTeam> TopTeams(ProLeague lg, int n)
+        {
+            var res = new List<LeagueTeam>();
+            if (lg == null) return res;
+            var idx = new List<int>(); for (int i = 0; i < lg.Teams.Count; i++) idx.Add(i);
+            var ovr = new int[lg.Teams.Count]; for (int i = 0; i < ovr.Length; i++) ovr[i] = lg.Teams[i].TeamOverall();
+            idx.Sort((a, b) => ovr[a] != ovr[b] ? ovr[b].CompareTo(ovr[a]) : a.CompareTo(b));
+            for (int i = 0; i < n && i < idx.Count; i++) res.Add(lg.Teams[idx[i]]);
+            return res;
+        }
+
+        /// <summary>The line under the QUICK REMATCH tile: away at home and the venue of the last setup.</summary>
+        public static string RematchLine(string awayName, string homeName, string venue)
+        {
+            string s = (awayName ?? "").Trim() + " at " + (homeName ?? "").Trim();
+            if (!string.IsNullOrEmpty(venue)) s += " - " + venue;
+            return s;
+        }
+
         // ------------------------------------------------------------------ matchup card text
         /// <summary>The record shown under a team name (a new exhibition starts 0-0).</summary>
         public static string Record(LeagueTeam t) { return "0-0"; }

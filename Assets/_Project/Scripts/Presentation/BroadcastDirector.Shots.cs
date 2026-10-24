@@ -63,7 +63,8 @@ namespace PixFootball.Presentation
         {
             _activeShot = plan; _shotAge = 0f; ShotsPlayed++; LastShot = plan.Kind.ToString();
             var stage = _dir.Stage;
-            _ctx = new ShotContext { LiveSide = _frame.TowardsPlusZ ? 1f : -1f, Downfield = _frame.TowardsPlusZ ? 1f : -1f, Variant = ShotsPlayed };
+            ReplayView.SideOverride = _dir.Cams != null && _dir.Cams.FixedSide ? 1f : 0f;   // v0.11: the replay sideline angle is on the live camera side
+            _ctx = new ShotContext { LiveSide = _dir.Cams != null ? _dir.Cams.CameraSide(_frame) : (_frame.TowardsPlusZ ? 1f : -1f), Downfield = _frame.TowardsPlusZ ? 1f : -1f, Variant = ShotsPlayed };
             if (_sim != null) _ctx.Los = _frame.ToUnity(new Vec2(_sim.BallX0, _sim.LosY));
             int focus = _focusAgent, second = _secondAgent;
             switch (plan.Kind)
@@ -121,11 +122,11 @@ namespace PixFootball.Presentation
         {
             bool userOff = !_dir.Config.CpuVsCpu && State.Possession == _dir.Config.UserTeam;
             float room;
-            if (_dir.Autopilot) room = MatchDirector.AutopilotSnapDelay - t;
+            if (_dir.AutoRun) room = MatchDirector.AutopilotSnapDelay - t;
             else room = userOff ? playClock : 3.1f;
             var ctx = new DirectorContext
             {
-                Cinematics = PixSettings.Cinematics, UserPlaying = !_dir.Config.CpuVsCpu && !_dir.Autopilot, GameStart = _firstPlay, FirstPlayOfDrive = _firstPlayOfDrive, AfterScore = _lastWasScore,
+                Cinematics = PixSettings.Cinematics, UserPlaying = !_dir.Config.CpuVsCpu && !_dir.AutoRun, GameStart = _firstPlay, FirstPlayOfDrive = _firstPlayOfDrive, AfterScore = _lastWasScore,
                 FirstPlayOfHalf = _firstPlayOfHalf, Kickoff = _sim.Kind == PlayKind.Kickoff, DriveIndex = _driveIndex, PreSnapSeconds = room
             };
             var plan = ShotRules.PreSnap(ctx);
@@ -138,6 +139,7 @@ namespace PixFootball.Presentation
         void MaybeShowNextPlay()
         {
             if (!PixSettings.TvOverlays || _sim == null || _sim.Kind != PlayKind.Scrimmage || State.Phase != GamePhase.Scrimmage) return;
+            if (PixSettings.Scorebug == ScorebugStyle.Bottom) return;   // v0.11 B-088: the bottom bar already shows down, distance, spot and clock
             var s = State;
             bool twoMin = (s.Quarter == 2 || s.Quarter == 4) && s.ClockSeconds <= 120f;
             bool notable = s.Down >= 3 || s.IsGoalToGo || (_firstPlayOfDrive && _driveIndex > 1) || twoMin;
@@ -185,7 +187,7 @@ namespace PixFootball.Presentation
             else if (turnover || o.Headline == Headline.Sack) benefit = o.Offense.Opponent();
             var ctx = new DirectorContext
             {
-                Cinematics = PixSettings.Cinematics, UserPlaying = !_dir.Config.CpuVsCpu && !_dir.Autopilot, Headline = o.Headline, Touchdown = o.Headline == Headline.Touchdown, Turnover = turnover,
+                Cinematics = PixSettings.Cinematics, UserPlaying = !_dir.Config.CpuVsCpu && !_dir.AutoRun, Headline = o.Headline, Touchdown = o.Headline == Headline.Touchdown, Turnover = turnover,
                 Score = o.ScoringTeam.HasValue, BigPlay = score >= HighlightScorer.FullThreshold, HomeBenefits = benefit == CoreTeam.Home,
                 CarrierKnown = o.Headline != Headline.Incomplete && o.Headline != Headline.Kickoff && o.Headline != Headline.Punt && o.Headline != Headline.Penalty && o.Headline != Headline.Kneel && o.Headline != Headline.Spike && sim.Kind == PlayKind.Scrimmage,
                 PlaysSinceCrowd = _playsSinceCrowd,
@@ -232,7 +234,7 @@ namespace PixFootball.Presentation
             }
             // coaches clap for the team that benefits (touchdowns already do through the official's signal)
             if (strength >= 0.55f && _dir.Officials != null && o.Headline != Headline.Touchdown) _dir.Officials.CoachCheer(TeamIdxOf(benefit));
-            if (o.Headline == Headline.Touchdown && sim.Kind != PlayKind.Kickoff) StartCoroutine(CelebrationRoutine(sim, o));
+            if (o.Headline == Headline.Touchdown) StartCoroutine(CelebrationRoutine(sim, o));      // v0.11.0 SIM-FLOW (B-070): a kickoff-return touchdown gets its celebration too (the shot rule queued it already)
         }
 
         // ---- touchdown celebration: teammates run to the scorer and cheer, the beaten defenders hang their heads

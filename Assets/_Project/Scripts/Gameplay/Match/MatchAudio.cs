@@ -2,160 +2,165 @@ using System.Collections.Generic;
 using PixFootball.Art;
 using PixFootball.Sim;
 using UnityEngine;
+using PixFootball.Core;
+using CoreTeam = PixFootball.Core.Team;
 
 namespace PixFootball.Gameplay
 {
     /// <summary>
-    /// Stadium audio for a match: crowd bed that swells with the action, roars and boos on big plays, whistles, hits, catches and kicks.
-    /// One-shots (hits, catches, kicks, blocks, whistles) play on a small round-robin pool of sources so a second tackle never cuts the first and a new pitch never re-pitches a
-    /// sound that is still playing; they follow the SFX slider, the crowd follows the Crowd slider, and everything pauses with the game (AudioListener.pause).
+    /// v0.11.0 AUDIO+CROWD: the sound director of a match. Every sim event, contact and play outcome becomes sound here (see MatchAudio.Events.cs): on-field effects through the 3D voice pool of
+    /// <see cref="AudioHub"/>, the stadium through <see cref="CrowdMix"/> (layered beds plus home-biased reactions) and the score through <see cref="MusicDirector"/> (pre-game cue, quiet underscore,
+    /// two-minute tension bed, halftime, final, stingers). This part follows the match state (phase, down and distance, clock, weather) and steers the beds and the music; everything pauses with the game.
     /// </summary>
-    public sealed class MatchAudio : MonoBehaviour
+    public sealed partial class MatchAudio : MonoBehaviour
     {
-        const int PoolSize = 8;
-        AudioSource _bed, _roar;
-        AudioSource[] _pool;
-        int _poolNext;
-        PixRuntimeAssets _rt;
-        float _bedTarget = 0.4f, _roarLeft, _boo, _quietHold;
+        AudioHub _hub;
+        CrowdMix _crowd;
+        MusicDirector _music;
+        MatchDirector _md;
+        PixAudioBank _bank;
+        MatchPhase _lastPhase = MatchPhase.Booting;
+        float _tension, _noise, _clap;
+        bool _tenseMusic, _halftimeDone, _finalDone;
+        int _lastQuarter = 1;
+        PlaySimulation _lastSim;
+
+        public CrowdMix Crowd { get { return _crowd; } }
+        public MusicDirector Music { get { return _music; } }
+        public AudioHub Hub { get { return _hub; } }
 
         public void Init()
         {
-            _rt = PixRuntimeAssets.Load();
-            _bed = Make(true); _roar = Make(false);
-            _pool = new AudioSource[PoolSize];
-            for (int i = 0; i < PoolSize; i++) _pool[i] = Make(false);
-            AudioClip bed = _rt != null && _rt.sfxBeds.Count > 0 ? _rt.sfxBeds[0] : (_rt != null ? _rt.crowdAmbience : null);
-            _bed.clip = bed; _bed.volume = 0.4f * PixSettings.CrowdVolume;
-            if (bed != null) _bed.Play();
-            else if (_rt == null) Debug.LogWarning("[PIX] PixRuntimeAssets missing: the match has no crowd or effect sounds.");
+            _hub = AudioHub.Ensure();
+            _bank = _hub.Bank;
+            _crowd = gameObject.AddComponent<CrowdMix>(); _crowd.Init();
+            _music = MusicDirector.Ensure();
+            _md = GetComponent<MatchDirector>();
+            _crowd.Pregame = true;
+            _crowd.Fullness = 0.82f + 0.14f * Hash01((_md != null && _md.Config != null ? _md.Config.Seed : 7) * 31 + 5);
+            _hub.ResetStats();
+            _instance = this;
+            _music.PreGame();
         }
 
-        AudioSource Make(bool loop)
-        {
-            var s = gameObject.AddComponent<AudioSource>();
-            s.playOnAwake = false; s.loop = loop; s.spatialBlend = 0f;
-            return s;
-        }
+        static MatchAudio _instance;
+        /// <summary>The running match's sound director (null in menus / free roam).</summary>
+        public static MatchAudio Current { get { return _instance; } }
+        void OnDestroy() { if (_instance == this) _instance = null; }
 
-        static AudioClip Pick(List<AudioClip> l) { return l != null && l.Count > 0 ? l[Random.Range(0, l.Count)] : null; }
+        static float Hash01(int n) { unchecked { uint h = (uint)n * 2654435761u; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13; return (h & 0xFFFF) / 65535f; } }
 
-        /// <summary>Plays a clip on the next free source of the pool at the given pitch / volume (times the SFX slider).</summary>
-        void Shot(AudioClip c, float volume, float pitch, float pan = 0f)
-        {
-            if (c == null || _pool == null) return;
-            // prefer a source that is not playing; otherwise recycle the oldest one
-            AudioSource s = null;
-            for (int i = 0; i < PoolSize; i++)
-            {
-                var cand = _pool[(_poolNext + i) % PoolSize];
-                if (!cand.isPlaying) { s = cand; _poolNext = (_poolNext + i + 1) % PoolSize; break; }
-            }
-            if (s == null) { s = _pool[_poolNext]; _poolNext = (_poolNext + 1) % PoolSize; }
-            s.clip = c; s.pitch = pitch; s.volume = Mathf.Clamp01(volume * PixSettings.SfxVolume); s.panStereo = Mathf.Clamp(pan, -1f, 1f);
-            s.Play();
-        }
-
+        // ---------------------------------------------------------------- legacy entry points (kept for the old call sites)
+        /// <summary>Referee whistle; `longBlast` for the end of a quarter / half / game.</summary>
+        public void Whistle() { Whistle(false); }
         float _lastWhistleAt = -99f;
-        /// <summary>The referee whistle (dead ball / kickoff only). v0.9.0 CONNECT E-383: a second request inside <see cref="WhistleDebounce"/> seconds is dropped (the sim's Whistle event, the penalty flag and the end-of-play reaction used to stack).</summary>
-        public void Whistle()
+        const float WhistleDebounce = 1.5f;
+        public void Whistle(bool longBlast)
         {
             float now = Time.realtimeSinceStartup;
             if (now - _lastWhistleAt < WhistleDebounce) return;
             _lastWhistleAt = now;
-            var c = _rt != null ? (Pick(_rt.sfxWhistle) ?? _rt.whistle) : null;
-            Shot(c, 0.55f, Random.Range(0.97f, 1.03f));
+            if (_hub == null) return;
+            Vector3 p = Focus();
+            _hub.Play(longBlast ? "whistle_long" : "whistle_short", p, 0.9f, Random.Range(0.97f, 1.03f), 8, 0.6f);
         }
-        const float WhistleDebounce = 1.5f;
 
-        /// <summary>v0.9.0 CONNECT E-379: the pre-snap "call" sound (audible, flip, defender switch): a UI tick plus a little crowd stir, NOT the referee whistle (that is reserved for dead balls).</summary>
+        /// <summary>The pre-snap "call" sound (audible, flip, defender switch): a UI tick, NOT the referee whistle.</summary>
         public void CallCue()
         {
-            if (_rt == null) return;
-            var c = Pick(_rt.sfxUi) ?? _rt.uiClick ?? _rt.uiMove;
-            Shot(c, 0.55f, Random.Range(0.97f, 1.04f));
-            Stir(0.15f);
+            if (_hub == null) return;
+            _hub.Play("snap_slap", Focus(), 0.25f, Random.Range(1.2f, 1.35f), 3, 0.3f);
+            _crowd.Stir(0.2f);
         }
 
-        /// <summary>
-        /// Hit sound by impact energy (0..1): a pad crack always, a body thud layered under it from a medium hit up, a second heavy thud and a lower pitch on the big ones.
-        /// The pitch drops and the volume rises with the energy. <paramref name="pan"/> (-1 left .. 1 right) places the hit across the stereo field.
-        /// </summary>
-        public void Hit(float intensity, float pan = 0f)
+        /// <summary>Old table calls from MatchDirector.React: the crowd now reacts from the real outcome (OnOutcome) and the sim events, so these are no-ops.</summary>
+        public void Cheer(float strength) { }
+        public void Boo() { }
+        public void Quiet() { _crowd.Cue(CrowdCue.Timeout, 0f, 0); }
+        public void Stir(float level) { if (_crowd != null) _crowd.Stir(level); }
+        public void Hit(float intensity, float pan = 0f) { PlayHit(Mathf.Clamp01(intensity), Focus(), false, false); }
+        public void Catch(float pan = 0f) { if (_hub != null) _hub.Play("catch_soft", Focus(), 0.8f, 1f, 6, 0.7f); }
+        public void Kick() { if (_hub != null) _hub.Play("kick_thump", Focus(), 1f, 1f, 7, 0.7f); }
+        public void BlockHit(float pan = 0f) { if (_hub != null) _hub.Play("block_thud", Focus(), 0.6f, 1f, 4, 0.8f); }
+
+        /// <summary>Where the camera is looking: the ball (or the carrier), for sounds that have no world position.</summary>
+        Vector3 Focus()
         {
-            intensity = Mathf.Clamp01(intensity);
-            if (_rt == null) return;
-            var crack = Pick(_rt.sfxHit) ?? Pick(_rt.sfxTackle);
-            var thud = intensity > 0.3f ? Pick(_rt.sfxTackle) : null;
-            Shot(crack, Mathf.Lerp(0.35f, 0.95f, intensity), Random.Range(0.96f, 1.08f) - 0.12f * intensity, pan);
-            if (thud != null)
-            {
-                Shot(thud, Mathf.Lerp(0.4f, 1f, intensity), Random.Range(0.92f, 1.04f) - 0.16f * intensity, pan);
-                if (intensity > 0.72f) { var t2 = Pick(_rt.sfxTackle); if (t2 != null && t2 != thud) Shot(t2, 0.55f * intensity, Random.Range(0.9f, 0.98f), pan); }
-            }
+            if (_md != null && _md.Stage != null && _md.Stage.Ball != null) return _md.Stage.Ball.Position;
+            var c = Camera.main; return c != null ? c.transform.position + c.transform.forward * 30f : Vector3.zero;
         }
 
-        public void Catch(float pan = 0f) { Shot(_rt != null ? Pick(_rt.sfxCatch) : null, 0.7f, Random.Range(0.95f, 1.05f), pan); }
-        public void Kick() { Shot(_rt != null ? Pick(_rt.sfxKick) : null, 0.9f, Random.Range(0.95f, 1.0f)); }
-        public void BlockHit(float pan = 0f) { Shot(_rt != null ? Pick(_rt.sfxHit) : null, 0.35f, Random.Range(0.9f, 1.1f), pan); }
-
-        /// <summary>Crowd roar; strength 0..1.</summary>
-        public void Cheer(float strength)
-        {
-            var c = _rt != null ? (Pick(_rt.sfxCheers) ?? _rt.crowdCheer) : null;
-            if (c == null) return;
-            _roar.pitch = 1f; _roar.volume = Mathf.Clamp01(0.35f + 0.5f * strength) * PixSettings.CrowdVolume;
-            _roar.clip = c; _roar.Play(); _roarLeft = Mathf.Min(c.length, 6f);
-            _bedTarget = 0.6f; _quietHold = 0f;
-        }
-
-        /// <summary>Boos: the crowd bed dropped in pitch and pushed up for a few seconds.</summary>
-        public void Boo()
-        {
-            _boo = 3.2f;
-        }
-
-        /// <summary>The crowd hushes (turnover, injury): held for about five seconds, then it drifts back to the normal bed.</summary>
-        public void Quiet() { _bedTarget = 0.3f; _quietHold = 5f; }
-        public void Stir(float level) { _bedTarget = Mathf.Max(_bedTarget, 0.3f + 0.3f * level); }
-
+        // ---------------------------------------------------------------- state follower
         void Update()
         {
+            if (_md == null || _crowd == null) return;
+            var flow = _md.Flow;
+            var phase = _md.Phase;
             float dt = Time.unscaledDeltaTime;
-            if (_roarLeft > 0f) { _roarLeft -= dt; if (_roarLeft < 1.2f) _roar.volume = Mathf.MoveTowards(_roar.volume, 0f, dt * 0.5f); }
-            if (_quietHold > 0f) _quietHold -= dt;
-            else _bedTarget = Mathf.MoveTowards(_bedTarget, 0.38f, dt * 0.08f);
-            float boo = _boo > 0f ? 1f : 0f; if (_boo > 0f) _boo -= dt;
-            if (_bed != null)
+            // weather beds
+            var w = _md.Weather;
+            _crowd.Rain = Mathf.Clamp01(w.RainIntensity * 1.1f) * 0.9f; _crowd.Wind = Mathf.Clamp01(w.WindStrength * 0.7f);
+            if (phase != _lastPhase)
             {
-                _bed.pitch = Mathf.MoveTowards(_bed.pitch, boo > 0f ? 0.72f : 1f, dt * 0.6f);
-                float target = (_bedTarget + (boo > 0f ? 0.3f : 0f)) * PixSettings.CrowdVolume;
-                _bed.volume = Mathf.MoveTowards(_bed.volume, target, dt * 0.35f);
+                OnPhase(_lastPhase, phase);
+                _lastPhase = phase;
             }
-        }
-
-        /// <summary>Stereo pan of a sim position relative to the screen centre line, using the main camera (right of the screen = +1).</summary>
-        static float PanOf(in PlayEvent e, PlayFrame frame)
-        {
-            var cam = Camera.main;
-            if (cam == null) return 0f;
-            Vector3 vp = cam.WorldToViewportPoint(frame.ToUnity(e.Pos));
-            if (vp.z <= 0f) return 0f;
-            return Mathf.Clamp((vp.x - 0.5f) * 1.4f, -0.8f, 0.8f);
-        }
-
-        /// <summary>Reacts to a simulation event (hits, catches, kicks, blocks).</summary>
-        public void OnEvent(in PlayEvent e, PlayFrame frame)
-        {
-            switch (e.Type)
+            if (_md.Sim != _lastSim) { _lastSim = _md.Sim; _cuedThisPlay.Clear(); _pendingHits.Clear(); }
+            if (flow == null) return;
+            var s = flow.State;
+            float tT = 0f, tN = 0f, tC = 0f;
+            bool pre = phase == MatchPhase.PlayCall || phase == MatchPhase.PreSnap;
+            bool homeDef = s.Possession == CoreTeam.Away;
+            bool twoMin = (s.Quarter == 2 || s.Quarter == 4) && s.NormClock < 120f && Mathf.Abs(s.HomeScore - s.AwayScore) <= 8;
+            if (pre || phase == MatchPhase.Live)
             {
-                case SimEventType.Tackle: case SimEventType.Sack: Hit(Mathf.Clamp01(e.Value / 8f + (e.Tackle == TackleType.BigHit ? 0.5f : 0.2f)), PanOf(e, frame)); break;
-                case SimEventType.Catch: case SimEventType.Interception: case SimEventType.Recovery: Catch(PanOf(e, frame)); break;
-                case SimEventType.Kick: Kick(); break;
-                case SimEventType.Pancake: BlockHit(PanOf(e, frame)); Stir(0.3f); break;
-                case SimEventType.Throw: Stir(0.2f); break;
-                case SimEventType.Whistle: Whistle(); break;
-                case SimEventType.Fumble: Stir(0.8f); break;
+                bool late = s.Down >= 3 && s.Phase == GamePhase.Scrimmage;
+                if (late && homeDef && pre) { tN = 0.85f; tC = 0.35f; }
+                if (late && !homeDef && (s.Distance >= 4 || s.YardsToGoal <= 20)) tT = 0.7f;
+                if (s.YardsToGoal <= 8 && !homeDef) tT = Mathf.Max(tT, 0.55f);
+                if (twoMin && !homeDef) tT = Mathf.Max(tT, 0.6f);
+                if (phase == MatchPhase.Live) { tN = 0f; tC = 0f; }
+            }
+            if (phase == MatchPhase.Break) tC = 0.55f;
+            _tension = Mathf.MoveTowards(_tension, tT, dt * 0.4f);
+            _noise = Mathf.MoveTowards(_noise, tN, dt * (tN > _noise ? 0.5f : 1.2f));
+            _clap = Mathf.MoveTowards(_clap, tC, dt * 0.5f);
+            _crowd.Tension = _tension; _crowd.Noise = _noise; _crowd.Clap = _clap;
+            // music: tense bed in the two-minute drill, otherwise the quiet underscore; live play pushes it down
+            bool wantTense = twoMin && phase != MatchPhase.Break && phase != MatchPhase.Final && phase != MatchPhase.CoinToss && phase != MatchPhase.Booting;
+            if (wantTense != _tenseMusic && phase != MatchPhase.Break && phase != MatchPhase.Final && phase != MatchPhase.CoinToss && phase != MatchPhase.Booting)
+            {
+                _tenseMusic = wantTense;
+                _music.MatchBed(wantTense);
+                if (wantTense) _music.Stinger("st_twominute", 0f, 0.4f);
+            }
+            _music.SetLive(phase == MatchPhase.Live);
+            if (s.Quarter != _lastQuarter) { _lastQuarter = s.Quarter; }
+            TickPending();
+        }
+
+        void OnPhase(MatchPhase from, MatchPhase to)
+        {
+            switch (to)
+            {
+                case MatchPhase.CoinToss: _crowd.Pregame = true; break;
+                case MatchPhase.PlayCall:
+                    if (from == MatchPhase.CoinToss || from == MatchPhase.Booting) { _crowd.Pregame = false; _music.MatchBed(false); _crowd.Cue(CrowdCue.Kickoff, 0.6f, 0); }
+                    else if (from == MatchPhase.Break && !_tenseMusic) _music.MatchBed(false);
+                    break;
+                case MatchPhase.Break:
+                    if (_md.Flow != null && _md.Flow.State.Quarter == 3 && !_halftimeDone) { _halftimeDone = true; _music.Halftime(); _crowd.Cue(CrowdCue.Halftime, 0.6f, 0); Whistle(true); }
+                    break;
+                case MatchPhase.Final:
+                    if (!_finalDone && _md.Flow != null)
+                    {
+                        _finalDone = true;
+                        var s = _md.Flow.State; int benefit = s.HomeScore > s.AwayScore ? 1 : (s.HomeScore < s.AwayScore ? -1 : 0);
+                        _music.Stinger(benefit >= 0 ? "st_final_win" : "st_final_loss", 0f, 0.5f);
+                        _crowd.Cue(CrowdCue.Final, 1f, benefit);
+                        Whistle(true);
+                    }
+                    break;
             }
         }
     }

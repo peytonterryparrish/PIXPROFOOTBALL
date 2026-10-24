@@ -16,7 +16,7 @@ namespace PixFootball.Presentation
         Card MakeStatTable(Player p, StatTable table, TeamVis team, string tag)
         {
             Vector2 hidden;
-            const float numX = 28f, nameX = 92f, teamX = 372f, colsX = 482f;
+            const float numX = 28f, nameX = 92f, teamX = 388f, colsX = 494f;   // v0.11 B-085: a long surname no longer touches the team column
             int n = table.Headers.Length;
             float w = colsX + n * TableColW + 20f, h = TableHeaderH + TableRowH;
             var root = NewCard(_root, "StatTable", new Vector2(0, 0), new Vector2(0, 0), new Vector2(80, 160), new Vector2(w, h), new Vector2(-(w + 160f), 0), out hidden);
@@ -37,7 +37,7 @@ namespace PixFootball.Presentation
                 TvUi.Text(root, table.Headers[i], 20, muted, true, TextAlignmentOptions.Center, z, z, new Vector2(colsX + i * TableColW, TableRowH), new Vector2(TableColW, TableHeaderH), 2f);
             // data row
             TvUi.Text(root, p.Bio.JerseyNumber.ToString(), 36, TvUi.Gold, true, TextAlignmentOptions.MidlineLeft, z, z, new Vector2(numX, 2), new Vector2(60, TableRowH - 4f));
-            TvUi.Text(root, OverlayText.ShortName(p.Name), 38, Color.white, true, TextAlignmentOptions.MidlineLeft, z, z, new Vector2(nameX, 2), new Vector2(280, TableRowH - 4f), 1f);
+            TvUi.Text(root, OverlayText.ShortName(p.Name), 38, Color.white, true, TextAlignmentOptions.MidlineLeft, z, z, new Vector2(nameX, 2), new Vector2(284, TableRowH - 4f), 1f);
             TvUi.Text(root, team.Abbr, 32, Color.white, true, TextAlignmentOptions.MidlineLeft, z, z, new Vector2(teamX, 2), new Vector2(100, TableRowH - 4f), 1.5f);
             for (int i = 0; i < n; i++)
                 TvUi.Text(root, table.Values[i], 38, Color.white, true, TextAlignmentOptions.Center, z, z, new Vector2(colsX + i * TableColW, 2), new Vector2(TableColW, TableRowH - 4f));

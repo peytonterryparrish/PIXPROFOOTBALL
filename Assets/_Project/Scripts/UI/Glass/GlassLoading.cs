@@ -66,9 +66,10 @@ namespace PixFootball.UI.Glass
             canvas.GetComponent<GraphicRaycaster>().enabled = false;
             var root = (RectTransform)canvas.transform;
             _group = root.gameObject.AddComponent<CanvasGroup>(); _group.alpha = 0f;
-            var bg = UiKit.Panel(root, "Stage", new Color(0.055f, 0.058f, 0.066f, 1f)); UiKit.Stretch(bg.rectTransform);
+            if (t.flat) GlassKit.TileBackdrop(root, "Stage");
+            else { var bg = UiKit.Panel(root, "Stage", new Color(0.055f, 0.058f, 0.066f, 1f)); UiKit.Stretch(bg.rectTransform); }
             // a soft light wash so the glass has something to sit on
-            var wash = UiKit.Panel(root, "Wash", new Color(1f, 1f, 1f, 0.07f), GlassWidgets.GradientSprite()); UiKit.Stretch(wash.rectTransform);
+            if (!t.flat) { var wash = UiKit.Panel(root, "Wash", new Color(1f, 1f, 1f, 0.07f), GlassWidgets.GradientSprite()); UiKit.Stretch(wash.rectTransform); }
             GlassWidgets.TopBar(root, null);
 
             _title = GlassKit.Text(root, TitleFor(scene), GlassText.Hero, TextAlignmentOptions.Center, "Title");

@@ -1,0 +1,110 @@
+# PIX Football v0.11.0 crowd audio spec. Render: dotnet AudioTool.dll crender CrowdSpec.txt
+out "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\PIX\Audio\Crowd"
+manifest "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\PIX\Audio\Crowd\crowd_manifest.csv"
+
+# ---- sources (key, path, pack)
+src df_loop01 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Base crowd ambience_ Multiple variations\Crowd_noises_loop_01.wav" DraftFever
+src df_loop02 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Base crowd ambience_ Multiple variations\Crowd_noises_loop_02.wav" DraftFever
+src df_loop04 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Base crowd ambience_ Multiple variations\Crowd_noises_loop_04.wav" DraftFever
+src df_ch01 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Crowd Cheer\Crowd_noises_cheers_01.wav" DraftFever
+src df_ch02 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Crowd Cheer\Crowd_noises_cheers_02.wav" DraftFever
+src df_ch03 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Crowd Cheer\Crowd_noises_cheers_03.wav" DraftFever
+src df_ch04 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Crowd Cheer\Crowd_noises_cheers_04.wav" DraftFever
+src df_ch05 "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Crowd Cheer\Crowd_noises_cheers_05.wav" DraftFever
+src df_chlong "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Crowd Cheer\Crowd_noises_cheers_long_01.wav" DraftFever
+src df_gasp "C:\Users\peyto\Desktop\PeytonParrishGames\PIX PRO FOOTBALL\Assets\_Licensed\DraftFever\Audio\Ambience\Crowds\Crowd_noises_gasps_01.wav" DraftFever
+src ad_boo01 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdBooLoop_01.wav ADSounds-BallSports
+src ad_boo02 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdBooLoop_02.wav ADSounds-BallSports
+src ad_clap01 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdCheerClapLoop_01.wav ADSounds-BallSports
+src ad_clap03 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdCheerClapLoop_03.wav ADSounds-BallSports
+src ad_cl01 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdCheerLoop_01.wav ADSounds-BallSports
+src ad_os01 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdCheerOneShot_01.wav ADSounds-BallSports
+src ad_os02 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdCheerOneShot_02.wav ADSounds-BallSports
+src ad_os03 D:\PIXFootball\Work\Audio\crowd_tmp\adball\SFX_CrowdCheerOneShot_03.wav ADSounds-BallSports
+src sa11 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__11_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa13 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__13_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa21 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__21_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa24 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__24_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa25 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__25_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa27 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__27_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa28 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__28_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa32 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__32_RA_Soccer.wav rawAmbience-StadiumAmbience
+src sa34 D:\PIXFootball\Work\Audio\crowd_tmp\stadamb\CRWDSprt_Staduim_Ambience__34_RA_Soccer.wav rawAmbience-StadiumAmbience
+src ma07 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__7_raw_Ambience.wav rawAmbience-InsideTheMatch
+src ma10 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__10_raw_Ambience.wav rawAmbience-InsideTheMatch
+src ma12 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__12_raw_Ambience.wav rawAmbience-InsideTheMatch
+src ma13 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__13_raw_Ambience.wav rawAmbience-InsideTheMatch
+src ma15 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__15_raw_Ambience.wav rawAmbience-InsideTheMatch
+src ma16 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__16_raw_Ambience.wav rawAmbience-InsideTheMatch
+src ma18 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__18_raw_Ambience.wav rawAmbience-InsideTheMatch
+src ma19 D:\PIXFootball\Work\Audio\crowd_tmp\matchamb\AMBSprt_Inside_the_Match_Ambience__19_raw_Ambience.wav rawAmbience-InsideTheMatch
+
+# ---- beds (seamless loops)
+loop bed_murmur_low 01 lufs=-30 src=ma10 a=92 b=128 xf=2.5 flat=2 flatmax=6 note="Match ambience far-field murmur; mono source, R channel from same take +7.3 s"
+loop bed_murmur_low 02 lufs=-30 src=ma16 a=22 b=56 xf=2.5 flat=2 flatmax=6 note="Match ambience far-field murmur; mono source, wide stereo from offset take"
+loop bed_murmur_low 03 lufs=-30 src=ma18 a=72 b=102 xf=2.5 flat=2 flatmax=6 note="Match ambience sparse murmur; mono, wide stereo"
+loop bed_murmur_low 04 lufs=-30 src=ma19 a=18 b=42 xf=2.5 flat=2 flatmax=6 note="Match ambience sparse murmur; mono, wide stereo"
+
+loop bed_murmur_mid 01 lufs=-26 src=ma15 a=10 b=50 xf=2.5 flat=2 flatmax=6 note="Match ambience mid-level crowd; mono, wide stereo"
+loop bed_murmur_mid 02 lufs=-26 src=ma12 a=12 b=48 xf=2.5 flat=2 flatmax=6 note="Match ambience mid-level crowd; mono, wide stereo"
+loop bed_murmur_mid 03 lufs=-26 src=sa24 a=14 b=62 xf=2.5 flat=2 flatmax=6 note="Stadium ambience (stereo) steady crowd"
+loop bed_murmur_mid 04 lufs=-26 src=df_loop02 a=2.5 b=24 xf=2.0 flat=2 flatmax=6 note="Draft Fever base crowd loop 02 re-crossfaded"
+
+loop bed_murmur_high 01 lufs=-24 src=sa13 a=6 b=36 xf=2.5 flat=2 flatmax=6 note="Stadium ambience full-bowl crowd; deep rumble heavy"
+loop bed_murmur_high 02 lufs=-24 src=sa11 a=15 b=38 xf=2.5 flat=2 flatmax=6 note="Stadium ambience full-bowl crowd"
+loop bed_murmur_high 03 lufs=-24 src=df_loop01 a=2.5 b=22 xf=2.0 flat=2 flatmax=6 add=sa21:34:53:-4:0 note="Draft Fever base crowd loop 01 layered with stadium ambience 21 for width and low end"
+loop bed_murmur_high 04 lufs=-24 src=df_loop04 a=2.5 b=14.5 snap=0.5 xf=2.0 flat=2 flatmax=6 add=sa21:34:53:-4:0 note="Draft Fever base crowd loop 04 + stadium ambience 21 layer; short (12 s)"
+
+loop bed_tension 01 lufs=-28 src=ma16 a=102 b=140 xf=2.5 hp=80 lp=1100 flat=4 note="Match ambience far murmur, lowpassed 1.1k and levelled to remove transients"
+loop bed_tension 02 lufs=-28 src=sa24 a=14 b=54 xf=2.5 hp=80 lp=800 flat=4 note="Stadium ambience, lowpassed 800 Hz and levelled"
+loop bed_tension 03 lufs=-28 src=ma07 a=32 b=64 xf=2.5 hp=80 lp=1000 flat=4 note="Match ambience, lowpassed 1k and levelled; mono wide"
+loop bed_tension 04 lufs=-28 src=ma13 a=56 b=94 xf=2.5 hp=80 lp=1000 flat=4 note="Match ambience, lowpassed 1k and levelled; mono wide"
+
+loop bed_clap 01 lufs=-26 src=ad_clap03 a=2.0 b=12.0 snap=0.5 xf=2.0 note="AD CheerClapLoop_03 re-crossfaded; 10 s (source is 12 s)"
+loop bed_clap 02 lufs=-26 src=ad_clap01 a=1.5 b=8.0 snap=0.5 xf=1.5 note="AD CheerClapLoop_01; 6.5 s (source is 8 s)"
+
+loop bed_cheer 01 lufs=-24 src=sa28 a=3 b=35 xf=2.5 note="Stadium ambience 28 loud roar"
+loop bed_cheer 02 lufs=-24 src=sa27 a=2.5 b=24 xf=2.5 note="Stadium ambience 27 loud roar"
+loop bed_cheer 03 lufs=-24 src=df_chlong a=3 b=18 snap=0.5 xf=2.5 flat=4 note="Draft Fever long cheer sustain, levelled so the decay does not pump at the wrap; 15 s"
+loop bed_cheer 04 lufs=-24 src=ad_cl01 a=1.5 b=8.5 snap=0.5 xf=1.5 note="AD CheerLoop_01 re-crossfaded; 7 s (source is 8.9 s)"
+
+loop bed_boo 01 lufs=-26 src=ad_boo01 a=2.5 b=20.8 snap=0.5 xf=2.0 note="AD CrowdBooLoop_01 re-crossfaded"
+loop bed_boo 02 lufs=-26 src=ad_boo02 a=1.5 b=7.5 snap=0.5 xf=1.0 note="AD CrowdBooLoop_02; short (6 s) because the source is 9 s with an onset and a fade out"
+
+loop bed_noise 01 lufs=-24 src=sa25 a=36 b=78 xf=2.5 note="Stadium ambience 25 loud sub-heavy roar"
+loop bed_noise 02 lufs=-24 src=sa32 a=26 b=66 xf=2.5 note="Stadium ambience 32 loud sub-heavy roar"
+loop bed_noise 03 lufs=-24 src=sa34 a=228 b=270 snap=3 xf=2.5 note="Stadium ambience 34 loud roar"
+loop bed_noise 04 lufs=-24 src=sa27 a=24 b=48 xf=2.5 add=ad_clap03:0:12.1:-9:0 add=ad_clap03:0:12.1:-9:12 add=ad_clap03:0:12.1:-9:24 note="Stadium ambience 27 roar with AD clap loop layered (stomp/clap rhythm)"
+
+# ---- reaction one-shots
+shot cheer_s 01 lufs=-22 src=df_ch04 a=0 b=2.6 fi=0.03 fo=0.9 note="DF cheers_04 first 2.6 s"
+shot cheer_s 02 lufs=-22 src=df_ch05 a=0 b=2.8 fi=0.03 fo=1.0 note="DF cheers_05 first 2.8 s"
+shot cheer_s 03 lufs=-22 src=ad_os02 a=0 b=2.6 fi=0.12 fo=1.0 note="AD CheerOneShot_02 first 2.6 s (source starts mid-cheer, longer fade in)"
+shot cheer_m 01 lufs=-20 src=df_ch01 a=0 b=5.2 fi=0.03 fo=1.4 note="DF cheers_01 first 5.2 s"
+shot cheer_m 02 lufs=-20 src=df_ch05 a=0.3 b=5.6 fi=0.03 fo=1.5 note="DF cheers_05 0.3-5.6 s"
+shot cheer_m 03 lufs=-20 src=ad_os01 a=0 b=5.0 fi=0.03 fo=1.4 note="AD CheerOneShot_01 first 5 s"
+shot cheer_l 01 lufs=-18 src=df_ch02 a=0 b=9.4 fi=0.03 fo=1.0 note="DF cheers_02 nearly full (9.9 s)"
+shot cheer_l 02 lufs=-18 src=df_ch03 a=0 b=9.8 fi=0.03 fo=1.5 note="DF cheers_03 first 9.8 s of 12.1"
+shot cheer_l 03 lufs=-18 src=ad_os03 a=0 b=9.5 fi=0.15 fo=1.2 note="AD CheerOneShot_03 first 9.5 s"
+shot roar_td 01 lufs=-16 src=df_chlong a=0 b=15 fi=0.05 fo=3.0 ramp=14 rampt=2.0 add=ad_os03:0:11.5:-2:0.8 derived=1 note="DF long cheer + AD OneShot_03 layered; gain ramp (-14 dB to 0 over 2 s) gives the build, natural decay after"
+shot roar_td 02 lufs=-16 src=df_ch03 a=0 b=12.1 fi=0.05 fo=2.0 ramp=12 rampt=1.8 add=ad_os01:0:9.9:-1:0.4 derived=1 note="DF cheers_03 + AD OneShot_01 layered; ramp build 1.8 s"
+shot roar_td 03 lufs=-16 src=ad_os03 a=0 b=11.5 fi=0.05 fo=1.6 ramp=12 rampt=1.6 add=df_ch02:0:9.9:-2:0.6 derived=1 note="AD OneShot_03 + DF cheers_02 layered; ramp build 1.6 s"
+shot groan 01 lufs=-24 src=df_gasp a=0.1 b=2.4 pitch=-3 lp=1800 fi=0.15 fo=1.0 derived=1 note="DF gasp pitched down 3 semitones and lowpassed 1.8k (disappointed ohh approximation)"
+shot groan 02 lufs=-24 src=ad_boo02 a=0.2 b=2.8 pitch=-2 lp=1400 fi=0.25 fo=1.0 derived=1 note="AD boo loop head pitched down 2 st, lowpassed 1.4k"
+shot groan 03 lufs=-24 src=df_ch01 a=3.0 b=5.5 pitch=-4 lp=1500 fi=0.3 fo=1.2 derived=1 note="DF cheer decay pitched down 4 st, lowpassed 1.5k"
+shot boo_short 01 lufs=-22 src=ad_boo02 a=0 b=3.0 fi=0.05 fo=1.0 note="AD BooLoop_02 first 3 s"
+shot boo_short 02 lufs=-22 src=ad_boo01 a=4 b=7.5 fi=0.4 fo=1.2 note="AD BooLoop_01 4-7.5 s with fades"
+shot boo_short 03 lufs=-22 src=ad_boo01 a=11.5 b=14.5 fi=0.4 fo=1.2 note="AD BooLoop_01 11.5-14.5 s with fades"
+shot gasp 01 lufs=-24 src=df_gasp a=0.05 b=1.6 fi=0.04 fo=0.5 note="DF gasps_01 first 1.6 s (file holds one swell then a slow decay, no separate gasps)"
+shot gasp 02 lufs=-24 src=df_gasp a=0.05 b=1.3 pitch=2 fi=0.04 fo=0.45 derived=1 note="DF gasp pitched up 2 st (shorter, sharper)"
+shot gasp 03 lufs=-24 src=df_gasp a=0.1 b=1.9 pitch=-1.5 lp=3500 fi=0.05 fo=0.6 derived=1 note="DF gasp pitched down 1.5 st, lowpassed 3.5k"
+shot ooh_hit 01 lufs=-22 src=df_gasp a=0.05 b=2.6 lp=2200 fi=0.05 fo=1.0 derived=1 note="DF gasp lowpassed 2.2k, 2.6 s (ooh approximation)"
+shot ooh_hit 02 lufs=-22 src=df_ch05 a=0 b=2.4 pitch=-2 lp=1100 fi=0.1 fo=0.9 derived=1 note="DF cheer swell pitched down 2 st, lowpassed 1.1k (vowel-like ooh)"
+shot ooh_hit 03 lufs=-22 src=ad_boo02 a=0.1 b=2.5 pitch=3 lp=1800 fi=0.2 fo=0.9 derived=1 note="AD boo head pitched up 3 st, lowpassed 1.8k"
+shot clap_burst 01 lufs=-24 src=ad_clap01 a=1.0 b=4.0 fi=0.25 fo=1.0 note="AD CheerClapLoop_01 slice with fades (cheer + claps, not pure applause)"
+shot clap_burst 02 lufs=-24 src=ad_clap03 a=2.0 b=5.0 fi=0.3 fo=1.2 note="AD CheerClapLoop_03 slice"
+shot clap_burst 03 lufs=-24 src=ad_clap03 a=7.0 b=10.0 fi=0.3 fo=1.2 note="AD CheerClapLoop_03 slice"
+shot sigh_relief 01 lufs=-24 src=df_gasp a=1.5 b=3.8 pitch=-2 lp=1600 fi=0.5 fo=1.0 derived=1 note="tail of DF gasp (breath decay) pitched down 2 st, lowpassed"
+shot sigh_relief 02 lufs=-24 src=df_ch01 a=3.5 b=5.8 pitch=-3 lp=1400 fi=0.4 fo=1.0 derived=1 note="decay of DF cheer pitched down 3 st, lowpassed"
+shot whoop_short 01 lufs=-22 src=df_ch02 a=0.1 b=1.1 fi=0.02 fo=0.3 note="DF cheers_02 first second"
+shot whoop_short 02 lufs=-22 src=ad_os01 a=0.1 b=1.2 fi=0.02 fo=0.35 note="AD CheerOneShot_01 first second"

@@ -146,6 +146,10 @@ namespace PixFootball.Gameplay
         void SetHudMinimal(bool minimal);
         /// <summary>v0.5: hides (or shows) the whole in-game HUD canvas (the halftime and postgame shows draw their own score strip).</summary>
         void SetHudVisible(bool visible);
+        /// <summary>v0.11 watch mode: the user hid the whole HUD (the Y button); the broadcast layer's own SetHudVisible calls cannot bring it back.</summary>
+        void SetHudUserHidden(bool hidden);
+        /// <summary>v0.11 watch mode: a CPU versus CPU game is on, the helper bar shows the watch controls instead of controller hints.</summary>
+        void SetWatchMode(bool on);
         /// <summary>v0.5: whether the pause menu offers Instant Replay (a play has been recorded).</summary>
         void SetReplayAvailable(bool available);
         /// <summary>v0.7: wind indicator (top right). <paramref name="degreesFromNorth"/> is the heading the wind blows toward, clockwise from the compass N; 0 mph = calm.</summary>

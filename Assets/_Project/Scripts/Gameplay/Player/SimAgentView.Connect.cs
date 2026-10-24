@@ -34,14 +34,14 @@ namespace PixFootball.Gameplay
         // ------------------------------------------------------------------------------------------ huddle / break to the line
         /// <summary>The player stands in the huddle: the match animation logic stays off him while the stage walks him to the line (E-252).</summary>
         public bool Huddle { get; private set; }
-        public void SetHuddle(bool on, int seed)
+        public void SetHuddle(bool on, int seed, bool leader = false)
         {
             if (on == Huddle) return;
             Huddle = on;
             if (Rig == null || !Rig.Valid) return;
             if (on)
             {
-                var plan = AnimKit.HuddlePlan(seed);
+                var plan = leader ? AnimKit.HuddleLeaderPlan(seed) : AnimKit.HuddlePlan(seed);
                 if (plan.Valid) { Rig.Play(plan); _ownsClip = true; }
             }
             else if (_ownsClip) { Rig.Stop(0.3f); _ownsClip = false; _lastAction = (AgentAction)(-1); }

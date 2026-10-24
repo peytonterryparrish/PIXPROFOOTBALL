@@ -65,8 +65,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("OPPONENT", 3.2f, i => _rows[i].Bye ? "BYE WEEK" : LeagueText.Opponent(_rows[i]), false, null, false),
                 new TableColumn("RESULT", 1.5f, i => LeagueText.Result(_rows[i]), true, null, false)
             };
-            _mine = GlassTable.Create(root, "MySchedule", 760f, 666f, cols, 46f);
-            Lay.Place((RectTransform)_mine.transform, 0f, 0f, 760f, 666f);
+            _mine = GlassTable.Create(root, "MySchedule", 760f, Lay.H, cols, 46f);
+            Lay.Place((RectTransform)_mine.transform, 0f, 0f, 760f, Lay.H);
             _mine.RowTint = i => !_rows[i].Played ? (Color?)null : _rows[i].Tie ? (Color?)GlassTheme.T.textSecondary : _rows[i].Won ? (Color?)GlassTheme.T.success : (Color?)GlassTheme.T.danger;
             _mine.CursorChanged = i => FillWeek();
             _mine.Activated = i => OpenBox(GameOfRow(_rows[i]));
@@ -76,11 +76,11 @@ namespace PixFootball.UI.Franchise
             {
                 new TableColumn("AWAY", 2.4f, i => TeamName(_games[i].AwayId), false, i => _games[i].Involves(Save.UserTeamId) ? (Color?)GlassTheme.T.accent : null, false),
                 new TableColumn("SCORE", 1.3f, i => _games[i].Played ? _games[i].AwayScore + " - " + _games[i].HomeScore + (_games[i].Overtime ? " OT" : "") : "-", true, null, false),
-                new TableColumn("HOME", 2.4f, i => "     " + TeamName(_games[i].HomeId), false, i => _games[i].Involves(Save.UserTeamId) ? (Color?)GlassTheme.T.accent : null, false),
+                new TableColumn("     HOME", 2.4f, i => "     " + TeamName(_games[i].HomeId), false, i => _games[i].Involves(Save.UserTeamId) ? (Color?)GlassTheme.T.accent : null, false),
                 new TableColumn("", 1.1f, i => _games[i].Played ? (Ctl.BoxOf(_games[i]) != null ? "BOX SCORE" : "FINAL") : "", true, null, false)
             };
-            _week = GlassTable.Create(root, "WeekGames", 940f, 624f, wc, 46f);
-            Lay.Place((RectTransform)_week.transform, 788f, 42f, 940f, 624f);
+            _week = GlassTable.Create(root, "WeekGames", Lay.W - 788f, Lay.H - 42f, wc, 46f);
+            Lay.Place((RectTransform)_week.transform, 788f, 42f, Lay.W - 788f, Lay.H - 42f);
             _week.EmptyText = "No games this week.";
             _week.Activated = i => OpenBox(_games[i]);
             _week.HandleSortKey = false;
@@ -161,8 +161,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("STRK", 0.8f, i => _rows[i].Streak, true, null, false),
                 new TableColumn("", 1.6f, i => _rows[i].Note, true, null, false)
             };
-            _table = GlassTable.Create(root, "StandTable", 1728f, 598f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1728f, 598f);
+            _table = GlassTable.Create(root, "StandTable", Lay.W, Lay.H - 68f, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 68f, Lay.W, Lay.H - 68f);
             _table.RowTint = i => _rows[i].TeamId == Save.UserTeamId ? (Color?)GlassTheme.T.accent : (_rows[i].Cut ? (Color?)GlassTheme.T.textMuted : null);
             _table.HandleSortKey = false;
         }
@@ -234,12 +234,12 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("GP", 0.6f, i => _rows[i].Games.ToString(), true, null, false),
                 new TableColumn("VALUE", 1.1f, i => LeagueText.LeaderValue(Cat, _rows[i].Value), true, null, false)
             };
-            _table = GlassTable.Create(root, "LeaderTable", 1080f, 598f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1080f, 598f);
+            _table = GlassTable.Create(root, "LeaderTable", 1100f, Lay.H - 68f, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1100f, Lay.H - 68f);
             _table.RowTint = i => _rows[i].TeamId == Save.UserTeamId ? (Color?)GlassTheme.T.accent : null;
             _table.CursorChanged = i => ShowCard(); _table.HandleSortKey = false;
             _table.EmptyText = "No qualifying players yet.";
-            _card = PlayerCardPanel.Create(root, 1096f, 68f, 632f, 598f);
+            _card = PlayerCardPanel.Create(root, 1116f, 68f, Lay.W - 1116f, Lay.H - 68f);
         }
 
         public override Selectable Entry { get { return _table; } }
@@ -278,8 +278,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("TEAM", 2f, i => _rows[i].C, false, null, false),
                 new TableColumn("", 1f, i => _rows[i].D, true, null, false)
             };
-            _table = GlassTable.Create(root, "AwardTable", 1728f, 598f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1728f, 598f);
+            _table = GlassTable.Create(root, "AwardTable", Lay.W, Lay.H - 68f, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 68f, Lay.W, Lay.H - 68f);
             _table.RowTint = i => _rows[i].TeamId == Save.UserTeamId ? (Color?)GlassTheme.T.accent : null;
             _table.HandleSortKey = false; _table.EmptyText = "No awards yet: they are handed out when the season ends.";
         }
@@ -343,8 +343,8 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("TEAM", 2.2f, i => _rows[i].D, false, null, false),
                 new TableColumn("YEAR", 0.8f, i => _rows[i].E, true, null, false)
             };
-            _table = GlassTable.Create(root, "RecordTable", 1728f, 598f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1728f, 598f);
+            _table = GlassTable.Create(root, "RecordTable", Lay.W, Lay.H - 68f, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 68f, Lay.W, Lay.H - 68f);
             _table.HandleSortKey = false; _table.EmptyText = "No records yet.";
         }
 
@@ -387,7 +387,7 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("DETAIL", 3.2f, i => _t[i].Kind == TrophyKind.PixBowl ? "beat " + _t[i].Opponent + " " + _t[i].Score : _t[i].Kind == TrophyKind.ConferenceTitle ? _t[i].Score : "", false, null, false),
                 new TableColumn("MVP", 2f, i => _t[i].BowlMvp, true, null, false)
             };
-            _trophies = GlassTable.Create(root, "TrophyTable", 1728f, 598f, tc); Lay.Place((RectTransform)_trophies.transform, 0f, 68f, 1728f, 598f);
+            _trophies = GlassTable.Create(root, "TrophyTable", Lay.W, Lay.H - 68f, tc); Lay.Place((RectTransform)_trophies.transform, 0f, 68f, Lay.W, Lay.H - 68f);
             _trophies.EmptyText = "The trophy case is empty. Win a division title to start it."; _trophies.HandleSortKey = false;
             var hc = new List<TableColumn>
             {
@@ -397,10 +397,10 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("SEASONS", 0.9f, i => _h[i].Seasons.ToString(), true, null, false),
                 new TableColumn("TEAMS", 2.4f, i => _h[i].Teams, false, null, false)
             };
-            _hof = GlassTable.Create(root, "HofTable", 1060f, 598f, hc); Lay.Place((RectTransform)_hof.transform, 0f, 68f, 1060f, 598f);
+            _hof = GlassTable.Create(root, "HofTable", 1080f, Lay.H - 68f, hc); Lay.Place((RectTransform)_hof.transform, 0f, 68f, 1080f, Lay.H - 68f);
             _hof.EmptyText = "Nobody is in the Hall of Fame yet. Retired stars are voted in after two years."; _hof.HandleSortKey = false;
             _hof.CursorChanged = i => FillSide();
-            _side = Lay.Group(root, "Side", 1076f, 68f, 652f, 598f);
+            _side = Lay.Group(root, "Side", 1096f, 68f, Lay.W - 1096f, Lay.H - 68f);
         }
 
         public override Selectable Entry { get { return _view; } }
@@ -423,8 +423,8 @@ namespace PixFootball.UI.Franchise
             var t = GlassTheme.T;
             for (int i = _side.childCount - 1; i >= 0; i--) UiKit.Kill(_side.GetChild(i).gameObject);
             if (_view.Index == 0) return;
-            var card = GlassKit.Panel(_side, "Card", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 0f, 0f, 652f, 598f);
-            var sp = StackPanel.Create(card.rectTransform, "S", 28f, 24f, 596f, 550f);
+            var card = GlassKit.Panel(_side, "Card", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 0f, 0f, Lay.W - 1096f, Lay.H - 68f);
+            var sp = StackPanel.Create(card.rectTransform, "S", 28f, 24f, Lay.W - 1096f - 56f, Lay.H - 68f - 48f);
             if (_view.Index == 1)
             {
                 if (_h.Count == 0) { sp.Heading("HALL OF FAME", t.textPrimary, 30f); sp.Para("Players are voted in two years after they retire when their career was big enough. At most four a year.", 22f); return; }
@@ -440,7 +440,7 @@ namespace PixFootball.UI.Franchise
                 var leg = HistoryEngine.Legacy(Save, Save.UserTeamId);
                 Lay.Text(card.rectTransform, leg.Score.ToString(), 80f, t.accent, 28f, 20f, 240f, 96f, true, TextAlignmentOptions.MidlineLeft, 0f, "Score");
                 Lay.Text(card.rectTransform, leg.Tier.ToUpperInvariant(), 30f, t.textPrimary, 280f, 32f, 340f, 50f, true, TextAlignmentOptions.MidlineLeft, 4f, "Tier");
-                var s2 = StackPanel.Create(card.rectTransform, "L", 28f, 130f, 596f, 440f);
+                var s2 = StackPanel.Create(card.rectTransform, "L", 28f, 130f, Lay.W - 1096f - 56f, Lay.H - 68f - 158f);
                 foreach (var kv in leg.Lines) if (kv.Value != 0 && s2.Fits(34f)) s2.Line(kv.Key, (kv.Value > 0 ? "+" : "") + kv.Value, kv.Value > 0 ? t.textPrimary : t.danger, 34f, 21f);
             }
         }
@@ -462,11 +462,11 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("TYPE", 1.1f, i => LeagueText.KindName(_rows[i].Kind), false, null, false),
                 new TableColumn("HEADLINE", 5f, i => _rows[i].Headline, false, null, false)
             };
-            _table = GlassTable.Create(root, "NewsTable", 1120f, 598f, cols, 52f);
-            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1120f, 598f);
+            _table = GlassTable.Create(root, "NewsTable", 1120f, Lay.H - 68f, cols, 52f);
+            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1120f, Lay.H - 68f);
             _table.RowTint = i => _rows[i].Mine ? (Color?)GlassTheme.T.accent : null;
             _table.CursorChanged = i => ShowStory(); _table.HandleSortKey = false; _table.EmptyText = "Quiet so far.";
-            _story = Lay.Group(root, "Story", 1136f, 68f, 592f, 598f);
+            _story = Lay.Group(root, "Story", 1136f, 68f, Lay.W - 1136f, Lay.H - 68f);
         }
 
         public override Selectable Entry { get { return _table; } }
@@ -497,10 +497,10 @@ namespace PixFootball.UI.Franchise
         {
             var t = GlassTheme.T;
             for (int i = _story.childCount - 1; i >= 0; i--) UiKit.Kill(_story.GetChild(i).gameObject);
-            var card = GlassKit.Panel(_story, "Card", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 0f, 0f, 592f, 598f);
+            var card = GlassKit.Panel(_story, "Card", 1.2f, true, t.cornerRadiusLarge); Lay.Place(card.rectTransform, 0f, 0f, Lay.W - 1136f, Lay.H - 68f);
             if (_rows.Count == 0) return;
             var n = _rows[Mathf.Clamp(_table.Cursor, 0, _rows.Count - 1)];
-            var sp = StackPanel.Create(card.rectTransform, "S", 28f, 26f, 536f, 546f);
+            var sp = StackPanel.Create(card.rectTransform, "S", 28f, 26f, Lay.W - 1136f - 56f, Lay.H - 68f - 52f);
             sp.Caps(LeagueText.KindName(n.Kind) + "  -  " + LeagueText.When(n), t.accent);
             sp.Para(n.Headline, 28f, t.textPrimary, 150f);
             sp.Gap(8f); sp.Rule();

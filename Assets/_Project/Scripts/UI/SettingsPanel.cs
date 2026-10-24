@@ -84,6 +84,7 @@ namespace PixFootball.UI
 
             var game = sp.NewPage(holder, "Gameplay");
             UiControls.Selector(game, "Scorebug", PixSettings.ScorebugNames, (int)PixSettings.Scorebug, i => { PixSettings.Scorebug = (ScorebugStyle)i; });
+            WatchSettingsUi.AddSettingsRows(game);   // v0.11: controller input (watch / play), helper bar, game speed
             // look controls apply to free roam, the first-person camera and the replay free camera (the behind-the-QB camera has no look input)
             UiControls.Selector(game, "Invert look Y", new[] { "Off", "On" }, PixSettings.InvertLookY ? 1 : 0, i => { PixSettings.InvertLookY = i == 1; });
             UiControls.SliderRow(game, "Look sensitivity", Mathf.InverseLerp(0.2f, 3f, PixSettings.LookSensitivity), x => { PixSettings.LookSensitivity = Mathf.Lerp(0.2f, 3f, x); });
@@ -114,6 +115,7 @@ namespace PixFootball.UI
             UiControls.Selector(bc, "TV overlays", new[] { "On", "Off" }, PixSettings.TvOverlays ? 0 : 1, i => { PixSettings.TvOverlays = i == 0; });
             var note = UiKit.Label(bc, "FULL: establishing shots, post-play cuts, replays and shows.   MINIMAL: only the biggest plays get a replay and a cut.   OFF: live camera only.", 26, UiColors.TextSecondary, false, TextAlignmentOptions.TopLeft, "Note");
             note.textWrappingMode = TextWrappingModes.Normal; note.rectTransform.sizeDelta = new Vector2(760, 110); var nle = note.gameObject.AddComponent<LayoutElement>(); nle.preferredWidth = 760; nle.preferredHeight = 110;
+            if (UiTheme.IsGlass) { nle.ignoreLayout = true; note.fontSize = 24; note.rectTransform.anchorMin = new Vector2(0f, 0f); note.rectTransform.anchorMax = new Vector2(1f, 0f); note.rectTransform.pivot = new Vector2(0.5f, 0f); note.rectTransform.offsetMin = new Vector2(8f, 6f); note.rectTransform.offsetMax = new Vector2(-8f, 120f); }
 
             var audio = sp.NewPage(holder, "Audio");
             UiControls.SliderRow(audio, "Master volume", PixSettings.MasterVolume, x => { PixSettings.MasterVolume = x; AudioListener.volume = x; });
@@ -121,7 +123,8 @@ namespace PixFootball.UI
             UiControls.SliderRow(audio, "Crowd volume", PixSettings.CrowdVolume, x => { PixSettings.CrowdVolume = x; });
             UiControls.SliderRow(audio, "Effects volume", PixSettings.SfxVolume, x => { PixSettings.SfxVolume = x; });
 
-            UiKit.MenuButton(col, "BACK", () => { if (sp.OnBack != null) sp.OnBack(); }, 760, 54, 30);
+            UiKit.MenuButton(col, "BACK", () => { if (sp.OnBack != null) sp.OnBack(); }, UiTheme.IsGlass ? CardW - 56f : 760, 54, 30);
+            sp.FinishGlassPages();
             sp.First = sp._tabs.Count > 0 ? (Selectable)sp._tabs[0] : sp._resSel;
             sp.SetPage(0);
             return sp;
@@ -130,7 +133,8 @@ namespace PixFootball.UI
         RectTransform NewPage(RectTransform holder, string name)
         {
             var r = UiKit.Rect(holder, "Page_" + name); UiKit.Stretch(r);
-            var v = r.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 6; v.childAlignment = TextAnchor.UpperLeft; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false;
+            if (UiTheme.IsGlass) AddGlassPageGrid(r);   // themed: two columns of rows (v0.11 has more rows on the Gameplay page than one column holds)
+            else { var v = r.gameObject.AddComponent<VerticalLayoutGroup>(); v.spacing = 6; v.childAlignment = TextAnchor.UpperLeft; v.childControlWidth = false; v.childControlHeight = false; v.childForceExpandWidth = false; v.childForceExpandHeight = false; }
             _pages.Add(r.gameObject);
             return r;
         }

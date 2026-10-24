@@ -29,7 +29,7 @@ namespace PixFootball.Gameplay
             // a tip or a deflection (the flight direction jumps) starts a wobble that dies out in about 1.5 s; a long throw wobbles a little at the end of its flight
             if (_lastState == state && _lastVel.sqrMagnitude > 1f && Vector3.Angle(_lastVel, vel) > 5f) { _wobble = 1f; _wobbleT = 0f; }
             _wobbleT += dt; _wobble = Mathf.MoveTowards(_wobble, 0f, dt / 1.5f);
-            float wob = (_wobble * 16f + (state == BallState.Pass ? 1.5f : 0f)) * Mathf.Sin(_wobbleT * 17f);
+            float wob = (_wobble * 16f + (state == BallState.Pass ? BallSpinHint.Wobble : 0f)) * Mathf.Sin(_wobbleT * (state == BallState.Pass ? 9f + rate * 0.0022f : 17f));      // v0.11.0 QB: the wobble amplitude is the throw's (pressure, on the run), the precession rate follows the spin
             Vector3 perp = Vector3.Cross(vn, Vector3.up); if (perp.sqrMagnitude < 1e-4f) perp = Vector3.right;
             _lastVel = vel;
             return Quaternion.AngleAxis(wob, perp.normalized) * Quaternion.AngleAxis(_spin, vn) * Quaternion.FromToRotation(Vector3.right, vn);
@@ -109,6 +109,7 @@ namespace PixFootball.Gameplay
                 if (_mode != Mode.Free || _lastState != _state) _trail.Clear();
                 _trail.emitting = air;
             }
+            if (_landingOn && _mode != Mode.Free && _mode != Mode.Tee && !QbV11.Legacy) { _landingOn = false; if (_ring != null) _ring.gameObject.SetActive(false); }      // v0.11.0 QB (B-063): the ring leaves with the ball being caught / carried / touched back, whatever branch placed it
             if (_ring != null && _landingOn)
             {
                 _ringPulse += Time.deltaTime;
@@ -116,6 +117,44 @@ namespace PixFootball.Gameplay
                 _ring.position = new Vector3(_landing.x, 0.04f, _landing.z); _ring.localScale = new Vector3(2.4f * k, 2.4f * k, 1f);
             }
             _lastState = _state;
+        }
+    }
+}
+
+namespace PixFootball.Gameplay
+{
+    public sealed partial class BallFollower
+    {
+        Transform _tee;
+
+        /// <summary>
+        /// v0.11.0 QB (B-022): the kickoff tee. The ball stood upright in mid air 27 cm above the turf with nothing under it; now a rubber kicking tee (a flared cup on a stem) stands under it for as long as the ball is on the tee (<see cref="Mode.Tee"/>).
+        /// </summary>
+        void GfxTee()
+        {
+            bool on = _mode == Mode.Tee && _ball != null && !QbV11.Legacy;
+            if (!on) { if (_tee != null && _tee.gameObject.activeSelf) _tee.gameObject.SetActive(false); return; }
+            if (_tee == null)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder); go.name = "KickTee";
+                var col = go.GetComponent<Collider>(); if (col != null) Destroy(col);
+                _tee = go.transform; _tee.SetParent(transform.parent, false);
+                var r = go.GetComponent<Renderer>(); r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On; r.receiveShadows = true;
+                var pb = new MaterialPropertyBlock(); pb.SetColor("_BaseColor", new Color(0.95f, 0.45f, 0.08f)); pb.SetColor("_Color", new Color(0.95f, 0.45f, 0.08f)); r.SetPropertyBlock(pb);
+            }
+            if (!_tee.gameObject.activeSelf) _tee.gameObject.SetActive(true);
+            Vector3 b = _ball.position;
+            float top = Mathf.Max(0.04f, b.y - 0.10f);                 // the ball's lower tip sits in the cup
+            _tee.position = new Vector3(b.x, top * 0.5f, b.z);
+            _tee.localScale = new Vector3(0.07f, top * 0.5f, 0.07f);   // a unit cylinder is 2 m tall and 1 m wide
+        }
+
+        /// <summary>v0.11.0 QB (B-062 / B-064): the ball never draws below the turf (the extra-point launch from under a sunk holder, a held ball in the hand of a downed carrier).</summary>
+        void GfxGroundClamp()
+        {
+            if (_ball == null || _mode == Mode.Tee || QbV11.Legacy) return;
+            Vector3 p = _ball.position;
+            if (p.y < 0.07f) { p.y = 0.07f; _ball.position = p; }
         }
     }
 }

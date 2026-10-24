@@ -3,12 +3,15 @@ using UnityEngine.UI;
 
 namespace PixFootball.UI.Glass
 {
-    /// <summary>How a glass surface is filled.</summary>
-    public enum GlassKind { Glass = 0, Action = 1, Solid = 2, Well = 3, Accent = 4 }
+    /// <summary>
+    /// How a glass surface is filled. Glass..Accent exist in both looks; Panel..TabOn are the Tile look's (Direction 16): in the Glass look Panel, Row and Tab draw as Glass and TabOn as Accent.
+    /// </summary>
+    public enum GlassKind { Glass = 0, Action = 1, Solid = 2, Well = 3, Accent = 4, Panel = 5, Row = 6, Tab = 7, TabOn = 8, Key = 9, Frame = 10 }
 
     /// <summary>
-    /// A rounded-rectangle UI graphic drawn by the PIX/UI/Glass shader: frosted backdrop refraction, graphite tint gradient, thin silver edge, diagonal reflection and subtle noise, all analytic
-    /// (crisp at any resolution). One quad per surface; the rounded shape, the edge and the focus glow are computed per pixel from the per-vertex data (see the shader header).
+    /// A rectangle UI graphic drawn by the PIX/UI/Glass shader. Glass look: frosted backdrop refraction, graphite tint gradient, thin silver edge, diagonal reflection and subtle noise. Tile look (v0.11):
+    /// solid charcoal, square, 2px border, gold focus (4px edge + ring + glow + sheen). All analytic (crisp at any resolution). One quad per surface; the shape, the edge and the focus glow are computed per pixel
+    /// from the per-vertex data (see the shader header). <see cref="Skew"/> shears the quad (the tab bar's -14 degree parallelogram) while the shader still works in the unsheared rectangle.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public class GlassGraphic : MaskableGraphic
@@ -26,10 +29,15 @@ namespace PixFootball.UI.Glass
         [Range(0f, 1f)] public float Backdrop = 1f;
         /// <summary>Extra quad margin for the glow / shadow outside the rect.</summary>
         public float Pad = 0f;
-        /// <summary>Strength of the outer orange glow when focused (1 = full; chips and static accents use less).</summary>
+        /// <summary>Strength of the outer focus glow (1 = full; chips and static accents use less).</summary>
         [Range(0f, 1f)] public float GlowScale = 1f;
+        /// <summary>Tile look: focus edge width in canvas units (negative = the theme's 4); rows use it as the width of the gold bar.</summary>
+        public float FocusEdge = -1f;
+        /// <summary>Shear of the quad in degrees (positive leans the top to the right, like CSS skewX(-14deg)); the text of a skewed tab stays upright because it is not a child of the sheared graphic's mesh.</summary>
+        public float Skew;
 
         const int Channels = (int)(AdditionalCanvasShaderChannels.TexCoord1 | AdditionalCanvasShaderChannels.TexCoord2 | AdditionalCanvasShaderChannels.TexCoord3);
+        bool _counted;
 
         public override Texture mainTexture { get { return Texture2D.whiteTexture; } }
 
@@ -45,13 +53,13 @@ namespace PixFootball.UI.Glass
         protected override void OnEnable()
         {
             base.OnEnable();
-            GlassBackdrop.AddUser();
+            if (!UiTheme.IsTile) { GlassBackdrop.AddUser(); _counted = true; }   // the Tile look has no blur pass, so it never asks for one
             EnsureChannels();
         }
 
         protected override void OnDisable()
         {
-            GlassBackdrop.RemoveUser();
+            if (_counted) { GlassBackdrop.RemoveUser(); _counted = false; }
             base.OnDisable();
         }
 
@@ -78,8 +86,17 @@ namespace PixFootball.UI.Glass
         public void SetKind(GlassKind k) { if (Kind == k) return; Kind = k; SetVerticesDirty(); }
         public void SetDensity(float d) { if (Mathf.Abs(d - Density) < 0.002f) return; Density = d; SetVerticesDirty(); }
 
-        /// <summary>The quad margin actually used: room for the focus glow and the shadow when either can show.</summary>
-        float EffectivePad { get { return Mathf.Max(Pad, (Shadow > 0.001f ? 26f : 0f), (Focus > 0.001f ? 28f : 0f)); } }
+        /// <summary>The quad margin actually used: room for the focus glow and the shadow when either can show (Tile: 46 unit glow, 8 + 22 unit shadow).</summary>
+        float EffectivePad
+        {
+            get
+            {
+                var t = GlassTheme.T;
+                float glow = t.flat ? t.glowRadius + 4f : 28f, shadow = t.flat ? 34f : 26f;
+                bool staticGlow = Kind == GlassKind.TabOn;
+                return Mathf.Max(Pad, (Shadow > 0.001f ? shadow : 0f), (Focus > 0.001f || staticGlow ? (staticGlow && Focus <= 0.001f ? 28f : glow) : 0f));
+            }
+        }
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
@@ -93,23 +110,23 @@ namespace PixFootball.UI.Glass
             Vector2 c = r.center, half = r.size * 0.5f;
             var col = (Color32)color;
 
-            var uv0Base = new Vector4(0, 0, half.x, half.y);
             var uv1 = new Vector4(radius, edge, Focus, Shadow);
             var uv2 = new Vector4(t.sheen * Sheen, t.noise, Backdrop, (float)(int)Kind);
-            var uv3 = new Vector4(Density, Brighten, GlowScale, 0f);
+            var uv3 = new Vector4(Density, Brighten, GlowScale, FocusEdge);
 
+            float shear = Mathf.Abs(Skew) > 0.01f ? Mathf.Tan(Skew * Mathf.Deg2Rad) : 0f;
             float x0 = r.xMin - pad, x1 = r.xMax + pad, y0 = r.yMin - pad, y1 = r.yMax + pad;
-            AddVert(vh, x0, y0, c, half, col, uv1, uv2, uv3);
-            AddVert(vh, x0, y1, c, half, col, uv1, uv2, uv3);
-            AddVert(vh, x1, y1, c, half, col, uv1, uv2, uv3);
-            AddVert(vh, x1, y0, c, half, col, uv1, uv2, uv3);
+            AddVert(vh, x0, y0, c, half, col, uv1, uv2, uv3, shear);
+            AddVert(vh, x0, y1, c, half, col, uv1, uv2, uv3, shear);
+            AddVert(vh, x1, y1, c, half, col, uv1, uv2, uv3, shear);
+            AddVert(vh, x1, y0, c, half, col, uv1, uv2, uv3, shear);
             vh.AddTriangle(0, 1, 2); vh.AddTriangle(2, 3, 0);
         }
 
-        static void AddVert(VertexHelper vh, float x, float y, Vector2 centre, Vector2 half, Color32 col, Vector4 uv1, Vector4 uv2, Vector4 uv3)
+        static void AddVert(VertexHelper vh, float x, float y, Vector2 centre, Vector2 half, Color32 col, Vector4 uv1, Vector4 uv2, Vector4 uv3, float shear)
         {
             var v = UIVertex.simpleVert;
-            v.position = new Vector3(x, y, 0f);
+            v.position = new Vector3(x + (y - centre.y) * shear, y, 0f);   // sheared position, unsheared shader coordinates: the SDF of the rectangle is evaluated in its own space
             v.color = col;
             v.uv0 = new Vector4(x - centre.x, y - centre.y, half.x, half.y);
             v.uv1 = uv1; v.uv2 = uv2; v.uv3 = uv3;

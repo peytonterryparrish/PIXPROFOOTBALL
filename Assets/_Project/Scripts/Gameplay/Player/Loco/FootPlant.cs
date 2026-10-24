@@ -36,7 +36,7 @@ namespace PixFootball.Gameplay
         struct Pt { public bool Planted; public Vector2 Anchor; public float Ramp, Away, H0; public bool Spent; }
         readonly Foot _l = new Foot { Left = true }, _r = new Foot();
         readonly Animator _anim; Transform _hips;
-        float _hipDrop, _dip, _prevSpeed;
+        float _hipDrop, _dip, _prevSpeed, _flightDrop, _hipsMean; bool _meanHave;
         bool _ok;
         public float HipDrop { get { return _hipDrop; } }
         /// <summary>QA: bind-pose heights of the ankle / toe bones above the turf (the zero of the sole height).</summary>
@@ -76,7 +76,7 @@ namespace PixFootball.Gameplay
         /// <summary>The contact hints are frame-accurate (motion matching tags every source frame): a planted point holds until its hint ends instead of letting go when the animated foot rises or runs ahead of its anchor; only the heel still lets go when it lifts.</summary>
         public bool HintAuthority;
         /// <summary>QA / tuning (batch): height below which a hinted point may plant, heel fade on, lift of the matcher's swing feet on.</summary>
-        public static float EnterHinted = 0.13f; public static bool HeelFade = false, MmLift = true, FadeRel = true, Pivot = true, YawHoldOn = true, RiseOn = false; public static float HeelShare = 1f;
+        public static float EnterHinted = 0.13f, BallReleaseH = 9f, FlightDrop = 0.04f, PeakFlatten = 0.45f; public static bool HeelFade = false, MmLift = true, FadeRel = true, Pivot = true, YawHoldOn = true, RiseOn = false; public static float HeelShare = 1f;
         /// <summary>The legs of the playing take point along the pelvis heading whatever way the body travels (strafes, back-pedals, the orientation warp): the knee / foot polish aims at the pelvis heading instead of the travel direction.</summary>
         public bool BodyLine;
         /// <summary>Toe landings (back-pedal): the ball of the foot is held first, the heel only follows.</summary>
@@ -143,7 +143,7 @@ namespace PixFootball.Gameplay
             {
                 // let go smoothly; nothing is bent while the legs are not ours
                 _l.Planted = _r.Planted = false; _l.H.Planted = _l.B.Planted = _r.H.Planted = _r.B.Planted = false; _l.H.Ramp = _l.B.Ramp = _r.H.Ramp = _r.B.Ramp = 0f; _l.W = Mathf.MoveTowards(_l.W, 0f, dt / 0.05f); _r.W = Mathf.MoveTowards(_r.W, 0f, dt / 0.05f);
-                _hipDrop = Mathf.MoveTowards(_hipDrop, 0f, dt / 0.15f); _dip = 0f; _l.Have = _r.Have = false; _l.Corr = _r.Corr = 0f;
+                _hipDrop = Mathf.MoveTowards(_hipDrop, 0f, dt / 0.15f); _dip = 0f; _flightDrop = 0f; _meanHave = false; _l.Have = _r.Have = false; _l.Corr = _r.Corr = 0f;
                 _prevSpeed = Speed;
                 if (_l.W <= 0.001f && _r.W <= 0.001f && _hipDrop <= 0.001f) return;
             }
@@ -163,7 +163,12 @@ namespace PixFootball.Gameplay
             float need = Mathf.Clamp(Mathf.Max(Need(_l), Need(_r)), 0f, 0.07f);
             _hipDrop = need > _hipDrop ? Mathf.MoveTowards(_hipDrop, need, dt / 0.025f * 0.09f) : Mathf.MoveTowards(_hipDrop, need, dt / 0.14f * 0.09f);
             _dip -= _dip * Mathf.Min(1f, dt / 0.085f);
-            float drop = Mathf.Clamp((_hipDrop + _dip) * (moving ? 1f : 0.5f), 0f, 0.11f);
+            // v0.11.0 B-016: the stride is stretched to the simulated speed and the bounce of the take comes out a little higher than the body needs: the peaks of the pelvis above its own running average are shaved (never the troughs), so both feet are clear of the turf for less of the stride
+            float hy = _hips.position.y - gy;
+            if (!_meanHave) { _hipsMean = hy; _meanHave = true; }
+            _hipsMean = Mathf.Lerp(_hipsMean, hy, 1f - Mathf.Exp(-dt / 0.25f));
+            _flightDrop = (HintAuthority && moving && !ActionMode && Speed > 3f) ? Mathf.Clamp((hy - _hipsMean) * PeakFlatten * Mathf.Clamp01((Speed - 3f) / 2f), 0f, FlightDrop) : 0f;
+            float drop = Mathf.Clamp((_hipDrop + _dip + _flightDrop) * (moving ? 1f : 0.5f), 0f, 0.11f);
             if (drop > 1e-4f) _hips.position -= Vector3.up * drop;
             // a pelvis that sits low (the first frames after a clip gave the legs back: its crouch is still blended in) leaves the feet in the turf: lift it to where the lowest foot stands on it
             if (HintAuthority && moving && !ActionMode && RiseOn) { float low = Mathf.Min(_l.Sole, _r.Sole); if (low < -0.015f) _hips.position += Vector3.up * Mathf.Min(0.15f, -low - 0.005f); }
@@ -258,7 +263,7 @@ namespace PixFootball.Gameplay
                 // the animation starts the swing: the point rises, or it runs ahead of its anchor (the hint of the phase markers only says where the take puts the lift-off)
                 float ahead = Vector2.Dot(pw - p.Anchor, u);
                 bool auth = HintAuthority && hinted && !ActionMode;
-                bool release = !contact || (auth ? (heel && h > p.H0 + 0.035f) : (h > p.H0 + 0.035f || (ActionMode ? p.Away > 0.10f : ahead > 0.05f))) || p.Away > 0.32f;
+                bool release = !contact || (auth ? ((heel && h > p.H0 + 0.035f) || (!heel && h > p.H0 + BallReleaseH)) : (h > p.H0 + 0.035f || (ActionMode ? p.Away > 0.10f : ahead > 0.05f))) || p.Away > 0.32f;
                 if (release) { p.Planted = false; p.Spent = contact; }
             }
             p.Ramp = Mathf.MoveTowards(p.Ramp, p.Planted ? 1f : 0f, dt / (p.Planted ? 0.03f : 0.06f));

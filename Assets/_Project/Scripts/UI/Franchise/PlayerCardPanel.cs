@@ -145,12 +145,12 @@ namespace PixFootball.UI.Franchise
             Lay.Caps(_host, first, x, pad - 2f, w, 26f, t.textSecondary, 20f);
             Lay.Text(_host, last.ToUpperInvariant(), 40f, t.textPrimary, x, pad + 22f, w, 52f, true, TextAlignmentOptions.MidlineLeft, 1f, "Last");
             Lay.Text(_host, c.Pos + "  -  " + CardText.Archetype(c.Archetype), 22f, t.textSecondary, x, pad + 76f, w, 32f, false, TextAlignmentOptions.MidlineLeft, 0f, "Pos");
-            var ovr = GlassKit.Surface(_host, "OvrBox", GlassKind.Glass, t.cornerRadiusSmall, false, 1f); ovr.SetFocus(0.9f); ovr.GlowScale = 0.2f; Lay.Place(ovr.rectTransform, x, pad + 108f, 108f, 78f);
-            Lay.Text(ovr.rectTransform, c.Overall.ToString(), 44f, t.accent, 0f, 2f, 108f, 52f, true, TextAlignmentOptions.Center, 0f, "Ovr");
-            Lay.Caps(ovr.rectTransform, "OVERALL", 0f, 54f, 108f, 22f, null, 14f, TextAlignmentOptions.Center);
-            var pot = GlassKit.Well(_host, "PotBox", t.cornerRadiusSmall); Lay.Place(pot.rectTransform, x + 118f, pad + 108f, 96f, 78f);
-            Lay.Text(pot.rectTransform, c.Potential.ToString(), 36f, t.textPrimary, 0f, 6f, 96f, 46f, true, TextAlignmentOptions.Center, 0f, "Pot");
-            Lay.Caps(pot.rectTransform, "POTENTIAL", 0f, 54f, 96f, 22f, null, 13f, TextAlignmentOptions.Center);
+            var ovr = GlassKit.Surface(_host, "OvrBox", GlassKind.Glass, t.cornerRadiusSmall, false, 1f); ovr.SetFocus(0.9f); ovr.GlowScale = 0.2f; Lay.Place(ovr.rectTransform, x, pad + 108f, 124f, 78f);
+            Lay.Text(ovr.rectTransform, c.Overall.ToString(), 44f, t.accent, 0f, 0f, 124f, 54f, true, TextAlignmentOptions.Center, 0f, "Ovr");
+            Lay.Caps(ovr.rectTransform, "OVERALL", 0f, 52f, 124f, 24f, null, 20f, TextAlignmentOptions.Center);
+            var pot = GlassKit.Well(_host, "PotBox", t.cornerRadiusSmall); Lay.Place(pot.rectTransform, x + 136f, pad + 108f, 146f, 78f);
+            Lay.Text(pot.rectTransform, c.Potential.ToString(), 36f, t.textPrimary, 0f, 2f, 146f, 50f, true, TextAlignmentOptions.Center, 0f, "Pot");
+            Lay.Caps(pot.rectTransform, "POTENTIAL", 0f, 52f, 146f, 24f, null, 20f, TextAlignmentOptions.Center);
             Lay.Text(_host, c.Age + " yrs   " + c.Height + "   " + c.WeightLb + " lb", 20f, t.textSecondary, x, pad + 190f, w, 26f, false, TextAlignmentOptions.MidlineLeft, 0f, "Body");
             Lay.Text(_host, (c.College ?? "") + (string.IsNullOrEmpty(c.Draft) ? "" : "   -   " + c.Draft), 19f, t.textMuted, x, pad + 216f, w, 26f, false, TextAlignmentOptions.MidlineLeft, 0f, "College");
 

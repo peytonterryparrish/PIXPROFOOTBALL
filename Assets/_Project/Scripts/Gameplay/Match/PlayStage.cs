@@ -105,19 +105,25 @@ namespace PixFootball.Gameplay
         public void Begin(PlaySimulation sim, PlayFrame frame, UniformSet offense, UniformSet defense, int playIndex)
         {
             Init();
+            bool carryMode = ContinuityEnabled && (_carry.Count > 0 || NextBeginFromBench);      // v0.11.0 SIM-FLOW: bodies of the last play stay on the field
             End();
+            if (!carryMode) { ReleaseLeavers(); }
+            NextBeginFromBench = false; LastCarried = LastNewcomers = LastLeavers = 0;
             Sim = sim; Frame = frame; _logIdx = 0; _playIndex = playIndex; _fresh.Clear(); _tackled.Clear(); _tackler.Clear();
             OffenseKit = offense; DefenseKit = defense; ClearWalks();
             Contacts.Reset();
             if (Look != null) Look.BeginPlay();
             var qbForm = sim.OffForm != null && sim.OffForm.Slots.Length > 0 ? sim.OffForm.Slots[0] : null;
             _shotgun = qbForm != null && qbForm.Y < -2.5f;
+            StanceRules.ShortYardage = sim.Kind == PlayKind.Scrimmage && sim.OffForm != null && (sim.OffForm.Name == "Goal Line" || sim.LosY >= 97f);      // v0.11.0 CRITICAL: goal-line linemen are in a true three-point stance
             for (int i = 0; i < 22; i++)
             {
                 SimAgent a = sim.Agents[i];
                 PlayerSize bodySize = RoleUtil.SizeOf(a.PlayPos); PixFootball.Art.BodyBase bodyBase = PixFootball.Art.BodyBase.Std;
                 if (PixSettings.PhotoPlayers) BodySelect.For(a.PlayPos, a.Player != null && a.Player.Bio != null ? a.Player.Bio.HeightIn : 0, a.Player != null && a.Player.Bio != null ? a.Player.Bio.WeightLb : 0, out bodySize, out bodyBase);
-                var v = Acquire(bodySize, bodyBase, a.Player != null ? a.Player.Id : 1000 + i);
+                int ident = a.Player != null ? a.Player.Id : 1000 + i;
+                CarryRec cr = default(CarryRec); bool carried = carryMode && TakeCarried(ident, bodySize, bodyBase, out cr);
+                var v = carried ? cr.View : Acquire(bodySize, bodyBase, ident);
                 v.AgentId = i; v.Role = RoleUtil.Of(a.PlayPos);
                 v.Stance = StanceRules.For(a.PlayPos, a.Side, sim.Kind, a.Side == SimSide.Offense ? sim.OffForm.Unit : sim.DefForm.Unit, a.StartPos.X - sim.BallX0, a.StartPos.Y - sim.LosY, _shotgun, a.ReturnerRole, StanceCtx(a));
                 var set = a.Side == SimSide.Offense ? offense : defense;
@@ -126,11 +132,19 @@ namespace PixFootball.Gameplay
                 if (Look != null) Look.Dress(v, a, set);
                 Vector3 p = frame.ToUnity(a.Pos);
                 Vector3 f = frame.DirToUnity(a.Facing);
-                v.ResetForPlay(p, Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg);
+                float startYaw = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
+                if (carryMode)
+                {
+                    if (carried) { p = cr.Pos; startYaw = cr.Yaw; LastCarried++; TotalCarried++; }
+                    else { p = BenchStart(set.Home, p, out startYaw); LastNewcomers++; TotalNewcomers++; }
+                }
+                v.ResetForPlay(p, startYaw);
                 v.name = "P" + i + "_" + a.PlayPos;
                 _views[i] = v;
                 _carrySide[i] = 1; _carrySideAt[i] = -9f;
             }
+            if (carryMode) FinishCarry();
+            CarryActive = carryMode;
             ConnectBegin(sim, frame);      // v0.9.0 CONNECT: render interpolation snapshots, huddle break to the line
             Ball.SetVisible(true);
             Present(0.0166f);
@@ -187,7 +201,7 @@ namespace PixFootball.Gameplay
         {
             if (agent < 0 || agent >= 22 || _views[agent] == null) return;
             var w = _walks[agent];
-            if (!w.Active) w.Pos = _views[agent].transform.position;
+            if (!w.Active) { w.Pos = _views[agent].transform.position; _walkSpeed[agent] = Sim != null ? Sim.Agents[agent].Speed * PlayFrame.YardsToMeters : 0f; }      // v0.11.0 SIM-FLOW: a runner who is called off the play decelerates from his speed, he does not stop dead
             w.Active = true; w.Target = target; w.Speed = speed; w.Look = look;
             _walks[agent] = w; _anyWalk = true;
         }
@@ -262,7 +276,10 @@ namespace PixFootball.Gameplay
 
         public void Present(float dt)
         {
+            if (_side.Count > 0) TickSideline(dt);
+            if (_leavers.Count > 0) TickLeavers(dt);      // v0.11.0 SIM-FLOW
             if (Sim == null) return;
+            _betweenClock += dt;
             _presentDt = dt;
             _magnetAgent = -1; _magnetEta = 9f;
             for (int mi = 0; mi < 22; mi++) _magEta[mi] = 9f;
@@ -289,11 +306,16 @@ namespace PixFootball.Gameplay
                     if (a.Move == CarrierMove.JukeLeft) lat = -1f; else if (a.Move == CarrierMove.JukeRight) lat = 1f;
                 }
                 if (_anyWalk && _walks[i].Active) StepWalk(i, dt, ref pos, ref vel, ref face);
+                if (_anyWalk && _walks[i].Active && Sim.Phase == PlayPhase.PreSnap) viewAction = vel.sqrMagnitude > 0.25f ? AgentAction.Run : AgentAction.Idle;      // v0.11.0 SIM-FLOW: a walk in the pre-snap (timeout) is a walk, not a stance
                 UpdateStanceInput(i, a, v, dt);      // v0.9.0 QBSTANCE
                 MotionPlanHook(a, v);      // v0.10.0 MOTION: the planned path for the locomotion matcher
+                CarryHook(a, v);      // v0.11.0 RB: the carrier's style from the sim
                 v.ApplyMatch(pos, vel, face, viewAction, h, lat, specials, _shotgun, dt);
             }
             ServiceChoreo(dt);      // v0.10.0 CHOREO
+            ServiceAftermath();      // v0.11.0 SIM-FLOW
+            ServiceScenes();
+            TimeoutHuddles();
             if (Contacts != null) Contacts.Tick(dt);
             if (Look != null) Look.Tick(dt);
             ApplyContacts();
@@ -406,6 +428,7 @@ namespace PixFootball.Gameplay
             var b = Sim.Ball;
             Vector3 down = Frame.DirToUnity(new Vec2(0f, 1f));
             ConnectBallTrack(b);      // v0.9.0 CONNECT: who caught / received the ball and when
+            if (PostWhistleBallGuard(b)) return;      // v0.11.0 RB (B-023): after a tackle or sack the ball stays with the carrier, it is not drawn at the sim's dead-ball position
             if (b.State == BallState.Held && b.Holder >= 0)
             {
                 SimAgent h = Sim.Agents[b.Holder]; var v = _views[b.Holder];
@@ -416,6 +439,7 @@ namespace PixFootball.Gameplay
                     if (ConnectHeld(h, v, qbPass)) return;      // v0.9.0 CONNECT: quarterback / holder / punter holds, catch hold, hand-off exchange (E-124 E-126 E-247 E-253 E-256)
                     if (BallFlowHeld(h, v)) return;      // v0.10.0 BODIES: the ball after the whistle (relaxed hold, spike, official), see PlayStage.BallFlow.cs
                     if (h.Action == AgentAction.Celebrate && !SimAgentView.DebugNoFlow) { Ball.SetHand(v, CelebrateHand(h, v)); return; }      // v0.7.0 (note 29): the ball stays in one hand through the whole celebration
+                    if (CarrySideHook(h, v)) return;      // v0.11.0 RB: the sim decides the carry arm
                     // carry arm: away from the nearest defender, with hysteresis
                     if (Time.time - _carrySideAt[h.Id] > 1.0f)
                     {

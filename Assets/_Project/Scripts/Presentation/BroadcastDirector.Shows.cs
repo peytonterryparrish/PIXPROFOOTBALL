@@ -101,14 +101,14 @@ namespace PixFootball.Presentation
                 t += dt;
                 ShowCamera();
                 cg.alpha = Mathf.Clamp01(t / 0.35f);
-                var inp = _dir.Autopilot ? null : PollInput();
+                var inp = _dir.AutoRun ? null : PollInput();
                 if (inp != null)
                 {
                     if (t > 0.5f && (inp.Down[(int)Btn.A] || inp.Confirm)) break;
                     if (inp.Down[(int)Btn.B] || inp.Cancel) { _pageBack = true; break; }
                     if (inp.Menu) { _skipShow = true; break; }
                 }
-                float limit = _dir.Autopilot ? Mathf.Min(autoSeconds, 4.2f) : autoSeconds;
+                float limit = _dir.AutoRun ? Mathf.Min(autoSeconds, 4.2f) : autoSeconds;
                 if (t > limit) break;
                 yield return null;
             }
@@ -135,7 +135,7 @@ namespace PixFootball.Presentation
             while (t < total)
             {
                 float dt = Time.unscaledDeltaTime; t += dt;
-                if (!_dir.Autopilot) { var inp = PollInput(); if (t > 0.8f && (inp.Down[(int)Btn.A] || inp.Confirm || inp.Down[(int)Btn.B] || inp.Menu)) break; }
+                if (!_dir.AutoRun) { var inp = PollInput(); if (t > 0.8f && (inp.Down[(int)Btn.A] || inp.Confirm || inp.Down[(int)Btn.B] || inp.Menu)) break; }
                 if (!shownMatchup && t >= matchupAt)
                 {
                     shownMatchup = true;
@@ -236,7 +236,7 @@ namespace PixFootball.Presentation
             _dir.Ui?.SetHudVisible(true);
             yield return _rc.PlayReel(clips, () =>
             {
-                if (_dir.Autopilot) return false;
+                if (_dir.AutoRun) return false;
                 var inp = PollInput();
                 return inp.Down[(int)Btn.B] || inp.Menu || inp.Down[(int)Btn.A];
             }, (clip, n) =>
@@ -282,7 +282,7 @@ namespace PixFootball.Presentation
             while (!pressed)
             {
                 t += Time.unscaledDeltaTime; ShowCamera(); cg.alpha = Mathf.Clamp01(t / 0.35f);
-                if (_dir.Autopilot) { if (t > 3.2f) break; }
+                if (_dir.AutoRun) { if (t > 3.2f) break; }
                 else
                 {
                     var inp = PollInput();

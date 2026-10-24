@@ -12,7 +12,7 @@ namespace PixFootball.UI.Glass
     /// Code-built factory for the glass component library (the project builds all UI in code; the same factory bakes the prefabs under Assets/_Project/UI/Glass/Prefabs through GlassPrefabBuilder).
     /// Primitives and basic controls live here; the compound widgets (modal, toast, tooltip, cards, bars, nav) are in <see cref="GlassWidgets"/>. Everything reads <see cref="GlassTheme"/>.
     /// </summary>
-    public static class GlassKit
+    public static partial class GlassKit
     {
         public static GlassTokens T { get { return GlassTheme.T; } }
 
@@ -26,7 +26,7 @@ namespace PixFootball.UI.Glass
             tm.font = bold ? theme.Title : theme.Body;
             switch (style)
             {
-                case GlassText.Caption: tm.fontSize = t.sizeCaption; tm.color = t.textSecondary; tm.characterSpacing = 2f; break;
+                case GlassText.Caption: tm.fontSize = t.sizeCaption; tm.color = t.textSecondary; tm.characterSpacing = t.flat ? GlassTokens.Em(1.2f, t.sizeCaption) : 2f; break;
                 case GlassText.Label: tm.fontSize = t.sizeLabel; tm.color = t.textPrimary; break;
                 case GlassText.Body: tm.fontSize = t.sizeBody; tm.color = t.textPrimary; break;
                 case GlassText.Heading: tm.fontSize = t.sizeHeading; tm.color = t.textPrimary; tm.characterSpacing = t.trackingCaps; break;
@@ -64,7 +64,7 @@ namespace PixFootball.UI.Glass
         /// <summary>A glass panel sized by the caller (anchors / layout). <paramref name="density"/> 1 = the pack's airy glass; &gt; 1 denser (modals, hero cards).</summary>
         public static GlassGraphic Panel(Transform parent, string name = "Panel", float density = 1f, bool shadow = true, float radius = -1f)
         {
-            return Surface(parent, name, GlassKind.Glass, radius, shadow, density);
+            return Surface(parent, name, T.flat ? GlassKind.Panel : GlassKind.Glass, radius, shadow, density);
         }
 
         /// <summary>The dark inset well used for tracks, fields and stat tiles.</summary>
@@ -86,16 +86,16 @@ namespace PixFootball.UI.Glass
         {
             var r = UiKit.Rect(parent, name);
             var img = r.gameObject.AddComponent<Image>(); img.raycastTarget = false;
-            var c = T.edgeA; c.a = alpha * 0.55f; img.color = c;
-            var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredHeight = 1.4f; le.minHeight = 1.4f; le.flexibleWidth = 1f;
-            r.sizeDelta = new Vector2(0f, 1.4f);
+            var c = T.flat ? T.hairline : T.edgeA; c.a = T.flat ? 1f : alpha * 0.55f; img.color = c;
+            float rh = T.flat ? 1f : 1.4f; var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredHeight = rh; le.minHeight = rh; le.flexibleWidth = 1f;
+            r.sizeDelta = new Vector2(0f, T.flat ? 1f : 1.4f);
             return img;
         }
 
         public static Image Bar(Transform parent, string name, Color color, float w, float h)
         {
             var r = UiKit.Rect(parent, name); r.sizeDelta = new Vector2(w, h);
-            var img = r.gameObject.AddComponent<Image>(); img.color = color; img.raycastTarget = false;
+            var img = r.gameObject.AddComponent<Image>(); img.color = color; img.raycastTarget = false; r.gameObject.AddComponent<GlassNoSkin>();
             return img;
         }
 
@@ -198,7 +198,7 @@ namespace PixFootball.UI.Glass
         /// <summary>Wide menu row for the main menu / pause rail: icon in a glass well, caption, chevron; focus = orange edge, accent rail and a nudge to the right.</summary>
         public static Button MenuItem(Transform parent, string label, string iconKey, Action onClick, float width = 560f, float height = 88f, string name = null)
         {
-            var t = T;
+            var t = T; if (t.flat) return TileMenuItem(parent, label, iconKey, onClick, width, height, name);
             var r = UiKit.Rect(parent, name ?? "Menu_" + label);
             r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
@@ -236,7 +236,7 @@ namespace PixFootball.UI.Glass
         /// <summary>Underline tabs (the pack's navigation): the active tab is white with an orange underline, the others grey; a focused tab gets a soft glass chip. Left / right moves, A selects.</summary>
         public static GlassTabs Tabs(Transform parent, string[] names, int selected, Action<int> onChanged, float tabHeight = 56f, float fontSize = 24f, string name = "Tabs")
         {
-            var t = T;
+            var t = T; if (t.flat) return TileTabs(parent, names, selected, onChanged, fontSize, name);
             var row = Row(parent, name, 6f, TextAnchor.MiddleLeft);
             var tabs = row.gameObject.AddComponent<GlassTabs>();
             tabs.Buttons = new Button[names.Length]; tabs.Labels = new TextMeshProUGUI[names.Length]; tabs.Underlines = new Image[names.Length]; tabs.Chips = new GlassGraphic[names.Length];
@@ -273,16 +273,16 @@ namespace PixFootball.UI.Glass
             var r = UiKit.Rect(parent, "Toggle_" + label);
             r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
-            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f;
+            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f; RowStyle(g);
             var tg = r.gameObject.AddComponent<GlassToggle>();
             tg.targetGraphic = g; tg.transition = Selectable.Transition.None;
             var txt = Text(r, label.ToUpperInvariant(), GlassText.Label, TextAlignmentOptions.MidlineLeft, "Label");
             Style(txt, 24f, t.textSecondary, true, t.trackingCaps * 0.6f); UiKit.Stretch(txt.rectTransform, 28f, 0f, 150f, 0f); UiKit.Fit(txt, 18f);
 
-            var track = Surface(r, "Track", GlassKind.Well, 17f, false, 1f);
+            var track = Surface(r, "Track", GlassKind.Well, Rad(17f), false, 1f);
             UiKit.Anchor(track.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(72f, 34f));
-            var fill = Surface(track.rectTransform, "On", GlassKind.Accent, 17f, false, 1f); UiKit.Stretch(fill.rectTransform);
-            var knob = Surface(track.rectTransform, "Knob", GlassKind.Action, 13f, true, 1f);
+            var fill = Surface(track.rectTransform, "On", GlassKind.Accent, Rad(17f), false, 1f); UiKit.Stretch(fill.rectTransform);
+            var knob = Surface(track.rectTransform, "Knob", GlassKind.Action, Rad(13f), true, 1f);
             UiKit.Anchor(knob.rectTransform, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(17f, 0f), new Vector2(26f, 26f));
             knob.EdgeWidth = 0f;
             tg.Track = track; tg.OnFill = fill; tg.Knob = knob.rectTransform; tg.Label = txt;
@@ -301,19 +301,19 @@ namespace PixFootball.UI.Glass
             var r = UiKit.Rect(parent, "Slider_" + label);
             r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
-            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f;
+            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f; RowStyle(g);
             var txt = Text(r, label.ToUpperInvariant(), GlassText.Label, TextAlignmentOptions.MidlineLeft, "Label");
             Style(txt, 24f, t.textSecondary, true, t.trackingCaps * 0.6f); UiKit.Stretch(txt.rectTransform, 28f, 0f, width * 0.55f, 0f); UiKit.Fit(txt, 18f);
             var slider = r.gameObject.AddComponent<Slider>();
 
             float trackW = width * 0.36f;
-            var track = Surface(r, "Track", GlassKind.Well, 5f, false, 1f);
+            var track = Surface(r, "Track", GlassKind.Well, Rad(5f), false, 1f);
             UiKit.Anchor(track.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-110f, 0f), new Vector2(trackW, 10f));
             var fillArea = UiKit.Rect(track.rectTransform, "FillArea"); UiKit.Stretch(fillArea);
-            var fill = Surface(fillArea, "Fill", GlassKind.Accent, 5f, false, 1f);
+            var fill = Surface(fillArea, "Fill", GlassKind.Accent, Rad(5f), false, 1f);
             fill.rectTransform.anchorMin = Vector2.zero; fill.rectTransform.anchorMax = new Vector2(0f, 1f); fill.rectTransform.offsetMin = Vector2.zero; fill.rectTransform.offsetMax = Vector2.zero;
             var handleArea = UiKit.Rect(track.rectTransform, "HandleArea"); UiKit.Stretch(handleArea, 14f, 0f, 14f, 0f);
-            var knob = Surface(handleArea, "Knob", GlassKind.Action, 14f, true, 1f); knob.EdgeWidth = 0f; knob.raycastTarget = true;
+            var knob = Surface(handleArea, "Knob", GlassKind.Action, Rad(14f), true, 1f); knob.EdgeWidth = 0f; knob.raycastTarget = true;
             knob.rectTransform.sizeDelta = new Vector2(28f, 28f);
             var val = Text(r, "", GlassText.Label, TextAlignmentOptions.MidlineRight, "Value"); Style(val, 24f, t.textPrimary, true);
             UiKit.Anchor(val.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(84f, height));
@@ -339,7 +339,7 @@ namespace PixFootball.UI.Glass
             var r = UiKit.Rect(parent, "Opt_" + label);
             r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
-            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f;
+            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f; RowStyle(g);
             var sel = r.gameObject.AddComponent<OptionSelector>();
             sel.targetGraphic = g; sel.transition = Selectable.Transition.None; sel.PlainValue = true;
             var n = Text(r, label.ToUpperInvariant(), GlassText.Label, TextAlignmentOptions.MidlineLeft, "Name");
@@ -368,11 +368,11 @@ namespace PixFootball.UI.Glass
         public static GlassBar ProgressBar(Transform parent, float value, float width = 320f, float height = 10f, bool accent = true, string name = "Progress")
         {
             var t = T;
-            var track = Surface(parent, name, GlassKind.Well, height * 0.5f, false, 1f);
+            var track = Surface(parent, name, GlassKind.Well, Rad(height * 0.5f), false, 1f);
             track.rectTransform.sizeDelta = new Vector2(width, height);
             var le = track.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
             var fillArea = UiKit.Rect(track.rectTransform, "FillArea"); UiKit.Stretch(fillArea);
-            var fill = Surface(fillArea, "Fill", accent ? GlassKind.Accent : GlassKind.Action, height * 0.5f, false, 1f);
+            var fill = Surface(fillArea, "Fill", accent ? GlassKind.Accent : GlassKind.Action, Rad(height * 0.5f), false, 1f);
             fill.rectTransform.anchorMin = Vector2.zero; fill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(value), 1f); fill.rectTransform.offsetMin = Vector2.zero; fill.rectTransform.offsetMax = Vector2.zero;
             fill.EdgeWidth = 0f;
             var bar = track.gameObject.AddComponent<GlassBar>(); bar.Fill = fill.rectTransform; bar.Value = Mathf.Clamp01(value);

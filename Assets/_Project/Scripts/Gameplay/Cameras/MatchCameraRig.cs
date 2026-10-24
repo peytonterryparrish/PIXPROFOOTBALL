@@ -10,7 +10,7 @@ namespace PixFootball.Gameplay
     /// looking downfield before the throw); and a helmet camera locked to the user-controlled player.
     /// </summary>
     [DefaultExecutionOrder(-200)]
-    public sealed class MatchCameraRig : MonoBehaviour
+    public sealed partial class MatchCameraRig : MonoBehaviour
     {
         public Camera Main;
         public CinemachineBrain Brain;
@@ -140,9 +140,9 @@ namespace PixFootball.Gameplay
         public void SetFrame(PlayFrame frame, bool cut)
         {
             Frame = frame;
-            float side = frame.TowardsPlusZ ? 1f : -1f;
+            float side = CameraSide(frame);
             _bcFollow.FollowOffset = new Vector3(44f * side, 17f, 0f);
-            if (cut) { Broadcast.PreviousStateIsValid = false; }
+            if (cut && !SmoothBetweenPlays) { Broadcast.PreviousStateIsValid = false; }
         }
 
         public void SetUser(SimAgentView user, bool qbBehind)
@@ -196,8 +196,8 @@ namespace PixFootball.Gameplay
         public void Cut()
         {
             _smoothFocus = _focus; _poseInit = false;
-            Broadcast.PreviousStateIsValid = false; Behind.PreviousStateIsValid = false;
-            UpdateProxies(0.0167f, true);
+            if (!SmoothBetweenPlays) Broadcast.PreviousStateIsValid = false; Behind.PreviousStateIsValid = false;
+            UpdateProxies(0.0167f, !SmoothBetweenPlays);
         }
 
         void LateUpdate() { if (_inited) UpdateProxies(Time.deltaTime, false); }
@@ -207,18 +207,7 @@ namespace PixFootball.Gameplay
             // ---- broadcast
             // v0.9.0 CONNECT E-398: the broadcast camera stacked three smoothers (this lerp, the Cinemachine position damping and the composer's rotation damping); the lerp is gone, the
             // Cinemachine damping (0.9 s on z, 0.5 / 0.6 s rotation) does the smoothing. The z clamp moves from 47 to 52 m and the lens widens a little past 47 m so the end zones stay in shot.
-            _smoothFocus = _focus;
-            Vector3 lead = new Vector3(_focusVel.x, 0f, _focusVel.z) * 0.55f;
-            float z = Mathf.Clamp(_smoothFocus.z + lead.z, -52f, 52f);
-            _bcTarget.position = new Vector3(0f, 0f, z);
-            if (Broadcast != null)
-            {
-                float wantBcFov = 27f + 3f * Mathf.Clamp01((Mathf.Abs(z) - 47f) / 5f);
-                var bl = Broadcast.Lens;
-                bl.FieldOfView = snap ? wantBcFov : Mathf.Lerp(bl.FieldOfView, wantBcFov, UserCameraMath.Alpha(dt, 0.6f));
-                Broadcast.Lens = bl;
-            }
-            _bcLook.position = new Vector3(Mathf.Clamp(_smoothFocus.x * 0.55f, -14f, 14f), 1.0f, _smoothFocus.z + lead.z * 0.85f);
+            BroadcastStep(dt, snap);   // v0.11 WATCH: MatchCameraRig.Broadcast.cs
 
             // ---- behind / first person
             if (_user != null)

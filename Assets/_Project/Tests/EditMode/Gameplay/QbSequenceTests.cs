@@ -13,7 +13,7 @@ namespace PixFootball.Tests
         public void CrouchEndsExactlyOnTheUnderCenterStance()
         {
             var end = StancePoses.QbCrouch(1f, false);
-            var stance = StancePoses.For(new StanceSpec { Kind = StanceKind.QbUnderCenter }, PlayerRole.QB);
+            var stance = StancePoses.QbUcDeep(StancePoses.For(new StanceSpec { Kind = StanceKind.QbUnderCenter }, PlayerRole.QB));      // v0.11.0 QB (B-061): the deeper coaching-card stance
             Assert.AreEqual(stance.Hips, end.Hips, 1e-4f); Assert.AreEqual(stance.Lean, end.Lean, 1e-4f);
             Assert.AreEqual(stance.RHand, end.RHand); Assert.AreEqual(stance.RX, end.RX, 1e-4f);
             // and starts upright: no pop into the crouch
@@ -33,7 +33,7 @@ namespace PixFootball.Tests
         public void SecureStartsOnTheCrouchHandsAndEndsAtTheBelly()
         {
             var a = StancePoses.QbSecure(0f); var b = StancePoses.QbSecure(1f);
-            Assert.Greater(a.Hips, 0.78f); Assert.Less(a.Hips, b.Hips + 1e-4f);
+            Assert.Greater(a.Hips, 0.70f); Assert.Less(a.Hips, b.Hips + 1e-4f);      // v0.11.0 QB (B-061): the crouch is deeper (hips 0.74)
             Assert.Greater(a.RPos.z, b.RPos.z, "the ball comes in toward the body");
         }
 

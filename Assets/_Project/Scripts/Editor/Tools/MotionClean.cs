@@ -50,8 +50,8 @@ namespace PixFootball.EditorTools
         public static AnimationClip Clean(AnimationClip src, string name, Dictionary<string, float> deltas, out int before, out int after)
         {
             before = after = 0;
-            string dir = MixamoImport.Folder + "/Clean";
-            if (!AssetDatabase.IsValidFolder(dir)) AssetDatabase.CreateFolder(MixamoImport.Folder, "Clean");
+            string dir = MixamoImport.Folder + "/Clean" + MotionDbBuilder.Suffix;
+            if (!AssetDatabase.IsValidFolder(dir)) AssetDatabase.CreateFolder(MixamoImport.Folder, "Clean" + MotionDbBuilder.Suffix);
             string path = dir + "/" + name + "_C.anim";
             AssetDatabase.DeleteAsset(path);
             var c = UnityEngine.Object.Instantiate(src); c.name = name + "_C";

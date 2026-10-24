@@ -30,7 +30,7 @@ namespace PixFootball.UI.Glass
         public static bool AnyUser { get { return _users > 0; } }
 
         /// <summary>The live blur is wanted: glass is on screen, the tier allows it and nothing forces the fallback.</summary>
-        public static bool WantBlur { get { return !ForceFallback && _users > 0 && QualityTiers.Current > 0; } }
+        public static bool WantBlur { get { return !ForceFallback && _users > 0 && QualityTiers.Current > 0 && !UiTheme.IsTile; } }   // the Tile look draws solid surfaces: no blur pass, ever
 
         public static void AddUser() { _users++; GlassBackdropDriver.Ensure(); }
         public static void RemoveUser() { _users = Mathf.Max(0, _users - 1); }

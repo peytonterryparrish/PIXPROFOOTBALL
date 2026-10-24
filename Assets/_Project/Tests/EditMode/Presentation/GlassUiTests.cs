@@ -74,9 +74,9 @@ namespace PixFootball.Tests
 
         // ------------------------------------------------------------------ theme switch
         [Test]
-        public void ThemeDefaultsToGlass()
+        public void ThemeDefaultsToTile()
         {
-            Assert.AreEqual(UiThemeKind.Glass, UiTheme.DefaultKind);
+            Assert.AreEqual(UiThemeKind.Tile, UiTheme.DefaultKind);   // v0.11.0: Direction 16 is the default; Glass and Classic stay selectable
         }
 
         [Test]
@@ -85,8 +85,8 @@ namespace PixFootball.Tests
             UiTheme.Force(UiThemeKind.Glass); Assert.IsTrue(UiTheme.IsGlass);
             UiTheme.Force(UiThemeKind.Classic); Assert.IsFalse(UiTheme.IsGlass);
             UiTheme.Force(null);
-            Assert.AreEqual(UiThemeKind.Glass, UiTheme.FromIndex(0)); Assert.AreEqual(UiThemeKind.Classic, UiTheme.FromIndex(1)); Assert.AreEqual(UiThemeKind.Glass, UiTheme.FromIndex(7));
-            Assert.AreEqual(2, UiTheme.Names.Length);
+            Assert.AreEqual(UiThemeKind.Glass, UiTheme.FromIndex(0)); Assert.AreEqual(UiThemeKind.Classic, UiTheme.FromIndex(1)); Assert.AreEqual(UiThemeKind.Tile, UiTheme.FromIndex(2)); Assert.AreEqual(UiThemeKind.Glass, UiTheme.FromIndex(7));
+            Assert.AreEqual(3, UiTheme.Names.Length);
         }
 
         // ------------------------------------------------------------------ backdrop rules

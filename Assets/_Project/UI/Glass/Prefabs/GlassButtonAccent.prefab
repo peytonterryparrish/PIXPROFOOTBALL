@@ -239,6 +239,8 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
+  FocusEdge: -1
+  Skew: 0
 --- !u!114 &8834522530420433831
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -308,5 +310,6 @@ MonoBehaviour:
   PlaySound: 1
   KeepLabelColor: 1
   FocusBrighten: 0.035
+  RaiseTarget: {fileID: 0}
   Pinned: 0
   GhostSurface: 0

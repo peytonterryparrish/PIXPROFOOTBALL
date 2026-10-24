@@ -33,7 +33,7 @@ namespace PixFootball.UI.Franchise
     /// </summary>
     public sealed class GlassTable : Selectable, ISubmitHandler, IPointerClickHandler, IScrollHandler
     {
-        public const float DefaultRowHeight = 50f, HeaderHeight = 40f;
+        public const float DefaultRowHeight = 50f, HeaderHeight = 52f;
 
         public List<TableColumn> Columns = new List<TableColumn>();
         public float RowHeight = DefaultRowHeight;
@@ -55,6 +55,7 @@ namespace PixFootball.UI.Franchise
         readonly List<Row> _rows = new List<Row>();
         RectTransform _rt, _rowHost, _headerRt, _scrollTrack, _scrollThumb;
         GlassGraphic _cursorBar;
+        Image _cursorGold;
         TextMeshProUGUI[] _headers = new TextMeshProUGUI[0];
         Image[] _sortIcons = new Image[0];
         TextMeshProUGUI _empty;
@@ -96,15 +97,16 @@ namespace PixFootball.UI.Franchise
             if (_hasHeader)
             {
                 _headerRt = UiKit.Rect(_rt, "Header"); UiKit.Anchor(_headerRt, new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, new Vector2(w, HeaderHeight));
-                var rule = GlassKit.Rule(_headerRt, "HeaderRule", 0.9f); var rr = rule.rectTransform; rr.anchorMin = new Vector2(0f, 0f); rr.anchorMax = new Vector2(1f, 0f); rr.pivot = new Vector2(0.5f, 0f); rr.anchoredPosition = new Vector2(0f, 1f); rr.sizeDelta = new Vector2(-24f, 1.4f);
+                var headFill = UiKit.Panel(_headerRt, "HeadFill", t.flat ? t.panelHead : new Color(0f, 0f, 0f, 0.30f)); UiKit.Stretch(headFill.rectTransform);   // the darker head strip of the Tile panels
+                var rule = GlassKit.Bar(_headerRt, "HeaderRule", new Color(t.accent.r, t.accent.g, t.accent.b, 0.85f), w, 2f); var rr = rule.rectTransform; rr.anchorMin = new Vector2(0f, 0f); rr.anchorMax = new Vector2(1f, 0f); rr.pivot = new Vector2(0.5f, 0f); rr.anchoredPosition = Vector2.zero; rr.sizeDelta = new Vector2(0f, 2f);
                 _headers = new TextMeshProUGUI[Columns.Count]; _sortIcons = new Image[Columns.Count];
                 for (int i = 0; i < Columns.Count; i++)
                 {
                     var hx = GlassKit.Eyebrow(_headerRt, Columns[i].Header, Columns[i].Align == TextAlignmentOptions.MidlineRight ? TextAlignmentOptions.MidlineRight : TextAlignmentOptions.MidlineLeft, "H" + i);
-                    GlassKit.Style(hx, 18f, t.textSecondary, true, 2f);
-                    UiKit.Anchor(hx.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(_x[i], -2f), new Vector2(_w[i], HeaderHeight)); UiKit.Fit(hx, 12f);
+                    GlassKit.Style(hx, 20f, t.textSecondary, true, GlassTokens.Em(3f, 20f));
+                    UiKit.Anchor(hx.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(_x[i], -1f), new Vector2(_w[i], HeaderHeight)); UiKit.Fit(hx, 20f);
                     _headers[i] = hx;
-                    var ic = GlassKit.Icon(_headerRt, "ui_arrow_down", 18f, t.accent, "Sort" + i);
+                    var ic = GlassKit.Icon(_headerRt, "ui_arrow_down", 20f, t.accent, "Sort" + i);
                     ic.gameObject.SetActive(false); _sortIcons[i] = ic;
                 }
             }
@@ -114,10 +116,14 @@ namespace PixFootball.UI.Franchise
             host.anchoredPosition = new Vector2(0f, -head); host.sizeDelta = new Vector2(0f, VisibleRows * RowHeight);
             host.gameObject.AddComponent<RectMask2D>();
             _rowHost = host;
-            _cursorBar = GlassKit.Surface(host, "Cursor", GlassKind.Glass, t.cornerRadiusSmall, false, 1.25f);
+            // the cursor row: a lighter fill with the 4 unit gold bar at its left edge (the Tile list row), dimmed while another control has the focus
+            _cursorBar = GlassKit.Surface(host, "Cursor", GlassKind.Solid, 0f, false, 1f);
+            _cursorBar.color = new Color(1f, 1f, 1f, 0.09f);
             _cursorBar.rectTransform.anchorMin = new Vector2(0f, 1f); _cursorBar.rectTransform.anchorMax = new Vector2(1f, 1f); _cursorBar.rectTransform.pivot = new Vector2(0.5f, 1f);
-            _cursorBar.rectTransform.sizeDelta = new Vector2(-8f, RowHeight - 4f);
-            _cursorBar.SetFocus(0f);
+            _cursorBar.rectTransform.sizeDelta = new Vector2(0f, RowHeight);
+            _cursorGold = GlassKit.Bar(_cursorBar.rectTransform, "Gold", t.accent, 4f, RowHeight);
+            _cursorGold.rectTransform.anchorMin = new Vector2(0f, 0f); _cursorGold.rectTransform.anchorMax = new Vector2(0f, 1f); _cursorGold.rectTransform.pivot = new Vector2(0f, 0.5f);
+            _cursorGold.rectTransform.anchoredPosition = Vector2.zero; _cursorGold.rectTransform.sizeDelta = new Vector2(4f, 0f);
             for (int i = 0; i < VisibleRows; i++)
             {
                 var row = new Row { Rt = UiKit.Rect(host, "Row" + i), Cells = new TextMeshProUGUI[Columns.Count] };
@@ -127,15 +133,15 @@ namespace PixFootball.UI.Franchise
                 for (int c = 0; c < Columns.Count; c++)
                 {
                     var tx = GlassKit.Text(row.Rt, "", GlassText.Body, Columns[c].Align, "C" + c);
-                    GlassKit.Style(tx, 24f, t.textPrimary, false, 0f);
-                    UiKit.Anchor(tx.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(_x[c], 0f), new Vector2(_w[c], RowHeight)); UiKit.Fit(tx, 16f);
+                    GlassKit.Style(tx, 24f, t.textPrimary, true, 0f);
+                    UiKit.Anchor(tx.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(_x[c], 0f), new Vector2(_w[c], RowHeight)); UiKit.Fit(tx, 20f);
                     row.Cells[c] = tx;
                 }
                 _rows.Add(row);
             }
             // scroll indicator
             _scrollTrack = UiKit.Rect(_rt, "Scroll"); UiKit.Anchor(_scrollTrack, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-4f, -head), new Vector2(4f, VisibleRows * RowHeight));
-            var tr = _scrollTrack.gameObject.AddComponent<Image>(); tr.color = new Color(1f, 1f, 1f, 0.07f); tr.raycastTarget = false;
+            var tr = _scrollTrack.gameObject.AddComponent<Image>(); tr.color = new Color(1f, 1f, 1f, 0.07f); tr.raycastTarget = false;   // 4 units wide, gold thumb
             _scrollThumb = UiKit.Rect(_scrollTrack, "Thumb"); _scrollThumb.anchorMin = new Vector2(0f, 1f); _scrollThumb.anchorMax = new Vector2(1f, 1f); _scrollThumb.pivot = new Vector2(0.5f, 1f);
             var th = _scrollThumb.gameObject.AddComponent<Image>(); th.color = new Color(t.accent.r, t.accent.g, t.accent.b, 0.75f); th.raycastTarget = false;
             // empty text
@@ -193,7 +199,7 @@ namespace PixFootball.UI.Franchise
                     float tw = Mathf.Min(_w[i], _headers[i].GetPreferredValues(_headers[i].text).x);
                     bool right = Columns[i].Align == TextAlignmentOptions.MidlineRight;
                     float cx = right ? _x[i] + _w[i] - tw - 16f : _x[i] + tw + 16f;
-                    rt.anchoredPosition = new Vector2(cx, -2f); rt.sizeDelta = new Vector2(16f, 16f);
+                    rt.anchoredPosition = new Vector2(cx, -1f); rt.sizeDelta = new Vector2(20f, 20f);
                     rt.localEulerAngles = new Vector3(0f, 0f, SortDescending ? 0f : 180f);
                 }
             }
@@ -212,8 +218,10 @@ namespace PixFootball.UI.Franchise
                 row.Rt.gameObject.SetActive(on);
                 if (!on) continue;
                 bool cur = idx == Cursor;
-                row.Bg.color = !cur && (idx & 1) == 1 ? new Color(1f, 1f, 1f, 0.035f) : new Color(1f, 1f, 1f, 0f);
                 Color? rowTint = RowTint != null ? RowTint(idx) : null;
+                // zebra rows; the user's own row (tinted with the accent) gets the gold 16 percent fill of the mock's standings table
+                bool mine = rowTint.HasValue && Mathf.Abs(rowTint.Value.r - t.accent.r) + Mathf.Abs(rowTint.Value.g - t.accent.g) + Mathf.Abs(rowTint.Value.b - t.accent.b) < 0.02f;
+                row.Bg.color = mine ? new Color(t.accent.r, t.accent.g, t.accent.b, 0.16f) : !cur && (idx & 1) == 1 ? new Color(1f, 1f, 1f, 0.035f) : new Color(1f, 1f, 1f, 0f);
                 for (int c = 0; c < Columns.Count; c++)
                 {
                     var col = Columns[c];
@@ -227,8 +235,9 @@ namespace PixFootball.UI.Franchise
             // cursor bar
             bool show = Count > 0 && Cursor >= Top && Cursor < Top + VisibleRows;
             _cursorBar.gameObject.SetActive(show);
-            if (show) _cursorBar.rectTransform.anchoredPosition = new Vector2(0f, -(Cursor - Top) * RowHeight - 2f);
-            _cursorBar.SetFocus(_focused ? 1f : 0.28f);
+            if (show) _cursorBar.rectTransform.anchoredPosition = new Vector2(0f, -(Cursor - Top) * RowHeight);
+            _cursorBar.color = t.flat ? new Color(t.rowFocus.r, t.rowFocus.g, t.rowFocus.b, _focused ? 1f : 0.55f) : new Color(1f, 1f, 1f, _focused ? 0.10f : 0.05f);
+            _cursorGold.color = new Color(t.accent.r, t.accent.g, t.accent.b, _focused ? 1f : 0.45f);
             // scroll thumb
             bool scroll = Count > VisibleRows;
             _scrollTrack.gameObject.SetActive(scroll);

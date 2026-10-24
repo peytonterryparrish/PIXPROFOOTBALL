@@ -79,8 +79,8 @@ namespace PixFootball.Tests
             int madeBefore = d.Slots.Count(x => x.Made);
             Assert.AreEqual(cur.Overall - 1, madeBefore);
             var best = CareerDraft.Board(s, "grade", true).First();
-            Prospect already = s.Pro.DraftClass.First(x => x.Drafted);
-            Assert.IsFalse(CareerDraft.UserPick(s, already.Id).Ok, "already taken");
+            Prospect already = s.Pro.DraftClass.FirstOrDefault(x => x.Drafted);      // v0.11.0: when the user is on the clock at pick 1 nobody is drafted yet
+            if (already != null) Assert.IsFalse(CareerDraft.UserPick(s, already.Id).Ok, "already taken");
             OpResult pick = CareerDraft.UserPick(s, best.Id);
             Assert.IsTrue(pick.Ok, pick.Message);
             Assert.IsTrue(cur.Made);

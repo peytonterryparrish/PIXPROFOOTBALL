@@ -56,6 +56,17 @@ namespace PixFootball.Gameplay
         public bool RightContact { get; private set; }
         /// <summary>Orientation warp: degrees the legs are turned toward the travel direction (the upper body keeps the facing).</summary>
         public float OrientationWarp { get; private set; }
+        /// <summary>v0.11.0: athletic stance of a back-pedal / shuffle take (0..1) and the forward lean of the trunk in degrees; the Mixamo strafes and back-runs stand upright, a defender in coverage sits low with the chest over the knees.</summary>
+        public float PostureW { get; private set; }
+        public float PostureLean { get; private set; }
+        /// <summary>The share of the posture that lowers the pelvis (back-pedal only: a lowered pelvis over side-stepping feet makes them slide, the shuffle gets the trunk lean alone).</summary>
+        public float PostureDropW { get; private set; }
+        public const float PostureDrop = 0.035f;
+        public static bool NoPosture;
+        /// <summary>QA (-pixMmNoTrans): the start / stop / cut takes of the database are never searched (A/B against loops only).</summary>
+        public static bool NoTransitions;
+        /// <summary>How many source frames ahead of the playing frame the contact tag is read (the foot is stopped on the frame it lands).</summary>
+        public static float ContactLead = 1.5f;
         /// <summary>The feet of the playing take point along the pelvis, not along the way the body travels (strafes, back-pedals): more than 45 degrees between the two.</summary>
         public bool BackTravel { get { return _clip >= 0 && Mathf.Abs(_db.clips[_clip].angle) > 100f; } }
         public bool FeetOffTravel { get { return _clip >= 0 && Mathf.Abs(_db.clips[_clip].angle) > 45f; } }
@@ -165,7 +176,7 @@ namespace PixFootball.Gameplay
             _row = -1; _clip = -1;
             if (_attached) { SetActive(-1); _parent.SetInputWeight(_parentInput, 0f); }
             if (Layer > 0f) _switched = true;
-            Layer = 0f; Warp = 1f; Rate = 1f; LeftContact = RightContact = false; OrientationWarp = 0f;
+            Layer = 0f; Warp = 1f; Rate = 1f; LeftContact = RightContact = false; OrientationWarp = 0f; PostureW = 0f;
         }
 
         /// <summary>The pose source under the matcher changed (a clip layer gave the legs back): the inertializer takes the jump.</summary>
@@ -233,9 +244,10 @@ namespace PixFootball.Gameplay
             pl.SetTime(Mathf.Clamp(_t, 0f, cur.clip.length));
             // ---- stride: rate x warp, both from the speed of the matched frame
             float gvx = _db.vel[_row * 2] * ls, gvz = _db.vel[_row * 2 + 1] * ls, gv = Mathf.Sqrt(gvx * gvx + gvz * gvz);
-            float r = 1f;
-            if (gv > 0.9f && _vSmooth > 0.5f) r = Mathf.Clamp(_vSmooth / gv, 0.5f, 2f);
-            float rate = Mathf.Clamp(Mathf.Sqrt(r), 0.9f, 1.22f);      // cadence and stride share the difference (a faster runner takes quicker AND longer steps)
+            float r = 1f; bool shot = !cur.loop;
+            if (shot) { if (gv > 0.35f && _vSmooth > 0.2f) r = Mathf.Clamp(_vSmooth / gv, 0.45f, 2.2f); }      // a start / stop / cut changes speed through the clip: it plays by distance (time runs as fast as the body covers the ground the take covers), the feet stay on the turf
+            else if (gv > 0.9f && _vSmooth > 0.5f) r = Mathf.Clamp(_vSmooth / gv, 0.5f, 2f);
+            float rate = shot ? Mathf.Clamp(r, 0.6f, 1.8f) : Mathf.Clamp(Mathf.Sqrt(r), 0.9f, 1.22f);      // cadence and stride share the difference (a faster runner takes quicker AND longer steps)
             Rate = Mathf.Lerp(Rate, rate, 1f - Mathf.Exp(-dt / 0.06f));
             float warpT = Mathf.Clamp(r / Mathf.Max(0.5f, Rate) * TrimOf(_clip), 0.5f, 1.6f);
             Warp = fresh ? warpT : Mathf.Lerp(Warp, warpT, 1f - Mathf.Exp(-dt / 0.045f));      // a jump to another take must not jerk the planted feet
@@ -247,8 +259,15 @@ namespace PixFootball.Gameplay
                 ow = Mathf.Clamp(Mathf.DeltaAngle(ac, a), -35f, 35f);
             }
             OrientationWarp = Mathf.Lerp(OrientationWarp, ow, 1f - Mathf.Exp(-dt / 0.07f));
+            {
+                float ab = Mathf.Abs(cur.angle); int tk = cur.kind;
+                float tw = (ab > 55f && (tk & MotionDb.TransitionKinds) == 0 && !NoPosture) ? Mathf.SmoothStep(0f, 1f, (ab - 55f) / 25f) * Mathf.Clamp01((_vSmooth - 0.8f) / 0.6f) : 0f;
+                PostureW = Mathf.Lerp(PostureW, tw, 1f - Mathf.Exp(-dt / 0.15f));
+                PostureLean = Mathf.Lerp(8f, 11f, Mathf.Clamp01((ab - 90f) / 60f));
+                PostureDropW = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((ab - 105f) / 25f));
+            }
             // ---- foot contacts (one source frame ahead: the foot is stopped on the frame it lands)
-            int fi = Mathf.FloorToInt((_t + 1.5f / MotionDb.Fps) * MotionDb.Fps); var cc = _db.clips[_clip];
+            int fi = Mathf.FloorToInt((_t + ContactLead / MotionDb.Fps) * MotionDb.Fps); var cc = _db.clips[_clip];
             int cr = cc.first + (cc.loop ? fi % cc.count : Mathf.Clamp(fi, 0, cc.count - 1));
             byte cb = _db.contact[cr];
             LeftContact = (cb & 1) != 0; RightContact = (cb & 2) != 0;
@@ -276,7 +295,15 @@ namespace PixFootball.Gameplay
         {
             BuildQuery(qy, ls, fresh);
             bool masked = fresh && qy.LiveFeet == null;
-            int forbid = 0;
+            // v0.11.0: explicit transitions are only candidates when the simulation says so: a stop when the planned path brakes to a standstill, a start when the body stands and the path runs away, a cut / turn when the path turns.
+            float spd = qy.Vel.magnitude, p3 = qy.P3.magnitude;
+            int forbid = NoTransitions ? MotionDb.TransitionKinds : MotionDb.TransitionKinds;
+            if (!NoTransitions)
+            {
+                if (spd > 2.0f && p3 < 0.55f * spd) forbid &= ~(int)MotionDb.Kind.Stop;
+                if (spd < 1.5f && p3 > 1.8f) forbid &= ~(int)MotionDb.Kind.Start;
+                if (spd > 2.0f && (Mathf.Abs(qy.Yaw1) > 25f || Mathf.Abs(qy.Yaw2) > 30f || Mathf.Abs(qy.Yaw3) > 45f)) forbid &= ~((int)MotionDb.Kind.Turn | (int)MotionDb.Kind.Cut);
+            }
             float best; int bi;
             float speedNow = qy.Vel.magnitude / ls;
             int cont = _row >= 0 && !_ended ? _db.Next(_row) : -1;
@@ -351,8 +378,9 @@ namespace PixFootball.Gameplay
         /// <summary>LateUpdate, first thing after the animation: the facing convention of the takes, inertialization, then the orientation warp of the legs.</summary>
         /// <param name="convYaw">Degrees the whole pose is turned about the avatar root's vertical axis so a take authored facing the avatar's own forward faces the way the match bodies (and every older take) face: the body model is
         /// turned by <see cref="PlayerAvatar.ModelYaw"/> and the older takes carry that turn in their hips; the Mixamo takes do not.</param>
-        public void Late(float dt, Transform hips, Transform spine, Transform pivot, float convYaw, float drop)
+        public void Late(float dt, Transform hips, Transform spine, Transform pivot, float convYaw, float drop, Vector3 lateral = default(Vector3))
         {
+            if (Mathf.Abs(convYaw) > 0.01f) lateral = Quaternion.AngleAxis(convYaw, Vector3.up) * lateral;      // the pose is about to be turned back by the facing convention: the lateral axis read before it is turned with it
             if (hips != null && pivot != null && Mathf.Abs(convYaw) > 0.01f)
             {
                 var r = Quaternion.AngleAxis(convYaw, Vector3.up);
@@ -368,6 +396,7 @@ namespace PixFootball.Gameplay
                 hips.rotation = q * hips.rotation;
                 if (spine != null) spine.rotation = Quaternion.Inverse(q) * spine.rotation;
             }
+            if (Layer > 0.5f && PostureW > 0.01f && spine != null && lateral.sqrMagnitude > 0.002f) spine.rotation = Quaternion.AngleAxis(PostureLean * PostureW, lateral.normalized) * spine.rotation;      // trunk forward about the pelvis lateral axis (positive about +right tips the up vector toward the front)
         }
     }
 }

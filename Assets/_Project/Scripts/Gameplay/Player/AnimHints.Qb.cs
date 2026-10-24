@@ -25,5 +25,7 @@ namespace PixFootball.Gameplay
         public bool QbHandoffPlan;
         /// <summary>v0.10.0 QB: seconds until the simulated exchange (the stage predicts it from the closing speed; -1 = not in a hand-off). The sync frame of the quarterback's reach.</summary>
         public float QbMeshEta;
+        /// <summary>v0.11.0 QB: the quarterback is running with the ball on purpose (a takeoff, a keeper, a sprinting user passer); false = he stays in the square throwing stance, in the pocket or moving, and seconds since the takeoff began.</summary>
+        public bool QbTakeoff; public float QbTakeoffSince;
     }
 }

@@ -23,6 +23,10 @@ namespace PixFootball.Presentation
         Canvas _canvas; Sprite _star;
         float _rows = 6f;
         float _excite, _waveClock;
+        CrowdAnimator _anim;
+        float _hEx, _hStand, _hSlump, _aEx, _aStand, _aSlump;
+        public CrowdAnimator Anim { get { return _anim; } }
+        public string AnimInfo { get { return _anim != null ? _anim.Info : "per-chunk pose swap"; } }
         float _flashAcc;
         bool _built;
         public float Excitement { get { return _excite; } }
@@ -39,9 +43,13 @@ namespace PixFootball.Presentation
             var info = FindAnyObjectByType<CrowdInfo>();
             if (info != null)
             {
+                _anim = gameObject.AddComponent<CrowdAnimator>();
+                if (!_anim.Build(info.transform)) { Debug.Log("[PIX] crowd animation unavailable (" + _anim.Info + "): per-chunk pose swap"); Destroy(_anim); _anim = null; }
+                else Debug.Log("[PIX] crowd animation: " + _anim.Info);
                 foreach (var r in info.GetComponentsInChildren<MeshRenderer>())
                 {
                     var mf = r.GetComponent<MeshFilter>();
+                    if (_anim != null) { CollectSpots(r, mf); continue; }
                     var mat = r.material;     // one instance per chunk (the atlas window is per chunk)
                     var tex = mat != null ? mat.GetTexture("_BaseColorMap") as Texture2D : null;
                     if (tex != null && tex.wrapMode != TextureWrapMode.Repeat) tex.wrapMode = TextureWrapMode.Repeat;
@@ -57,7 +65,51 @@ namespace PixFootball.Presentation
                     else _spots.Add(c);
                 }
             }
+            AudioProbe.CrowdAnimInfo = () => AnimInfo + (_anim != null ? ", dispatches/frame " + _anim.Dispatches : "");
             BuildFlashes();
+        }
+
+        void OnEnable() { CrowdMix.Reacted += OnCue; }
+        void OnDisable() { CrowdMix.Reacted -= OnCue; }
+
+        void CollectSpots(MeshRenderer r, MeshFilter mf)
+        {
+            var mesh = mf != null ? mf.sharedMesh : null;
+            if (mesh != null && mesh.isReadable)
+            {
+                var v = mesh.vertices;
+                for (int i = 0; i < v.Length && _spots.Count < 900; i += 4 * 40) _spots.Add(r.transform.TransformPoint(v[i]) + Vector3.up * 1.4f);
+            }
+            else _spots.Add(r.bounds.center);
+        }
+
+        /// <summary>A crowd cue from the sound side: the home and visitor sections react differently (benefit +1 home, -1 visitors, 0 neutral).</summary>
+        void OnCue(CrowdCue cue, float s, int benefit)
+        {
+            if (cue == CrowdCue.Snap || cue == CrowdCue.Timeout || cue == CrowdCue.Punt) return;
+            bool stand = cue == CrowdCue.Touchdown || cue == CrowdCue.Turnover || cue == CrowdCue.FieldGoal || cue == CrowdCue.Safety || cue == CrowdCue.Final || cue == CrowdCue.Sack || (cue == CrowdCue.BigGain && s > 0.5f);
+            float ex = 0.35f + 0.65f * s, st = 0.4f + 0.6f * s;
+            if (benefit > 0)
+            {
+                _hEx = Mathf.Max(_hEx, ex); _hSlump = 0f; if (stand) _hStand = Mathf.Max(_hStand, st);
+                if (stand) { _aSlump = Mathf.Max(_aSlump, 0.7f * s); _aEx *= 0.4f; _aStand *= 0.5f; }
+            }
+            else if (benefit < 0)
+            {
+                _aEx = Mathf.Max(_aEx, ex); _aSlump = 0f; if (stand) _aStand = Mathf.Max(_aStand, st);
+                if (stand) { _hSlump = Mathf.Max(_hSlump, 0.7f * s); _hEx *= 0.4f; _hStand *= 0.5f; }
+            }
+            else { float e = 0.3f * s + (cue == CrowdCue.BigHit ? 0.15f : 0f); _hEx = Mathf.Max(_hEx, e); _aEx = Mathf.Max(_aEx, e); }
+            if (_excite < _hEx) _excite = _hEx;
+        }
+
+        void TickAnimator(float dt)
+        {
+            _hEx = Mathf.Max(0f, _hEx - dt * 0.11f); _aEx = Mathf.Max(0f, _aEx - dt * 0.11f);
+            _hStand = Mathf.Max(0f, _hStand - dt * 0.06f); _aStand = Mathf.Max(0f, _aStand - dt * 0.06f);
+            _hSlump = Mathf.Max(0f, _hSlump - dt * 0.12f); _aSlump = Mathf.Max(0f, _aSlump - dt * 0.12f);
+            _anim.Home = new Vector4(_hEx, _hStand, _hSlump, 0f); _anim.Away = new Vector4(_aEx, _aStand, _aSlump, 0f);
+            _anim.Tick(dt);
         }
 
         void OnDestroy() { if (_star != null) { if (_star.texture != null) Destroy(_star.texture); Destroy(_star); } }   // QA-856
@@ -101,10 +153,11 @@ namespace PixFootball.Presentation
         {
             Build();
             _excite = Mathf.Max(_excite, Mathf.Clamp01(strength));
+            _hEx = Mathf.Max(_hEx, Mathf.Clamp01(strength));
             WaveCount++;
         }
 
-        public void Calm() { _excite = 0f; }
+        public void Calm() { _excite = 0f; _hEx = 0f; }
 
         /// <summary>A seat the main camera can see (a few tries), so the flashes are where the viewer is looking.</summary>
         bool PickSpot(Camera cam, out Vector3 spot)
@@ -127,6 +180,7 @@ namespace PixFootball.Presentation
             if (GameSession.Paused && !(BroadcastDirector.Instance != null && BroadcastDirector.Instance.Busy)) return;
             float dt = Time.unscaledDeltaTime;
             var cam = Camera.main;
+            if (_anim != null) { TickAnimator(dt); _excite = Mathf.Max(_excite, _hEx, 0.8f * _aEx); }
             if (_excite > 0.001f)
             {
                 _waveClock += dt;

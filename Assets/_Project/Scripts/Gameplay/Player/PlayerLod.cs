@@ -25,6 +25,13 @@ namespace PixFootball.Gameplay
 
         public int Level { get { return _level; } }
 
+        /// <summary>
+        /// v0.11.0 CRITICAL: culling mode of the match animators. v0.2-v0.10 used CullUpdateTransforms ("players outside the camera are not posed"): while a body is off screen the Animator stops writing its bones, but the layers that run
+        /// in LateUpdate (ground fit, stance IK, foot lock, limb IK, inertializer, sanity limits) keep reading and changing the stale bones, so a body that enters the picture shows a pose the layers have been working on for seconds.
+        /// AlwaysAnimate keeps every one of the 22 bodies posed every frame (22 graphs, a few tenths of a millisecond). <c>-pixCullUpdate</c> restores the old mode for A/B runs.
+        /// </summary>
+        public static AnimatorCullingMode MatchCulling = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixCullUpdate") >= 0 ? AnimatorCullingMode.CullUpdateTransforms : AnimatorCullingMode.AlwaysAnimate;
+
         public PlayerLod(Transform headBone)
         {
             if (headBone == null) return;
@@ -83,6 +90,9 @@ namespace PixFootball.Gameplay
 
         /// <summary>Level changes since start (autotest spike log).</summary>
         public static int Switches;
+        /// <summary>Seconds a body keeps its level of detail before it may change again (v0.11.0, B-059).</summary>
+        public static float LevelDwell = 0.3f;
+        float _switchedAt = -9f;
 
         public void Apply(int level)
         {
@@ -136,8 +146,11 @@ namespace PixFootball.Gameplay
             if (_photo == null && _groups.Count == 0 && _bodies.Count == 0) return;
             if (cam == null) { if (_level < 0) Apply(0); return; }   // free roam / before the director set the camera: never leave every helmet LOD active at once
             float dist = Vector3.Distance(cam.transform.position, position);
-            if (UseScreenSize) Apply(LevelForPixels(ScreenPixels(dist, cam.fieldOfView, cam.pixelHeight), _level));
-            else Apply(LevelFor(dist, _level));
+            int want = UseScreenSize ? LevelForPixels(ScreenPixels(dist, cam.fieldOfView, cam.pixelHeight), _level) : LevelFor(dist, _level);
+            // v0.11.0 CRITICAL (B-059): a director cut or ease crosses the size edges in both directions within a few frames (66 flips inside 0.2 s, each one a mesh-set swap): a body keeps its level for LevelDwell seconds
+            if (_level >= 0 && want != _level && LevelDwell > 0f && Time.unscaledTime - _switchedAt < LevelDwell) return;
+            if (want != _level) _switchedAt = Time.unscaledTime;
+            Apply(want);
         }
     }
 }

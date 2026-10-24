@@ -295,7 +295,7 @@ namespace PixFootball.Sim
             float bScore = BlockerScore(e.Blockers[0], run);
             if (e.Blockers.Count > 1) bScore += 0.62f * BlockerScore(e.Blockers[1], run);
             float dScore = DefenderScore(d);
-            float gap = (bScore - dScore) / 100f;
+            float gap = (bScore - dScore) / 100f * SimTuning.TalentGapScale;
 
             // momentum: a defender arriving fast against a flat-footed blocker wins the first beat
             Vec2 n0 = (d.Pos - e.Blockers[0].Pos).Norm();

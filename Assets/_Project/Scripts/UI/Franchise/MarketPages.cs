@@ -125,7 +125,7 @@ namespace PixFootball.UI.Franchise
             var t = GlassTheme.T;
             _posSel = GlassKit.Stepper(root, "Position", PosFilter.Names, 0, i => Refresh(), 340f, 56f); Lay.Place((RectTransform)_posSel.transform, 0f, 0f, 340f, 56f);
             _ovrSel = GlassKit.Stepper(root, "Min OVR", new[] { "Any", "60+", "65+", "70+", "75+", "80+" }, 0, i => Refresh(), 340f, 56f); Lay.Place((RectTransform)_ovrSel.transform, 354f, 0f, 340f, 56f);
-            _info = Lay.Text(root, "", 20f, t.textPrimary, 706f, 0f, 380f, 56f, false, TextAlignmentOptions.MidlineRight, 0f, "Info"); Lay.Under(_info, 10f, 0f);
+            _info = Lay.Text(root, "", 20f, t.textPrimary, 706f, 0f, 390f, 56f, false, TextAlignmentOptions.MidlineRight, 0f, "Info"); Lay.Under(_info, 10f, 0f);
             var cols = new List<TableColumn>
             {
                 new TableColumn("NAME", 2.5f, i => _pool[i].Name),
@@ -136,15 +136,15 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("WANTS", 1.2f, i => FreeAgency.PriorityOf(_pool[i]).ToString().ToUpperInvariant(), true, null, false),
                 new TableColumn("YOUR OFFER", 1.5f, i => OfferText(_pool[i]), true, i => FreeAgency.OfferOf(Save, Save.UserTeamId, _pool[i].Id) != null ? (Color?)GlassTheme.T.accent : null, false)
             };
-            _table = GlassTable.Create(root, "PoolTable", 1080f, 598f, cols);
-            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1080f, 598f);
+            _table = GlassTable.Create(root, "PoolTable", 1100f, Lay.H - 68f, cols);
+            Lay.Place((RectTransform)_table.transform, 0f, 68f, 1100f, Lay.H - 68f);
             _table.EmptyText = "No free agents match.";
             _table.CursorChanged = i => ShowCard();
             _table.Activated = i => FaOfferSheet.Show(Shell, Save, _pool[i], () => Ctl.Touch());
             _table.HeaderClicked = SortBy; _table.SortRequested = SortBy;
-            _card = PlayerCardPanel.Create(root, 1096f, 68f, 632f, 598f);
-            _day = GlassKit.Button(root, "ADVANCE DAY", AdvanceDay, GlassButtonStyle.Primary, 280f, 56f, null, "Day", 22f); Lay.Place((RectTransform)_day.transform, 1728f - 280f, 0f, 280f, 56f);
-            _skip = GlassKit.Button(root, "SKIP TO THE END", SkipAll, GlassButtonStyle.Secondary, 280f, 56f, null, "Skip", 20f); Lay.Place((RectTransform)_skip.transform, 1728f - 280f * 2f - 14f, 0f, 280f, 56f);
+            _card = PlayerCardPanel.Create(root, 1116f, 68f, Lay.W - 1116f, Lay.H - 68f);
+            _day = GlassKit.Button(root, "ADVANCE DAY", AdvanceDay, GlassButtonStyle.Primary, 280f, 56f, null, "Day", 22f); Lay.Place((RectTransform)_day.transform, Lay.W - 280f, 0f, 280f, 56f);
+            _skip = GlassKit.Button(root, "SKIP TO THE END", SkipAll, GlassButtonStyle.Secondary, 280f, 56f, null, "Skip", 20f); Lay.Place((RectTransform)_skip.transform, Lay.W - 280f * 2f - 14f, 0f, 280f, 56f);
         }
 
         string OfferText(Player p)
@@ -250,7 +250,7 @@ namespace PixFootball.UI.Franchise
             var names = new string[_partners.Count];
             for (int i = 0; i < names.Length; i++) names[i] = _partners[i].City + " " + _partners[i].Nickname + "  (" + _partners[i].TeamOverall() + ")";
             _partnerSel = GlassKit.Stepper(root, "Trade with", names, 0, i => { _tp = new TradeProposal(); RebuildAssets(); }, 640f, 56f); Lay.Place((RectTransform)_partnerSel.transform, 436f, 0f, 640f, 56f);
-            _window = Lay.Text(root, "", 20f, t.textSecondary, 1092f, 0f, 636f, 56f, true, TextAlignmentOptions.MidlineRight, 0f, "Window"); Lay.Under(_window, 12f, 0f);
+            _window = Lay.Text(root, "", 20f, t.textSecondary, 1100f, 0f, Lay.W - 1100f, 56f, true, TextAlignmentOptions.MidlineRight, 0f, "Window"); Lay.Under(_window, 12f, 0f);
 
             var cols = new Func<List<Asset>, List<TableColumn>>(list => new List<TableColumn>
             {
@@ -260,19 +260,19 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("OVR", 0.7f, i => list[i].IsPick ? "" : list[i].Ovr.ToString(), true, null, false),
                 new TableColumn("VALUE", 0.9f, i => Mathf.RoundToInt(list[i].Value).ToString(), true, null, false)
             });
-            _mine = GlassTable.Create(root, "MyAssets", 560f, 598f, cols(_a)); Lay.Place((RectTransform)_mine.transform, 0f, 68f, 560f, 598f);
-            _theirs = GlassTable.Create(root, "TheirAssets", 560f, 598f, cols(_b)); Lay.Place((RectTransform)_theirs.transform, 576f, 68f, 560f, 598f);
+            _mine = GlassTable.Create(root, "MyAssets", 560f, Lay.H - 68f, cols(_a)); Lay.Place((RectTransform)_mine.transform, 0f, 68f, 560f, Lay.H - 68f);
+            _theirs = GlassTable.Create(root, "TheirAssets", 560f, Lay.H - 68f, cols(_b)); Lay.Place((RectTransform)_theirs.transform, 576f, 68f, 560f, Lay.H - 68f);
             foreach (var tb in new[] { _mine, _theirs }) { tb.HandleSortKey = false; }
             _mine.RowTint = i => _a[i].Blocked ? (Color?)GlassTheme.T.textMuted : null; _theirs.RowTint = i => _b[i].Blocked ? (Color?)GlassTheme.T.textMuted : null;
             _mine.Activated = i => Toggle(_a, i, true); _theirs.Activated = i => Toggle(_b, i, false);
             _mine.AltAction = i => Shell.Toast(Describe(_a[i])); _theirs.AltAction = i => Shell.Toast(Describe(_b[i]));
             _mine.EmptyText = "Nothing to trade."; _theirs.EmptyText = "Nothing to trade.";
 
-            var sc = GlassKit.Panel(root, "SummaryCard", 1.2f, true, t.cornerRadiusLarge); Lay.Place(sc.rectTransform, 1152f, 68f, 576f, 598f);
-            _summary = Lay.Group(sc.rectTransform, "Summary", 24f, 18f, 528f, 380f);
-            _propose = GlassKit.Button(sc.rectTransform, "PROPOSE TRADE", Propose, GlassButtonStyle.Primary, 528f, 62f, null, "Propose", 24f); Lay.Place((RectTransform)_propose.transform, 24f, 410f, 528f, 62f);
-            _ask = GlassKit.Button(sc.rectTransform, "WHAT WOULD IT TAKE?", AskTake, GlassButtonStyle.Secondary, 528f, 56f, null, "Ask", 22f); Lay.Place((RectTransform)_ask.transform, 24f, 482f, 528f, 56f);
-            _clear = GlassKit.Button(sc.rectTransform, "CLEAR THE DEAL", () => { _tp = new TradeProposal(); RebuildAssets(); }, GlassButtonStyle.Secondary, 528f, 56f, null, "Clear", 22f); Lay.Place((RectTransform)_clear.transform, 24f, 546f - 4f, 528f, 48f);
+            var sc = GlassKit.Panel(root, "SummaryCard", 1.2f, true, t.cornerRadiusLarge); Lay.Place(sc.rectTransform, 1152f, 68f, Lay.W - 1152f, Lay.H - 68f);
+            _summary = Lay.Group(sc.rectTransform, "Summary", 24f, 18f, Lay.W - 1200f, Lay.H - 68f - 222f);
+            _propose = GlassKit.Button(sc.rectTransform, "PROPOSE TRADE", Propose, GlassButtonStyle.Primary, Lay.W - 1200f, 62f, null, "Propose", 24f); Lay.Place((RectTransform)_propose.transform, 24f, Lay.H - 68f - 194f, Lay.W - 1200f, 62f);
+            _ask = GlassKit.Button(sc.rectTransform, "WHAT WOULD IT TAKE?", AskTake, GlassButtonStyle.Secondary, Lay.W - 1200f, 56f, null, "Ask", 22f); Lay.Place((RectTransform)_ask.transform, 24f, Lay.H - 68f - 124f, Lay.W - 1200f, 56f);
+            _clear = GlassKit.Button(sc.rectTransform, "CLEAR THE DEAL", () => { _tp = new TradeProposal(); RebuildAssets(); }, GlassButtonStyle.Secondary, Lay.W - 1200f, 56f, null, "Clear", 22f); Lay.Place((RectTransform)_clear.transform, 24f, Lay.H - 68f - 60f, Lay.W - 1200f, 48f);
 
             // inbox
             var icols = new List<TableColumn>
@@ -282,13 +282,13 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("THEY WANT", 2.6f, i => Summarize(_offers[i].Proposal.FromB), false, null, false),
                 new TableColumn("EXPIRES", 0.9f, i => "wk " + _offers[i].ExpiresWeek, true, null, false)
             };
-            _inbox = GlassTable.Create(root, "Inbox", 1120f, 598f, icols); Lay.Place((RectTransform)_inbox.transform, 0f, 68f, 1120f, 598f);
+            _inbox = GlassTable.Create(root, "Inbox", 1120f, Lay.H - 68f, icols); Lay.Place((RectTransform)_inbox.transform, 0f, 68f, 1120f, Lay.H - 68f);
             _inbox.EmptyText = "No offers right now. CPU teams make offers before the deadline."; _inbox.HandleSortKey = false;
             _inbox.CursorChanged = i => ShowOffer();
-            var dc = GlassKit.Panel(root, "OfferCard", 1.2f, true, t.cornerRadiusLarge); Lay.Place(dc.rectTransform, 1136f, 68f, 592f, 598f);
-            _inboxDetail = Lay.Group(dc.rectTransform, "Detail", 24f, 18f, 544f, 400f);
-            _accept = GlassKit.Button(dc.rectTransform, "ACCEPT", () => AcceptOffer(true), GlassButtonStyle.Primary, 260f, 62f, null, "Accept", 24f); Lay.Place((RectTransform)_accept.transform, 24f, 510f, 260f, 62f);
-            _reject = GlassKit.Button(dc.rectTransform, "REJECT", () => AcceptOffer(false), GlassButtonStyle.Secondary, 260f, 62f, null, "Reject", 24f); Lay.Place((RectTransform)_reject.transform, 308f, 510f, 260f, 62f);
+            var dc = GlassKit.Panel(root, "OfferCard", 1.2f, true, t.cornerRadiusLarge); Lay.Place(dc.rectTransform, 1136f, 68f, Lay.W - 1136f, Lay.H - 68f);
+            _inboxDetail = Lay.Group(dc.rectTransform, "Detail", 24f, 18f, Lay.W - 1184f, Lay.H - 68f - 200f);
+            _accept = GlassKit.Button(dc.rectTransform, "ACCEPT", () => AcceptOffer(true), GlassButtonStyle.Primary, 260f, 62f, null, "Accept", 24f); Lay.Place((RectTransform)_accept.transform, 24f, Lay.H - 68f - 90f, 260f, 62f);
+            _reject = GlassKit.Button(dc.rectTransform, "REJECT", () => AcceptOffer(false), GlassButtonStyle.Secondary, 260f, 62f, null, "Reject", 24f); Lay.Place((RectTransform)_reject.transform, 308f, Lay.H - 68f - 90f, 260f, 62f);
             _inbox.Activated = i => AcceptOffer(true);
             _inbox.gameObject.SetActive(false); dc.gameObject.SetActive(false); _inboxCard = dc.gameObject;
         }
@@ -388,7 +388,7 @@ namespace PixFootball.UI.Franchise
             for (int i = _summary.childCount - 1; i >= 0; i--) UiKit.Kill(_summary.GetChild(i).gameObject);
             bool any = _tp.FromA.Count + _tp.FromB.Count > 0;
             _ev = any ? TradeEngine.Evaluate(Save, _tp) : null;
-            var sp = StackPanel.Create(_summary, "S", 0f, 0f, 528f, 380f);
+            var sp = StackPanel.Create(_summary, "S", 0f, 0f, Lay.W - 1200f, Lay.H - 68f - 222f);
             sp.Caps("YOU SEND");
             if (_tp.FromA.Count == 0) sp.Para("nothing yet", 20f, t.textMuted);
             foreach (var a in _tp.FromA) if (sp.Fits(30f)) sp.Line(AssetName(a), Mathf.RoundToInt(TradeEngine.AssetValue(Save, a)).ToString(), null, 28f, 20f);
@@ -435,7 +435,7 @@ namespace PixFootball.UI.Franchise
             _accept.interactable = any && TradeEngine.IsOpen(Save); _reject.interactable = any;
             if (!any) return;
             var o = _offers[Mathf.Clamp(_inbox.Cursor, 0, _offers.Count - 1)];
-            var sp = StackPanel.Create(_inboxDetail, "S", 0f, 0f, 544f, 400f);
+            var sp = StackPanel.Create(_inboxDetail, "S", 0f, 0f, Lay.W - 1184f, Lay.H - 68f - 200f);
             sp.Heading(CareerText.TeamName(Save, o.FromTeamId), t.textPrimary, 30f);
             sp.Para(o.Message, 21f, t.textSecondary, 90f);
             sp.Gap(6f); sp.Caps("THEY SEND");

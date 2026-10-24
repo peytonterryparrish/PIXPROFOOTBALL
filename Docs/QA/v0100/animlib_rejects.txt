@@ -1,70 +1,14 @@
 # clips rejected by the ANIMLIB QA (score < 50, T-pose or 8+ bone pops after cleaning): not registered in the ArtLibrary
-BONES_QB_FakeHandoff_to_Roll_Right_001_s01	56	slide pops
-BONES_QB_FakeHandoff_to_Roll_Right_001_s01_M	56	slide pops
-BONES_QB_celebration_001_s03	63	slide pops
-BONES_QB_celebration_002_s01	60	slide pops
-BONES_QB_falling_throw_forward_sack_001_s03	43	slide waist-twist torso-twist pops
-BONES_QB_falling_throw_left_002_s01	36	slide waist-twist torso-twist pops
-BONES_QB_freestyle_002	54	slide pops
-BONES_QB_frustration_001_s02	80	pops
-BONES_QB_offbalance_pass_003_s03	57	slide waist-twist torso-twist pops
-BONES_QB_offbalance_pass_004_s03	54	slide pops
-BONES_QB_offbalance_pass_007_s04	54	slide pops
-BONES_QB_pass_medium_lob_001_s01	74	pops arms-out
-BONES_QB_pass_medium_lob_001_s02	69	slide pops
-BONES_QB_pass_medium_lob_001_s03	80	pops
+BONES_QB_falling_throw_002_s03	47	slide waist-twist torso-twist yaw-offset
+BONES_QB_falling_throw_backwards_001_s03	46	slide penetrates waist-twist torso-twist
+BONES_QB_falling_throw_forward_sack_001_s03	47	slide waist-twist torso-twist yaw-offset
 BONES_QB_ready_to_pass_loop_001	94	arms-out
-BONES_QB_run_right_pass_002_s01	67	slide pops
-BONES_QB_run_right_pass_002_s02	71	slide pops
-BONES_QB_run_right_pass_002_s03	80	pops
-BONES_QB_run_right_pass_002_s04	65	slide pops dead-time
-BONES_QB_scramble_002_s04	48	slide waist-twist torso-twist pops
 BONES_QB_shovel_pass_001_s03	56	waist-twist torso-twist pops
-BONES_QB_slide_001_s04	60	slide pops
-BONES_QB_toss_001_s04	56	waist-twist torso-twist pops
 BONES_backpedal_to_shuffle_315_002_s03	80	slide arms-out
 BONES_backpedal_to_shuffle_315_002_s03_M	80	slide arms-out
-Bones_QB_dive_001_s04	48	slide waist-twist torso-twist pops dead-time
-CelebrationTouchdownFreestyleOne_12	70	slide pops dead-time
-QB_pass_bullet_001_s01	72	slide pops
-QB_shotgun_004_s04	74	torso-twist pops
-RAW__Ball_Carrier_Juke_SpinDodge_Finishing_with_sprint_002_s02_M_A	49	slide waist-twist torso-twist pops
-RAW__Draft_night_001_s04_B	54	slide pops
-RAW__Endzone_save_004_s01_A	46	slide waist-twist pops dead-time
-RAW__HB_Stiff_Arm_007_s02_A	46	slide waist-twist torso-twist pops
-RAW__HB_Stiff_Arm_007_s02_M_A	46	slide waist-twist torso-twist pops
-TackleBrokenRightCHighOmo_2_B	42	slide penetrates pops wrist-limit
-YAN__trench_00_atk_right_lose	39	slide penetrates knee-hyper wrist-limit
-BGS__BGS_Stiffarm_FrontL_CritSuc_BC	live-key	pops/twist, another variant is clean
-BGS__BGS_Stiffarm_FrontL_CritSuc_BC_M	live-key	pops/twist, another variant is clean
-BGS__BGS_Sprint04_F_180_Deg_Turn_Right_BC	live-key	pops/twist, another variant is clean
-BGS__BGS_Sprint04_F_180_Deg_Turn_Right_BC_M	live-key	pops/twist, another variant is clean
-BGS__MOB1_Run_R_180_BC	live-key	pops/twist, another variant is clean
-BGS__MOB1_Run_R_180_BC_M	live-key	pops/twist, another variant is clean
-BGS__BGS_Sprint09_F_180_Deg_Turn_Right	live-key	pops/twist, another variant is clean
-BONES_QB_falling_throw_backwards_sack_001_s01	live-key	pops/twist, another variant is clean
-BONES_QB_falling_throw_backwards_sack_001_s04	live-key	pops/twist, another variant is clean
-BONES_QB_falling_throw_forward_sack_001_s02	live-key	pops/twist, another variant is clean
-BONES_QB_frustrated_001_s03	live-key	pops/twist, another variant is clean
-BONES_QB_frustration_001_s01	live-key	pops/twist, another variant is clean
-BONES_QB_jump_pass_001_s02	live-key	pops/twist, another variant is clean
-BONES_QB_offbalance_pass_001_s04	live-key	pops/twist, another variant is clean
-BONES_QB_offbalance_pass_003_s02	live-key	pops/twist, another variant is clean
-QB_pass_bullet_001_s02	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_forward_001_s01	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_forward_001_s04	live-key	pops/twist, another variant is clean
-BONES_QB_run_forward_pass_001_s01	live-key	pops/twist, another variant is clean
-BONES_QB_run_forward_pass_001_s02	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_left_001_s01	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_left_001_s02	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_left_001_s03	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_left_001_s04	live-key	pops/twist, another variant is clean
-BONES_QB_run_left_pass_002_s01	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_right_001_s01	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_right_001_s03	live-key	pops/twist, another variant is clean
-BONES_QB_ready_to_run_right_001_s04	live-key	pops/twist, another variant is clean
-BONES_QB_Spike_001_s01	live-key	pops/twist, another variant is clean
-BONES_QB_Spike_001_s02	live-key	pops/twist, another variant is clean
-RAW__Draft_night_001_s01_A	live-key	pops/twist, another variant is clean
-YAN__kickoff_def_00_idletorun	live-key	pops/twist, another variant is clean
-TackleBrokenFrontLLowDmo_A	live-key	pops/twist, another variant is clean
+CelebrationTouchdownFreestyleOne_12	76	pops dead-time
+TackleBrokenRightCHighOmo_2_B	47	slide penetrates pops
+BONES_QB_frustration_001_s04	live-key	pops/twist, another variant is clean
+BONES_QB_offbalance_pass_003_s04	live-key	pops/twist, another variant is clean
+QB_pass_bullet_001_s04	live-key	pops/twist, another variant is clean
+BONES_QB_run_forward_pass_001_s03	live-key	pops/twist, another variant is clean

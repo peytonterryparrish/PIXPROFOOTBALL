@@ -31,7 +31,7 @@ namespace PixFootball.Gameplay
         {
             if (DebugNoGroundFit || _restAnkle < 0f || Avatar == null || Avatar.Root == null || Avatar.Animator == null || !Avatar.Animator.isHuman) return;
             bool wants = !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid && !StanceLayerOn
-                         && (_lastAction == AgentAction.Stance || _lastAction == AgentAction.Idle || _lastAction == AgentAction.Block);
+                         && (_lastAction == AgentAction.Stance || _lastAction == AgentAction.Idle || _lastAction == AgentAction.Block || (_lastAction == AgentAction.Engaged && HipsAbove(0.8f)));      // v0.11.0 ANIMLIB B-012: the engaged pair takes hover 9-21 cm while the blocker is on his feet
             float target = 0f;
             if (wants)
             {

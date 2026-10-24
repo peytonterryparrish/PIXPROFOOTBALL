@@ -49,7 +49,7 @@ namespace PixFootball.Presentation
             _player.Load(clip);
             _cam.Begin();
             _hud.Show(manual, title, clip.Situation, reel);
-            if (_overlays != null) _overlays.Enabled = !manual;
+            if (_overlays != null) _overlays.Enabled = !manual && reel;   // v0.11 B-100: the score / stat cards wait until the replay is over (the highlight reel keeps its tags)
         }
 
         void SwapClip(ReplayClip clip, string title)
@@ -81,12 +81,16 @@ namespace PixFootball.Presentation
         static bool SkipPressed(MatchInputFrame f) { return f.Down[(int)Btn.A] || f.Menu || f.Cancel || f.Down[(int)Btn.B]; }
 
         // ============================================================================================ automatic broadcast replay
+        /// <summary>Wall-clock cap of one automatic replay (both angles plus the pause between them), seconds.</summary>
+        public const float AutoReplayMaxSeconds = 10f;
+        float _autoDeadline = float.MaxValue;
         /// <summary>Two angles with slow motion around the key moment and the key player in focus. <paramref name="skippable"/> lets A cut it short.</summary>
         public IEnumerator PlayAuto(ReplayClip clip, string title, bool skippable, float speedScale = 1f)
         {
             // an exception inside the replay must never leave the stage hidden and the replay HUD up (QA-864)
+            _autoDeadline = UnityEngine.Time.realtimeSinceStartup + AutoReplayMaxSeconds;      // v0.11.0 S1: the automatic replay never holds the field longer than this on the wall clock (it held 70-120 s when frames were slow); Start / Esc skips it sooner
             try { yield return PlayAutoInner(clip, title, skippable, speedScale); }
-            finally { if (Active) End(); }
+            finally { _autoDeadline = float.MaxValue; if (Active) End(); }
         }
 
         IEnumerator PlayAutoInner(ReplayClip clip, string title, bool skippable, float speedScale)
@@ -107,7 +111,7 @@ namespace PixFootball.Presentation
 
             _view.Reset(clip, target, ReplayAngle.Sideline); _view.Dof = true;
             yield return RunSegment(a0, a1, t => 1f, skippable, v => done = v, speedScale, null, 3.0f);
-            if (!done)
+            if (!done && UnityEngine.Time.realtimeSinceStartup < _autoDeadline)
             {
                 Note("auto replay B");
                 _hud.Flash();
@@ -130,7 +134,7 @@ namespace PixFootball.Presentation
             while (t < t1)
             {
                 float dt = Mathf.Min(UnityEngine.Time.unscaledDeltaTime, 0.05f);
-                real += dt; if (maxReal > 0f && real > maxReal) yield break;
+                real += dt; if (maxReal > 0f && (real > maxReal || UnityEngine.Time.realtimeSinceStartup > _autoDeadline)) yield break;
                 float sp = speedAt(t) * speedScale;
                 // ease into and out of the slow-motion window instead of a hard switch
                 Speed = Mathf.MoveTowards(Speed, sp, dt * 4f);
@@ -138,7 +142,7 @@ namespace PixFootball.Presentation
                 _player.Time = t;
                 ApplyCamera(clip, t, dt);
                 _hud.SetSlow(Speed, Speed < 0.95f);
-                if (skippable && !_dir.Autopilot && SkipPressed(ReadInput())) { skipped(true); yield break; }
+                if (skippable && !_dir.AutoRun && SkipPressed(ReadInput())) { skipped(true); yield break; }
                 if (extraSkip != null && extraSkip()) { skipped(true); yield break; }   // a highlight reel polls its skip every frame, not only between clips (QA-863)
                 yield return null;
             }
@@ -155,7 +159,7 @@ namespace PixFootball.Presentation
         public IEnumerator PlayReel(List<ReplayClip> clips, Func<bool> skip, Action<ReplayClip, int> onClip)
         {
             try { yield return PlayReelInner(clips, skip, onClip); }
-            finally { if (Active) End(); }
+            finally { _autoDeadline = float.MaxValue; if (Active) End(); }
         }
 
         IEnumerator PlayReelInner(List<ReplayClip> clips, Func<bool> skip, Action<ReplayClip, int> onClip)

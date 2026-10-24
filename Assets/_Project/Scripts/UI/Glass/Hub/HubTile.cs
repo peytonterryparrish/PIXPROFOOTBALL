@@ -16,6 +16,15 @@ namespace PixFootball.UI.Glass
         /// <summary>Hero tiles carry a big picture area above the title (the crests of the last matchup, or a large icon).</summary>
         public bool Hero;
         public Sprite CrestA, CrestB; public string NameA, NameB;
+        // ---- Direction 16 additions (v0.11): used by GlassKit.Tile / TileFactory
+        /// <summary>Corner badge text (FEATURED, LIVE, NEW, RESUME, LVL 14, +2,500 PX).</summary>
+        public string Badge;
+        /// <summary>Full-bleed picture (sprite or texture), cropped to cover; the focal point is measured from the top left (0..1).</summary>
+        public Sprite ArtSprite; public Texture ArtTexture; public Vector2 ArtFocal = new Vector2(0.5f, 0.5f); public float ArtZoom = 1f;
+        /// <summary>Flat icon tile (charcoal gradient, line icon on top) instead of art.</summary>
+        public bool Flat;
+        /// <summary>Absolute placement inside the parent (top-left origin, y down) and size; Size.x &gt; 0 switches the tile to absolute layout.</summary>
+        public Vector2 Pos, Size;
     }
 
     /// <summary>One built tile: its cell (the reveal host), surface, button (null when locked) and its centre / size in hub block coordinates (y up) for the navigation links.</summary>

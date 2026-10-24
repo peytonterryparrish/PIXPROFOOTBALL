@@ -13,16 +13,22 @@ namespace PixFootball.EditorTools
     /// Rules: licensed sprites are never referenced (icons keep their key in GlassIconKey and re-resolve at runtime, other sprites that are not project assets are cleared) and runtime click handlers are not serialised
     /// (a prefab is a visual template; callers wire behaviour). Menu: PIX Football/Glass UI/Build prefabs. Batch: -executeMethod PixFootball.EditorTools.GlassPrefabBuilder.BuildAll.
     /// </summary>
-    public static class GlassPrefabBuilder
+    public static partial class GlassPrefabBuilder
     {
         public const string Dir = "Assets/_Project/UI/Glass/Prefabs";
 
         [MenuItem("PIX Football/Glass UI/Build prefabs")]
-        public static void BuildAll()
+        public static void BuildAll() { Build(UiThemeKind.Glass, "Glass", Dir); }
+
+        /// <summary>The Direction 16 set: the same components drawn by the Tile look plus the tile-only ones (tab bar, tile, list row, play card, ticker), saved as Tile*.prefab under Prefabs/Tile.</summary>
+        [MenuItem("PIX Football/Glass UI/Build tile prefabs")]
+        public static void BuildTile() { Build(UiThemeKind.Tile, "Tile", Dir + "/Tile"); }
+
+        static void Build(UiThemeKind kind, string prefix, string dir)
         {
-            UiTheme.Force(UiThemeKind.Glass);
+            UiTheme.Force(kind);
             GlassTheme.ResetCache();
-            MaterialFactory.EnsureFolder(Dir);
+            MaterialFactory.EnsureFolder(Dir); MaterialFactory.EnsureFolder(dir);
             var canvas = UiKit.CreateCanvas("PrefabBuildCanvas", 0);
             var host = (RectTransform)new GameObject("Host", typeof(RectTransform)).transform;
             host.SetParent(canvas.transform, false);
@@ -58,13 +64,26 @@ namespace PixFootball.EditorTools
                     New("GlassPlayerCard", p => GlassPlayerCard.Create(p, "First", "Last", "QB", 88, new[] { "SPD", "THP", "ACC" }, new[] { 80, 90, 85 }).Root.gameObject),
                     New("GlassCrestTile", p => GlassWidgets.MakeCrestTile(p, 0, null, "ABC", "TEAM", new Color(0.8f, 0.2f, 0.2f), null).gameObject),
                 };
+                if (kind == UiThemeKind.Tile)
+                {
+                    items.Add(New("TileTabBar", p => GlassKit.TabBar(p, new[] { "HOME", "PLAY", "SHARE" }, 0, null).Bar.gameObject));
+                    items.Add(New("TileStripTabs", p => GlassKit.StripTabs(p, new[] { "SUGGESTIONS", "FORMATION" }, 0, null).gameObject));
+                    items.Add(New("TileHubTile", p => { var b = UiKit.Rect(p, "TileHost"); b.sizeDelta = new Vector2(380f, 292f); return GlassKit.Tile(b, new HubTileSpec { Title = "Franchise", Subtitle = "Season 3", Badge = "RESUME", IconKey = "fb_franchise_hub", Flat = true, Pos = Vector2.zero, Size = TileMetrics.Standard }).Cell.gameObject; }));
+                    items.Add(New("TileListRow", p => GlassKit.ListRow(p, "List row", "Sub line", 480f, 124f, null, true).gameObject));
+                    items.Add(New("TilePlayCard", p => GlassKit.PlayCard(p, "Play name", TagKind.Pass, "Formation").Root.gameObject));
+                    items.Add(New("TileTagChip", p => GlassKit.TagChip(p, "PASS", TagKind.Pass).gameObject));
+                    items.Add(New("TileTicker", p => { var h = UiKit.Rect(p, "TickerHost"); h.sizeDelta = new Vector2(1920f, 46f); var tk = GlassTicker.Build(h, "NEWS", 46f, 20f); tk.SetHeadlines(new[] { "Headline one", "Headline two" }); return h.gameObject; }));
+                    items.Add(New("TileModal", p => { var w = UiKit.Rect(p, "TileModal"); UiKit.Stretch(w); GlassWidgets.Modal(w, "MODAL", 900f, 440f); return w.gameObject; }));
+                    items.Add(New("TileTableBlock", p => GlassKit.TableBlock(p, "GROUP", new[] { "", "W", "L" }, new[] { new[] { "1  TEAM", "5", "1" }, new[] { "2  TEAM", "4", "2" } }, new[] { 3f, 1f, 1f }, 600f, 0).gameObject));
+                }
                 foreach (var kv in items)
                 {
                     var go = kv.Value(host);
                     if (go == null) { Debug.LogWarning("[GlassPrefabs] skipped " + kv.Key); continue; }
-                    go.name = kv.Key;
+                    string key = kv.Key.StartsWith("Glass") ? prefix + kv.Key.Substring(5) : kv.Key;
+                    go.name = key;
                     Sanitize(go);
-                    PrefabUtility.SaveAsPrefabAsset(go, Dir + "/" + kv.Key + ".prefab");
+                    PrefabUtility.SaveAsPrefabAsset(go, dir + "/" + key + ".prefab");
                     n++;
                     Object.DestroyImmediate(go);
                     // helpers may leave siblings (shades, scrims) under the host: clear it between items
@@ -78,7 +97,7 @@ namespace PixFootball.EditorTools
             }
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("[GlassPrefabs] saved " + n + " prefabs to " + Dir);
+            Debug.Log("[GlassPrefabs] saved " + n + " prefabs to " + dir);
         }
 
         static KeyValuePair<string, System.Func<Transform, GameObject>> New(string name, System.Func<Transform, GameObject> f)
@@ -94,7 +113,7 @@ namespace PixFootball.EditorTools
                 if (img.sprite == null) continue;
                 string path = AssetDatabase.GetAssetPath(img.sprite);
                 bool licensed = !string.IsNullOrEmpty(path) && path.Contains("_Licensed");
-                if (licensed || string.IsNullOrEmpty(path) || !AssetDatabase.Contains(img.sprite)) img.sprite = null;
+                if (licensed || string.IsNullOrEmpty(path) || !AssetDatabase.Contains(img.sprite)) { img.sprite = null; if (img.color == Color.white) img.color = new Color(0.08f, 0.085f, 0.1f, 1f); }   // a runtime gradient is a plain dark plate in the prefab
             }
             foreach (var raw in root.GetComponentsInChildren<RawImage>(true)) raw.texture = null;
         }

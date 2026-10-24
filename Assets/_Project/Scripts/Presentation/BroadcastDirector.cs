@@ -52,6 +52,7 @@ namespace PixFootball.Presentation
         PlaySimulation _sim; PlayFrame _frame;
         string _situation = ""; int _quarterBefore; string _clockBefore = "";
         float _impactMax; bool _bigHit; float _bigHitTime = -1f; int _bigHitAgent = -1;
+        int _playsSinceReplay = 99;
         float _postTime; bool _pendingClip; ReplayClip _lastClip; bool _wantAuto;
         PlayOutcome _lastOutcome; PlayFacts _lastFacts; PlayDigest _lastDigest;
         int _driveIndex; int _lastOffense = -1; bool _lastWasScore; int _lastQuarterSeen = 1; bool _firstPlay = true;
@@ -228,9 +229,16 @@ namespace PixFootball.Presentation
             float score = HighlightScorer.Score(_lastFacts);
             _lastFacts.Impact = _impactMax;
             _lastScore = score;
-            bool autoCap = _dir.Autopilot && AutoReplaysPlayed >= MaxAutoReplaysWhenAutopilot;
+            bool autoCap = _dir.AutoRun && AutoReplaysPlayed >= MaxAutoReplaysWhenAutopilot;
             _wantAuto = PixSettings.AutoReplay && HighlightScorer.WantsAutoReplay(score, PixSettings.Cinematics) && !autoCap && sim.Kind != PlayKind.Kickoff
                         || (PixSettings.AutoReplay && PixSettings.Cinematics < 2 && !autoCap && o.Headline == Headline.Touchdown);
+            // v0.11 B-120: in a watched game an automatic replay is a treat, not a routine (it used to add 9-12 s to a quarter of the plays): scores and turnovers after two plays, anything else after five
+            if (_dir.WatchActive)
+            {
+                _playsSinceReplay++;
+                bool must = o.Headline == Headline.Touchdown || _lastFacts.Turnover;
+                _wantAuto = _wantAuto && (must ? _playsSinceReplay >= 2 : _playsSinceReplay >= 5);
+            }
 
             // ---- crowd, sidelines, players
             ReactToOutcome(o, sim, score);
@@ -303,7 +311,7 @@ namespace PixFootball.Presentation
             CommitClip();
             if (_lastClip != null && _wantAuto && !_rc.Active)
             {
-                AutoReplaysPlayed++;
+                AutoReplaysPlayed++; _playsSinceReplay = 0;
                 yield return _rc.PlayAuto(_lastClip, _lastClip.Title, true);
             }
             _wantAuto = false;
@@ -379,7 +387,7 @@ namespace PixFootball.Presentation
                 if (!line.PlaySummary || line.Priority < 0.2f || !PixSettings.TvOverlays) return;
                 var o = _b._lastOutcome;
                 var vis = o != null ? _b.VisOf(o.Offense) : _b.VisOf(CoreTeam.Home);
-                _b._ov.ShowTicker(line.Text, vis, line.Clock, 3.4f);
+                _b._ov.ShowTicker(line.Text, vis, _b.State.ClockDisplay, 3.4f);   // v0.11 B-087: the game clock now, as the bar shows it
             }
         }
 

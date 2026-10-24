@@ -66,31 +66,31 @@ namespace PixFootball.Core
         {
             if (!(s.Quarter == 2 || s.Quarter == 4)) return false;
             int diff = s.PossessionScoreDiff;
-            if (s.Quarter == 4) return s.ClockSeconds <= 240f && diff < 0 || s.ClockSeconds <= 100f && diff <= 0;   // QA-501: the same windows the QuickSim CPU uses (trailing from ~4:00, level from ~1:40)
-            return s.ClockSeconds <= 100f;
+            if (s.Quarter == 4) return s.NormClock <= 240f && diff < 0 || s.NormClock <= 100f && diff <= 0;   // QA-501: the same windows the QuickSim CPU uses (trailing from ~4:00, level from ~1:40)
+            return s.NormClock <= 100f;
         }
 
         public static bool ShouldSpike(GameState s)
         {
             if (!IsHurryUp(s) || s.Phase != GamePhase.Scrimmage || s.Down >= 4) return false;
             if (!s.ClockRunning || s.PendingRunoff <= 0f) return false;   // nothing to save when the clock is already stopped (incompletion, out of bounds, timeout)
-            if (s.ClockSeconds > 40f) return false;
+            if (s.NormClock > 40f) return false;
             int diff = s.PossessionScoreDiff;
             if (diff > 0 && s.Quarter == 4) return false;
-            return s.TimeoutsOf(s.Possession) == 0 || s.ClockSeconds <= 14f;
+            return s.TimeoutsOf(s.Possession) == 0 || s.NormClock <= 14f;
         }
 
         public static bool ShouldKneel(GameState s)
         {
             return s.Quarter == 4 && s.PossessionScoreDiff > 0 && s.Phase == GamePhase.Scrimmage && s.Down <= 3 && s.BallSpot >= 5   // never kneel the ball into your own end zone
-                   && s.ClockSeconds < 130f && s.TimeoutsOf(s.Possession.Opponent()) == 0;
+                   && s.NormClock < 130f && s.TimeoutsOf(s.Possession.Opponent()) == 0;
         }
 
         /// <summary>The last snap of a half or game for a team that must score from beyond field-goal range: throw the Hail Mary.</summary>
         public static bool ShouldHailMary(GameState s)
         {
             if (s.Phase != GamePhase.Scrimmage || !(s.Quarter == 2 || s.Quarter == 4)) return false;
-            if (s.ClockSeconds > 9f || s.BallSpot < 40 || s.BallSpot > 62) return false;
+            if (s.NormClock > 9f || s.BallSpot < 40 || s.BallSpot > 62) return false;
             if (s.Quarter == 4 && s.PossessionScoreDiff >= 0) return false;
             if (s.Quarter == 4 && s.PossessionScoreDiff < -8) return false;
             return true;
@@ -103,12 +103,12 @@ namespace PixFootball.Core
         public static bool WantsTimeout(GameState s, Team t, Rng rng)
         {
             if (s.Phase != GamePhase.Scrimmage || !s.ClockRunning || s.PendingRunoff <= 0f) return false;
-            if (!(s.Quarter == 2 || s.Quarter == 4) || s.ClockSeconds > 130f) return false;
+            if (!(s.Quarter == 2 || s.Quarter == 4) || s.NormClock > 130f) return false;
             if (s.TimeoutsOf(t) <= 0) return false;
             int diff = s.ScoreOf(t) - s.ScoreOf(t.Opponent());
             bool wantsClock = diff < 0 || (s.Quarter == 2 && diff <= 0 && s.Possession == t);
             if (!wantsClock) return false;
-            if (s.Possession == t && s.ClockSeconds > 90f) return false;
+            if (s.Possession == t && s.NormClock > 90f) return false;
             return rng == null || rng.Chance(0.5f);
         }
 
@@ -140,9 +140,9 @@ namespace PixFootball.Core
             if (toGoal <= 3) p = Math.Min(p, 0.42f) + (s.Down >= 3 ? 0.1f : 0f);
             else if (toGoal <= 20) p -= 0.04f;
             int diff = s.PossessionScoreDiff;
-            if (s.Quarter >= 4 && diff < -7 && s.ClockSeconds < 600f) p = Math.Max(p, 0.82f);
-            if (s.Quarter >= 4 && diff > 7 && s.ClockSeconds < 600f) p = Math.Min(p, 0.26f);
-            if (s.Quarter >= 4 && diff > 0 && s.ClockSeconds < 240f) p = Math.Min(p, 0.22f);
+            if (s.Quarter >= 4 && diff < -7 && s.NormClock < 600f) p = Math.Max(p, 0.82f);
+            if (s.Quarter >= 4 && diff > 7 && s.NormClock < 600f) p = Math.Min(p, 0.26f);
+            if (s.Quarter >= 4 && diff > 0 && s.NormClock < 240f) p = Math.Min(p, 0.22f);
             if (IsHurryUp(s) && diff <= 0) p = Math.Max(p, 0.90f);
             return Math.Max(0.05f, Math.Min(0.95f, p));
         }
@@ -311,11 +311,12 @@ namespace PixFootball.Core
             bool college = s.Rules.CollegeStyle;
             bool fgRange = fgDist <= (maxFgYards > 0 ? maxFgYards : (college ? 50 : 54));   // the kicker's own range when the caller knows it
             int diff = s.PossessionScoreDiff;
-            bool late = s.Quarter == 4 && s.ClockSeconds < 240f;
+            bool late = s.Quarter == 4 && s.NormClock < 240f;
             bool desperate = late && diff < 0;
             float boldness = (c.Aggression - 50) * 0.01f;
             if (toGoal <= 2 && s.Distance <= 1 && fgRange && !desperate && _rng.Chance(0.35f + boldness)) return FourthCall.Go;
             if (s.Distance <= 2 && toGoal <= 45 && toGoal > 3 && (_rng.Chance(0.40f + boldness * 0.6f) || desperate && toGoal > 20)) return FourthCall.Go;
+            if (s.Distance <= 1 && toGoal <= 62 && toGoal > 45 && _rng.Chance(0.32f + boldness * 0.5f)) return FourthCall.Go;      // v0.11.0 SIM-FLOW (B-074): fourth and inches from the 40 to midfield is a go about a third of the time
             if (desperate && s.Distance > 3 && s.BallSpot > 35 && !fgRange) return FourthCall.Go;
             if (fgRange && !(desperate && diff < -3)) return FourthCall.FieldGoal;
             if (s.BallSpot >= 35 || !desperate) return FourthCall.Punt;
@@ -358,7 +359,7 @@ namespace PixFootball.Core
             string formation = PickDefensiveFormation(s, c, unit, family);
             int toGoal = 100 - s.BallSpot;
             int diff = s.PossessionScoreDiff; // offense perspective
-            bool late = s.Quarter == 4 && s.ClockSeconds < 110f;
+            bool late = s.Quarter == 4 && s.NormClock < 110f;
 
             var pool = new List<Play>();
             foreach (Play p in _defense) if (p.FormationName == formation) pool.Add(p);
@@ -407,7 +408,7 @@ namespace PixFootball.Core
             if (toGoal <= 3) { wanted = new[] { "Goal Line Plug Cover 2", "Goal Line Gap Control", "Goal Line Cover 0" }; why = "GOAL LINE: STACK THE BOX"; }
             else if (s.Down >= 3 && s.Distance >= 8) { wanted = new[] { "Cover 4 Quarters", "Cover 2 Zone", "Cover 3 Sky", "Dime Quarters Spy" }; why = "LONG YARDAGE: KEEP EVERYTHING IN FRONT"; }
             else if (s.Distance <= 2) { wanted = new[] { "Mike Blitz Cover 1", "Cover 1 Robber", "Cover 3 Sky", "Cover 2 Man Under" }; why = "SHORT YARDAGE: DEFEND THE RUN"; }
-            else if (s.Quarter >= 4 && s.ClockSeconds < 110f && s.PossessionScoreDiff < 0) { wanted = new[] { "Prevent Shell", "Cover 4 Quarters", "Cover 2 Zone" }; why = "LATE LEAD: NO BIG PLAYS"; }
+            else if (s.Quarter >= 4 && s.NormClock < 110f && s.PossessionScoreDiff < 0) { wanted = new[] { "Prevent Shell", "Cover 4 Quarters", "Cover 2 Zone" }; why = "LATE LEAD: NO BIG PLAYS"; }
             else { wanted = new[] { "Cover 3 Sky", "Cover 2 Zone", "Cover 1 Robber", "Cover 4 Quarters", "Mike Blitz Cover 1" }; why = c.Aggression >= 60 ? "AGGRESSIVE COACH: PRESSURE" : "BALANCED LOOK"; }
             foreach (string n in wanted)
             {

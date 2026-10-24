@@ -74,18 +74,24 @@ namespace PixFootball.UI.Franchise
     /// <summary>Navigation targets of the franchise shell (tab and sub page) used by the hub tiles and by tests.</summary>
     public static class FranchiseNav
     {
-        public static readonly string[] Tabs = { "HOME", "TEAM", "LEAGUE", "OFFICE" };
+        /// <summary>The tabs of the franchise shell (reference: the franchise hub of the console football sims): LB / RB pages through them.</summary>
+        public static readonly string[] Tabs = { "HOME", "NEWS", "ACTIONS", "OWNER", "TEAM", "LEAGUE" };
+        /// <summary>The sub pages of a tab (LT / RT pages through them); a tab without sub pages is one screen.</summary>
         public static readonly string[][] SubTabs =
         {
             new string[0],
+            new string[0],
+            new[] { "CAP & CONTRACTS", "RE-SIGN", "FREE AGENCY", "TRADES", "STAFF" },
+            new string[0],
             new[] { "ROSTER", "DEPTH CHART", "INJURIES & SQUAD" },
-            new[] { "SCHEDULE", "STANDINGS", "LEADERS", "AWARDS", "RECORDS", "TROPHIES & HOF", "NEWS" },
-            new[] { "CAP & CONTRACTS", "RE-SIGN", "FREE AGENCY", "TRADES", "STAFF", "OWNER" }
+            new[] { "SCHEDULE", "STANDINGS", "LEADERS", "AWARDS", "RECORDS", "TROPHIES & HOF" }
         };
-        public const int Home = 0, Team = 1, League = 2, Office = 3;
+        public const int Home = 0, News = 1, Actions = 2, Owner = 3, Team = 4, League = 5;
+        /// <summary>The old name of the ACTIONS tab (contracts, free agency, trades, staff).</summary>
+        public const int Office = Actions;
         public const int Roster = 0, Depth = 1, Squad = 2;
-        public const int Schedule = 0, Standings = 1, Leaders = 2, Awards = 3, Records = 4, Trophies = 5, News = 6;
-        public const int Cap = 0, ReSign = 1, FreeAgency = 2, Trades = 3, Staff = 4, Owner = 5;
+        public const int Schedule = 0, Standings = 1, Leaders = 2, Awards = 3, Records = 4, Trophies = 5;
+        public const int Cap = 0, ReSign = 1, FreeAgency = 2, Trades = 3, Staff = 4;
     }
 
     /// <summary>One entry of the sim menu (what it does and whether it is available now).</summary>

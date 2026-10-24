@@ -107,7 +107,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 184563524824456137}
-  - component: {fileID: 8120235418778038742}
+  - component: {fileID: 7919103510970246486}
   m_Layer: 0
   m_Name: Prompts
   m_TagString: Untagged
@@ -134,7 +134,7 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!114 &8120235418778038742
+--- !u!114 &7919103510970246486
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}

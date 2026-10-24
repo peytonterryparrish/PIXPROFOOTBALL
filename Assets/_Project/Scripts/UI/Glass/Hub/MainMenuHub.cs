@@ -6,42 +6,51 @@ using UnityEngine.UI;
 
 namespace PixFootball.UI.Glass
 {
-    /// <summary>What the hub needs from the main menu: the actions behind the tiles and the data of the hero tile.</summary>
+    /// <summary>What the hub needs from the main menu: the actions behind the tiles and the data of the art tiles.</summary>
     public sealed class HubContext
     {
-        public Action PlayNow, FreeRoam, Quit;
-        /// <summary>v0.8: opens the career (franchise) flow; null keeps the tile locked.</summary>
+        public Action PlayNow, Rematch, FreeRoam, Quit;
+        /// <summary>Opens the career (franchise) flow.</summary>
         public Action Career;
-        /// <summary>One line under the CAREER tile (the open save, or what the mode is).</summary>
-        public string CareerSubtitle;
+        /// <summary>One line under the FRANCHISE tile (the open save, or what the mode is) and its badge ("RESUME" with a save).</summary>
+        public string CareerLine, CareerBadge;
         /// <summary>Opens the settings screen on a page (0 video .. 4 audio).</summary>
         public Action<int> Settings;
         /// <summary>Told the normalised (-1..1) position of the focused tile so the stage camera can drift.</summary>
         public Action<Vector2> Parallax;
-        public Sprite CrestAway, CrestHome; public string NameAway, NameHome;
+        /// <summary>The last exhibition setup (hero tile and QUICK REMATCH): visitor and home.</summary>
+        public Sprite CrestAway, CrestHome; public string NameAway, NameHome; public Color ColorAway, ColorHome;
+        public string RematchLine; public bool HasRematch = true;
+        /// <summary>The team of the newest save (FRANCHISE art).</summary>
+        public Sprite CareerCrest; public Color CareerColor = new Color(0.16f, 0.17f, 0.2f, 1f);
+        /// <summary>The four best teams (POWER RANKINGS panel): crest and name.</summary>
+        public List<Sprite> RankCrests = new List<Sprite>(); public List<string> RankNames = new List<string>();
         public IList<string> Headlines;
+        /// <summary>Watch mode (v0.11): the captions say so.</summary>
+        public bool WatchMode = true;
+        public string WatchLine = "Controller input: Off (watch)";
     }
 
     /// <summary>
-    /// The tile-hub main menu of the glass theme (layout and flow after the console tile hubs): a tab strip in the top bar (HOME / PLAY / PRACTICE / OPTIONS, LB / RB or click), a large hero tile with
-    /// mixed-size tiles around it, the focused tile glowing with the orange accent and growing a hair, locked "COMING SOON" tiles for the features of later versions, and a scrolling news ticker
-    /// along the bottom whose headlines come from the league data. Every tile is reachable with the d-pad through explicit links built from the tile geometry.
+    /// The tile-hub main menu of direction 16 (layout after the mock: tab bar in the top bar, a hero PLAY NOW tile with mixed-size tiles around it, the focused tile ringed in gold, locked "COMING SOON"
+    /// tiles for the features that do not exist yet, a news ticker along the bottom whose headlines come from the league data). Pages: HOME, PLAY, SETTINGS (LB / RB or click). Every selectable tile is reachable
+    /// with the d-pad through explicit links built from the tile geometry. The plan of every page lives in <see cref="MenuHubPlan"/> (no college mode is planned anywhere).
     /// </summary>
     public sealed class MainMenuHub
     {
-        public static readonly string[] TabNames = { "HOME", "PLAY", "PRACTICE", "OPTIONS" };
+        public static readonly string[] TabNames = MenuHubPlan.TabNames;
 
         public RectTransform Root;
         public Button First, SettingsTile;
         public GlassTabs Tabs;
         public GlassTicker Ticker;
-        readonly List<List<HubTile>> _pages = new List<List<HubTile>>();
+        readonly List<List<MenuTile>> _pages = new List<List<MenuTile>>();
         readonly List<GameObject> _pageRoots = new List<GameObject>();
         int _page;
         HubContext _ctx;
 
         public int Page { get { return _page; } }
-        public IList<HubTile> Tiles(int page) { return _pages[page]; }
+        public IList<MenuTile> Tiles(int page) { return _pages[page]; }
 
         public static MainMenuHub Build(RectTransform canvas, GlassWidgets.NavBar nav, HubContext ctx)
         {
@@ -49,104 +58,87 @@ namespace PixFootball.UI.Glass
             var hub = new MainMenuHub { _ctx = ctx, Tabs = nav != null ? nav.Tabs : null };
             var menu = UiKit.Rect(canvas, "MainMenu"); UiKit.Stretch(menu); hub.Root = menu;
 
-            // tile block: laid out for the 1920 x 1080 reference; the FitScale host shrinks it when the canvas is shorter (it never grows)
+            // tile block: laid out for the 1920 x 1080 reference (content from y 140; clear of the 46 ticker and the 62 footer); the FitScale host shrinks it when the canvas is shorter (it never grows) and the block stays centred
             var host = UiKit.Rect(menu, "FitHost");
-            host.anchorMin = Vector2.zero; host.anchorMax = Vector2.one; host.offsetMin = new Vector2(t.safeMarginX, 196f); host.offsetMax = new Vector2(-t.safeMarginX, -152f);
+            host.anchorMin = Vector2.zero; host.anchorMax = Vector2.one; host.offsetMin = new Vector2(60f, 156f); host.offsetMax = new Vector2(-60f, -140f);
             var block = UiKit.Rect(host, "Block");
-            block.anchorMin = block.anchorMax = new Vector2(0f, 0.5f); block.pivot = new Vector2(0f, 0.5f); block.anchoredPosition = Vector2.zero; block.sizeDelta = HubTileFactory.BlockSize;   // centred vertically between the tabs and the ticker
-            var fs = host.gameObject.AddComponent<FitScale>(); fs.Block = block; fs.DesignSize = HubTileFactory.BlockSize;
+            block.anchorMin = block.anchorMax = new Vector2(0.5f, 0.5f); block.pivot = new Vector2(0.5f, 0.5f); block.anchoredPosition = Vector2.zero; block.sizeDelta = MenuHubPlan.BlockSize;
+            var fs = host.gameObject.AddComponent<FitScale>(); fs.Block = block; fs.DesignSize = MenuHubPlan.BlockSize;
 
+            var input = hub.MakeInput();
             for (int p = 0; p < TabNames.Length; p++)
             {
                 var pr = UiKit.Rect(block, "Page_" + TabNames[p]); UiKit.Stretch(pr);
                 hub._pageRoots.Add(pr.gameObject);
-                hub._pages.Add(hub.BuildPage(pr, p));
+                hub._pages.Add(hub.BuildPage(pr, p, input));
             }
 
-            // ---- ticker along the bottom (above the footer rule)
-            var strip = UiKit.Rect(menu, "TickerHost");
-            strip.anchorMin = new Vector2(0f, 0f); strip.anchorMax = new Vector2(1f, 0f); strip.pivot = new Vector2(0.5f, 0f);
-            strip.offsetMin = new Vector2(t.safeMarginX, 124f); strip.offsetMax = new Vector2(-t.safeMarginX, 124f + 52f);
-            hub.Ticker = GlassTicker.Build(strip, "LEAGUE WIRE", 52f, 24f);
-            hub.Ticker.SetHeadlines(ctx.Headlines != null && ctx.Headlines.Count > 0 ? ctx.Headlines : new List<string> { "PIX Football: the season opens tonight" });
+            // ---- ticker along the bottom, full width, above the footer (46 high, gold NEWS block)
+            var heads = ctx.Headlines != null && ctx.Headlines.Count > 0 ? ctx.Headlines : new List<string> { "PIX PRO FOOTBALL: the season opens tonight" };
+            hub.Ticker = GlassKit.Ticker(menu, heads, "NEWS");
 
             hub.Link();
             hub.SetPage(0, false);
             return hub;
         }
 
+        PlanInput MakeInput()
+        {
+            return new PlanInput { WatchMode = _ctx.WatchMode, CareerLine = _ctx.CareerLine, ResumeBadge = _ctx.CareerBadge, RematchLine = _ctx.RematchLine ?? "", HasRematch = _ctx.HasRematch, WatchLine = _ctx.WatchLine };
+        }
+
         // ------------------------------------------------------------------ pages
-        HubTileSpec Spec(string title, string sub, string icon, Action click, int col, int row, int cs = 1, int rs = 1, bool locked = false)
+        Action ActionOf(string id)
         {
-            return new HubTileSpec { Title = title, Subtitle = sub, IconKey = icon, Click = click, Col = col, Row = row, ColSpan = cs, RowSpan = rs, Locked = locked };
-        }
-
-        HubTileSpec PlayHero(int rs)
-        {
-            return new HubTileSpec
+            switch (id)
             {
-                Title = "PLAY NOW", Eyebrow = "EXHIBITION", Subtitle = "Pick two teams, the rules and the weather", IconKey = "fb_football_laces", Click = _ctx.PlayNow,
-                Col = 0, Row = 0, ColSpan = 2, RowSpan = rs, Hero = true, CrestA = _ctx.CrestAway, CrestB = _ctx.CrestHome, NameA = _ctx.NameAway, NameB = _ctx.NameHome
-            };
-        }
-
-        HubTileSpec CareerTile(int col, int row)
-        {
-            bool on = _ctx.Career != null;
-            return Spec("CAREER", on ? (_ctx.CareerSubtitle ?? "Build a dynasty over endless seasons") : "", "fb_franchise_hub", _ctx.Career, col, row, 2, 1, !on);
-        }
-
-        List<HubTile> BuildPage(RectTransform root, int page)
-        {
-            var specs = new List<HubTileSpec>();
-            switch (page)
-            {
-                case 0:
-                    specs.Add(PlayHero(2));
-                    specs.Add(Spec("FREE ROAM", "Run the empty stadium: moves, cameras, lights", "fb_field_compass", _ctx.FreeRoam, 2, 0, 2, 1));
-                    specs.Add(Spec("SETTINGS", "Video, camera, audio", "ui_settings", () => _ctx.Settings(0), 2, 1));
-                    specs.Add(Spec("QUIT", "Back to the desktop", "ui_close", _ctx.Quit, 3, 1));
-                    specs.Add(CareerTile(0, 2));
-                    specs.Add(Spec("COLLEGE NETWORK", "", "fb_scout_binoculars", null, 2, 2, 1, 1, true));
-                    specs.Add(Spec("TROPHY ROOM", "", "ui_trophy", null, 3, 2, 1, 1, true));
-                    break;
-                case 1:
-                    specs.Add(PlayHero(3));
-                    specs.Add(CareerTile(2, 0));
-                    specs.Add(Spec("COLLEGE NETWORK", "", "fb_scout_binoculars", null, 2, 1, 2, 1, true));
-                    specs.Add(Spec("TROPHY ROOM", "", "ui_trophy", null, 2, 2, 2, 1, true));
-                    break;
-                case 2:
-                    specs.Add(new HubTileSpec { Title = "FREE ROAM", Eyebrow = "PRACTICE", Subtitle = "Run the empty stadium", IconKey = "fb_field_compass", Click = _ctx.FreeRoam, Col = 0, Row = 0, ColSpan = 2, RowSpan = 3, Hero = true });
-                    specs.Add(Spec("SKILLS TRAINER", "", "fb_agility_ladder", null, 2, 0, 2, 1, true));
-                    specs.Add(Spec("PLAYBOOK LAB", "", "fb_route_playbook", null, 2, 1, 2, 1, true));
-                    specs.Add(Spec("COMBINE", "", "fb_combine_measure", null, 2, 2, 2, 1, true));
-                    break;
+                case "play": return _ctx.PlayNow;
+                case "rematch": return _ctx.Rematch ?? _ctx.PlayNow;
+                case "franchise": return _ctx.Career;
+                case "freeroam": return _ctx.FreeRoam;
+                case "settings": return () => _ctx.Settings(0);
+                case "quit": return _ctx.Quit;
                 default:
-                    specs.Add(new HubTileSpec { Title = "ALL SETTINGS", Eyebrow = "OPTIONS", Subtitle = "Video, gameplay, camera, broadcast, audio", IconKey = "fb_tuning_sliders", Click = () => _ctx.Settings(0), Col = 0, Row = 0, ColSpan = 2, RowSpan = 2, Hero = true });
-                    specs.Add(Spec("VIDEO", "Display and quality", "ui_eye", () => _ctx.Settings(0), 2, 0));
-                    specs.Add(Spec("GAMEPLAY", "Rules and controls", "ui_controller", () => _ctx.Settings(1), 3, 0));
-                    specs.Add(Spec("CAMERA", "Views and shake", "fb_film_reel", () => _ctx.Settings(2), 2, 1));
-                    specs.Add(Spec("BROADCAST", "Overlays and shows", "fb_video_review", () => _ctx.Settings(3), 3, 1));
-                    specs.Add(Spec("AUDIO", "Music, crowd, effects", "fb_audio_levels", () => _ctx.Settings(4), 0, 2, 2, 1));
-                    specs.Add(Spec("QUIT", "Back to the desktop", "ui_close", _ctx.Quit, 2, 2, 2, 1));
-                    break;
+                    int sp = MenuHubPlan.SettingsPageOf(id);
+                    if (sp >= 0) return () => _ctx.Settings(sp);
+                    return null;
             }
-            var tiles = new List<HubTile>();
-            for (int i = 0; i < specs.Count; i++)
+        }
+
+        TileArt ArtOf(string id)
+        {
+            var a = new TileArt();
+            switch (id)
             {
-                var tile = HubTileFactory.Build(root, specs[i], 0.03f * i, OnTileFocus);
+                case "play": case "rematch":
+                    a.CrestA = _ctx.CrestAway; a.CrestB = _ctx.CrestHome; a.ColorA = _ctx.ColorAway; a.ColorB = _ctx.ColorHome;
+                    if (id == "play") { a.NameA = _ctx.NameAway; a.NameB = _ctx.NameHome; }
+                    break;
+                case "franchise": a.CrestA = _ctx.CareerCrest; a.ColorA = _ctx.CareerColor; break;
+                case "rankings": a.Strip = _ctx.RankCrests; a.StripNames = _ctx.RankNames; break;
+            }
+            return a;
+        }
+
+        List<MenuTile> BuildPage(RectTransform root, int page, PlanInput input)
+        {
+            var plan = MenuHubPlan.Page(page, input);
+            var tiles = new List<MenuTile>();
+            for (int i = 0; i < plan.Count; i++)
+            {
+                var pt = plan[i];
+                var tile = MenuTileBuilder.Build(root, pt, ArtOf(pt.Id), 0.04f * i, OnTileFocus, pt.Selectable ? ActionOf(pt.Id) : null);
                 tiles.Add(tile);
-                if (page == 0 && tile.Button != null && specs[i].Title == "PLAY NOW") First = tile.Button;
-                if (page == 0 && tile.Button != null && specs[i].Title == "SETTINGS") SettingsTile = tile.Button;
+                if (page == 0 && tile.Button != null && pt.Id == "play") First = tile.Button;
+                if (page == 0 && tile.Button != null && pt.Id == "settings") SettingsTile = tile.Button;
             }
             return tiles;
         }
 
-        void OnTileFocus(HubTile tile)
+        void OnTileFocus(MenuTile tile)
         {
             if (_ctx.Parallax == null || tile == null) return;
-            var s = HubTileFactory.BlockSize;
+            var s = MenuHubPlan.BlockSize;
             _ctx.Parallax(new Vector2((tile.Center.x / s.x - 0.5f) * 2f, (tile.Center.y / s.y - 0.5f) * 2f));
         }
 
@@ -164,7 +156,8 @@ namespace PixFootball.UI.Glass
                 for (int i = 0; i < _pages[p].Count; i++)
                 {
                     var b = _pages[p][i].Button; if (b == null) continue;
-                    Func<int, Selectable> at = k => k >= 0 ? _pages[p][k].Button : null;
+                    var page = _pages[p];
+                    Func<int, Selectable> at = k => k >= 0 ? page[k].Button : null;
                     b.navigation = new Navigation { mode = Navigation.Mode.Explicit, selectOnUp = links[i][0] >= 0 ? at(links[i][0]) : tab, selectOnDown = at(links[i][1]), selectOnLeft = at(links[i][2]), selectOnRight = at(links[i][3]) };
                 }
             }

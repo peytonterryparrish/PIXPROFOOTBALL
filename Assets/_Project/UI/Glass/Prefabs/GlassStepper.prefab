@@ -149,7 +149,7 @@ GameObject:
   - component: {fileID: 4748311971470440667}
   - component: {fileID: 1591680828369850053}
   - component: {fileID: 2910402661261908539}
-  - component: {fileID: 5305991010958502817}
+  - component: {fileID: 7590500210223225917}
   - component: {fileID: 8922664874707091182}
   - component: {fileID: 4534719219671084677}
   m_Layer: 0
@@ -243,7 +243,9 @@ MonoBehaviour:
   Backdrop: 1
   Pad: 0
   GlowScale: 1
---- !u!114 &5305991010958502817
+  FocusEdge: -1
+  Skew: 0
+--- !u!114 &7590500210223225917
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -319,6 +321,7 @@ MonoBehaviour:
   PlaySound: 0
   KeepLabelColor: 0
   FocusBrighten: 0.035
+  RaiseTarget: {fileID: 0}
   Pinned: 0
   GhostSurface: 0
 --- !u!114 &4534719219671084677
@@ -336,7 +339,7 @@ MonoBehaviour:
   Left: {fileID: 7706898256179818319}
   Right: {fileID: 5041456108929989740}
   Focus: {fileID: 8922664874707091182}
-  Selector: {fileID: 5305991010958502817}
+  Selector: {fileID: 7590500210223225917}
 --- !u!1 &3791022794539724998
 GameObject:
   m_ObjectHideFlags: 0

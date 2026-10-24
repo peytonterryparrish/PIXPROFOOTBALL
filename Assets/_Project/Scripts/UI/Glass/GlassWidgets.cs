@@ -17,13 +17,14 @@ namespace PixFootball.UI.Glass
     }
 
     /// <summary>Compound widgets of the glass library: cards, chips, stat tiles, rating bars, table rows, nav bar, controller footer, crest tiles, dropdown, dialog, toast and tooltip.</summary>
-    public static class GlassWidgets
+    public static partial class GlassWidgets
     {
         static GlassTokens T { get { return GlassTheme.T; } }
 
         // ================================================================================== card
-        public static GlassCard Card(Transform parent, string title, float width, float height, string name = null, bool shadow = true, float density = 1f)
+        public static GlassCard Card(Transform parent, string title, float width, float height, string name = null, bool shadow = true, float density = 1f, bool goldRule = false)
         {
+            if (T.flat) return TileCard(parent, title, width, height, name, shadow, density, goldRule);
             var t = T;
             var c = new GlassCard();
             c.Surface = GlassKit.Panel(parent, name ?? "Card_" + title, density, shadow);
@@ -51,6 +52,7 @@ namespace PixFootball.UI.Glass
         /// <summary>Small status pill ("READY", "LIVE", "HOME - YOU"): glass, orange text and edge when <paramref name="accent"/>.</summary>
         public static GlassGraphic Chip(Transform parent, string text, bool accent = false, float height = 34f, float fontSize = 18f)
         {
+            if (T.flat) return TileChip(parent, text, accent, height, fontSize);
             var t = T;
             var g = GlassKit.Surface(parent, "Chip_" + text, GlassKind.Glass, height * 0.5f, false, 1.1f);
             if (accent) { g.SetFocus(0.85f); g.GlowScale = 0.22f; }
@@ -66,6 +68,7 @@ namespace PixFootball.UI.Glass
         /// <summary>Stat tile: a big value over a small caps caption in a dark inset well (the pack's "4-1 RECORD / 87 TEAM OVR" strip cells).</summary>
         public static RectTransform StatTile(Transform parent, string value, string caption, float width = 150f, float height = 96f, bool accentValue = false)
         {
+            if (T.flat) return TileStatTile(parent, value, caption, width, height, accentValue);
             var t = T;
             var w = GlassKit.Well(parent, "Stat_" + caption);
             w.rectTransform.sizeDelta = new Vector2(width, height);
@@ -88,16 +91,16 @@ namespace PixFootball.UI.Glass
             var t = T;
             var row = UiKit.Rect(parent, "Rate_" + label); row.sizeDelta = new Vector2(width, height);
             var le = row.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
-            var lbl = GlassKit.Eyebrow(row, label); GlassKit.Style(lbl, 18f, t.textSecondary, true, 2f);
+            var lbl = GlassKit.Eyebrow(row, label); GlassKit.Style(lbl, t.flat ? 20f : 18f, t.flat ? new Color(0.757f, 0.773f, 0.812f, 1f) : t.textSecondary, true, t.flat ? GlassTokens.Em(1f, 20f) : 2f);
             lbl.rectTransform.anchorMin = new Vector2(0f, 0f); lbl.rectTransform.anchorMax = new Vector2(0f, 1f); lbl.rectTransform.pivot = new Vector2(0f, 0.5f);
-            lbl.rectTransform.anchoredPosition = Vector2.zero; lbl.rectTransform.sizeDelta = new Vector2(width * 0.3f, 0f); UiKit.Fit(lbl, 12f);
+            lbl.rectTransform.anchoredPosition = Vector2.zero; lbl.rectTransform.sizeDelta = new Vector2(width * (t.flat ? 0.42f : 0.3f), 0f); UiKit.Fit(lbl, 12f);
             var val = GlassKit.Text(row, valueText, GlassText.Label, TextAlignmentOptions.MidlineRight, "Value"); GlassKit.Style(val, 22f, t.textPrimary, true);
             val.rectTransform.anchorMin = new Vector2(1f, 0f); val.rectTransform.anchorMax = new Vector2(1f, 1f); val.rectTransform.pivot = new Vector2(1f, 0.5f);
-            val.rectTransform.anchoredPosition = Vector2.zero; val.rectTransform.sizeDelta = new Vector2(width * 0.16f, 0f);
-            var bar = GlassKit.ProgressBar(row, value01, width * 0.5f, 8f, accent, "Bar");
+            val.rectTransform.anchoredPosition = Vector2.zero; val.rectTransform.sizeDelta = new Vector2(width * (t.flat ? 0.12f : 0.16f), 0f);
+            var bar = GlassKit.ProgressBar(row, value01, width * 0.5f, t.flat ? 10f : 8f, accent, "Bar");
             var br = (RectTransform)bar.transform;
             var ble = bar.GetComponent<LayoutElement>(); if (ble != null) UnityEngine.Object.Destroy(ble);
-            br.anchorMin = br.anchorMax = new Vector2(0.5f, 0.5f); br.pivot = new Vector2(0.5f, 0.5f); br.anchoredPosition = new Vector2(width * 0.04f, 0f); br.sizeDelta = new Vector2(width * 0.5f, 8f);
+            br.anchorMin = br.anchorMax = new Vector2(0.5f, 0.5f); br.pivot = new Vector2(0.5f, 0.5f); br.anchoredPosition = new Vector2(width * (t.flat ? 0.15f : 0.04f), 0f); br.sizeDelta = new Vector2(width * (t.flat ? 0.42f : 0.5f), t.flat ? 10f : 8f);
             return bar;
         }
 
@@ -176,6 +179,7 @@ namespace PixFootball.UI.Glass
         /// <summary>Top navigation: the PIX FOOTBALL wordmark (orange accent), a thin divider and the section name, optional tabs on the right. Floats over the scene on a soft top shade.</summary>
         public static NavBar TopBar(Transform parent, string section, string[] tabs = null, int selected = 0, Action<int> onTab = null, bool bumpers = false)
         {
+            if (T.flat) return TileTopBar(parent, section, tabs, selected, onTab, bumpers);
             var t = T;
             var nb = new NavBar();
             GlassWidgets.EdgeShade(parent, true, 200f, 0.8f);
@@ -209,6 +213,7 @@ namespace PixFootball.UI.Glass
         /// <summary>Bottom bar: controller glyph (or keycap) prompts on the left, a caption on the right (version). Sits on a soft bottom shade, no hard panel.</summary>
         public static Footer BottomBar(Transform parent, string rightText = null)
         {
+            if (T.flat) return TileBottomBar(parent, rightText);
             var t = T;
             var f = new Footer();
             EdgeShade(parent, false, 190f, 0.92f);
@@ -264,6 +269,7 @@ namespace PixFootball.UI.Glass
         /// <summary>The glass modal used by UiDialog: scrim, dense glass box with a header rule, message and two buttons (primary + secondary).</summary>
         public static DialogParts BuildDialog(RectTransform root, string title, string message, string yesLabel, string noLabel, Action yes, Action no)
         {
+            if (T.flat) return TileDialog(root, title, message, yesLabel, noLabel, yes, no);
             var t = T;
             var p = new DialogParts();
             var scrim = UiKit.Panel(root, "Scrim", new Color(0.02f, 0.025f, 0.035f, 0.74f)); UiKit.Stretch(scrim.rectTransform); scrim.raycastTarget = true;
@@ -291,7 +297,7 @@ namespace PixFootball.UI.Glass
             var t = T;
             var r = UiKit.Rect(parent, "Drop_" + label); r.sizeDelta = new Vector2(width, height);
             var le = r.gameObject.AddComponent<LayoutElement>(); le.preferredWidth = width; le.preferredHeight = height;
-            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f;
+            var g = r.gameObject.AddComponent<GlassGraphic>(); g.raycastTarget = true; g.Radius = t.cornerRadiusSmall; g.Density = 0.7f; g.Shadow = 0f; GlassKit.RowStyle(g);
             var d = r.gameObject.AddComponent<GlassDropdown>(); d.targetGraphic = g; d.transition = Selectable.Transition.None;
             var n = GlassKit.Text(r, label.ToUpperInvariant(), GlassText.Label, TextAlignmentOptions.MidlineLeft, "Name");
             GlassKit.Style(n, 24f, t.textSecondary, true, t.trackingCaps * 0.6f); UiKit.Stretch(n.rectTransform, 28f, 0f, width * 0.5f, 0f); UiKit.Fit(n, 18f);

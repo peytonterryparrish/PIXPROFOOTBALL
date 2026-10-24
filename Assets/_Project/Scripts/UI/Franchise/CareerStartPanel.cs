@@ -88,10 +88,10 @@ namespace PixFootball.UI.Franchise
             var p = go.gameObject.AddComponent<CareerStartPanel>();
             p.Root = go;
             var host = UiKit.Rect(go, "FitHost");
-            host.anchorMin = Vector2.zero; host.anchorMax = Vector2.one; host.offsetMin = new Vector2(t.safeMarginX, 112f); host.offsetMax = new Vector2(-t.safeMarginX, -150f);
+            host.anchorMin = Vector2.zero; host.anchorMax = Vector2.one; host.offsetMin = new Vector2(60f, 70f); host.offsetMax = new Vector2(-60f, -140f);   // v0.11: the block of the tile screens (x 60 .. 1860, content from y 140), centred
             var block = UiKit.Rect(host, "Block");
-            block.anchorMin = block.anchorMax = new Vector2(0f, 1f); block.pivot = new Vector2(0f, 1f); block.anchoredPosition = Vector2.zero; block.sizeDelta = new Vector2(1728f, 820f);
-            var fit = host.gameObject.AddComponent<FitScale>(); fit.Block = block; fit.DesignSize = new Vector2(1728f, 820f);
+            block.anchorMin = block.anchorMax = new Vector2(0.5f, 1f); block.pivot = new Vector2(0.5f, 1f); block.anchoredPosition = Vector2.zero; block.sizeDelta = new Vector2(1800f, 784f);
+            var fit = host.gameObject.AddComponent<FitScale>(); fit.Block = block; fit.DesignSize = new Vector2(1800f, 784f);
             p._block = block;
             p._teams = TeamCatalog.Teams;
             p._busy = BusyOverlay.Create(go);
@@ -235,14 +235,14 @@ namespace PixFootball.UI.Franchise
             // right: grid
             Lay.Caps(nr, "PICK YOUR TEAM", 664f, 0f, 400f, 36f, t.accent, 20f);
             _hover = Lay.Text(nr, "", 30f, t.textPrimary, 664f, 540f, 1000f, 44f, true, TextAlignmentOptions.MidlineLeft, 3f, "HoverName");
-            var grid = UiKit.Rect(nr, "Grid"); Lay.Place(grid, 664f, 46f, 1064f, 520f);
+            var grid = UiKit.Rect(nr, "Grid"); Lay.Place(grid, 664f, 46f, 1136f, 520f);
             var gl = grid.gameObject.AddComponent<GridLayoutGroup>();
-            gl.cellSize = new Vector2(124f, 120f); gl.spacing = new Vector2(10f, 10f); gl.constraint = GridLayoutGroup.Constraint.FixedColumnCount; gl.constraintCount = GridCols; gl.startCorner = GridLayoutGroup.Corner.UpperLeft; gl.childAlignment = TextAnchor.UpperLeft;
+            gl.cellSize = new Vector2(132f, 120f); gl.spacing = new Vector2(10f, 10f); gl.constraint = GridLayoutGroup.Constraint.FixedColumnCount; gl.constraintCount = GridCols; gl.startCorner = GridLayoutGroup.Corner.UpperLeft; gl.childAlignment = TextAnchor.UpperLeft;
             for (int i = 0; i < _teams.Count; i++)
             {
                 int idx = i; var tm = _teams[i];
                 string label = string.IsNullOrEmpty(tm.Abbr) ? tm.Nickname.Substring(0, Math.Min(3, tm.Nickname.Length)).ToUpperInvariant() : tm.Abbr;
-                var tile = GlassWidgets.MakeCrestTile(grid, i, UiKit.Sprite("crest_" + tm.Id), tm.Abbr, label, tm.PrimaryUi, () => PickTeam(idx), 124f, 120f);
+                var tile = GlassWidgets.MakeCrestTile(grid, i, UiKit.Sprite("crest_" + tm.Id), tm.Abbr, label, tm.PrimaryUi, () => PickTeam(idx), 132f, 120f);
                 Lay.Unlayout(tile.gameObject);
                 var f = tile.gameObject.AddComponent<TileFocus>(); f.Owner = this; f.Index = i;
                 _tiles.Add(tile);
@@ -362,15 +362,15 @@ namespace PixFootball.UI.Franchise
                 new TableColumn("PHASE", 2.0f, i => _loadRows[i].Valid ? _loadRows[i].Phase : "", false, null, false),
                 new TableColumn("RECORD", 1f, i => _loadRows[i].Valid ? _loadRows[i].Record : "", true, null, false)
             };
-            _table = GlassTable.Create(lr, "SlotTable", 1000f, 40f + 5 * 72f, cols, 72f);
-            Lay.Place((RectTransform)_table.transform, 0f, 50f, 1000f, 40f + 5 * 72f);
+            _table = GlassTable.Create(lr, "SlotTable", 1060f, 40f + 5 * 72f, cols, 72f);
+            Lay.Place((RectTransform)_table.transform, 0f, 50f, 1060f, 40f + 5 * 72f);
             _table.EmptyText = "No saves yet.";
             _table.Activated = i => { if (_loadRows[i].Valid) LoadSlot(_loadRows[i].Slot); };
             _table.AltAction = i => { if (_loadRows[i].Valid) { var m = _loadRows[i]; UiDialog.Show(Root, "Delete this career?", m.TeamName + ", " + m.Year + ". This cannot be undone.", "DELETE", "KEEP IT", () => { CareerSession.DeleteSlot(m.Slot); RefreshLoad(); }, null); } };
             _table.CursorChanged = i => RefreshLoadCard();
-            _loadCard = Lay.Group(lr, "Detail", 1024f, 50f, 704f, 520f);
-            _loadBack = GlassKit.Button(lr, "BACK", () => Show(0), GlassButtonStyle.Secondary, 1000f, 64f, null, "Back");
-            Lay.Place((RectTransform)_loadBack.transform, 0f, 50f + 40f + 5 * 72f + 24f, 1000f, 64f);
+            _loadCard = Lay.Group(lr, "Detail", 1084f, 50f, 704f, 520f);
+            _loadBack = GlassKit.Button(lr, "BACK", () => Show(0), GlassButtonStyle.Secondary, 1060f, 64f, null, "Back");
+            Lay.Place((RectTransform)_loadBack.transform, 0f, 50f + 40f + 5 * 72f + 24f, 1060f, 64f);
             NavWire.Set(_table, null, _loadBack, null, null); NavWire.Set(_loadBack, _table, null, null, null);
         }
 

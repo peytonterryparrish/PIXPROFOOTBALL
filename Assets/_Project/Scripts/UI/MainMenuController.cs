@@ -116,6 +116,7 @@ namespace PixFootball.UI
         {
             if (_footer == null) return;
             if (!withBack && UiTheme.IsGlass) { SetHubFooter(); return; }
+            if (withBack && UiTheme.IsGlass) return;   // the themed screens set their legend in GlassSection
             if (withBack) _footer.Set(PromptFooter.Item("glyph_a", "SELECT"), PromptFooter.Item("glyph_b", "BACK"), PromptFooter.Item("glyph_analog_all", "NAVIGATE"));
             else _footer.Set(PromptFooter.Item("glyph_a", "SELECT"), PromptFooter.Item("glyph_analog_all", "NAVIGATE"));
         }
@@ -189,6 +190,7 @@ namespace PixFootball.UI
         void StartWithFade(System.Action load)
         {
             if (_leaving) return;
+            if (UiTheme.IsGlass) PixFootball.UI.Glass.LoadingContent.Apply();   // the loading tips match the mode the game starts in (watch or play)
             _leaving = true;
             StartCoroutine(FadeAndLoad(load));
         }
@@ -197,6 +199,7 @@ namespace PixFootball.UI
 
         IEnumerator FadeAndLoad(System.Action load)
         {
+            if (PixFootball.Gameplay.MusicDirector.Instance != null) PixFootball.Gameplay.MusicDirector.Instance.FadeOutMenu(0.45f);
             float t = 0f, v0 = _music != null ? _music.volume : 0f;
             while (t < 0.45f)
             {
@@ -217,6 +220,8 @@ namespace PixFootball.UI
             _stageView = view;
             if (UiTheme.IsGlass)
             {
+                // v0.11: the tile hubs fill the screen, the menu player is not part of them (the crests of the matchup are the picture)
+                if (!StageInMenu) { view.gameObject.SetActive(false); return; }
                 var st = PixFootball.UI.Glass.GlassStage.Attach(gameObject, StageAnchor, StageCamera != null ? StageCamera : Camera.main);
                 st.CanvasRect = _canvasRoot as RectTransform;
                 DressStage(_hubHomeId);   // the menu player wears the kit of the last home team
@@ -245,11 +250,8 @@ namespace PixFootball.UI
 
         void StartMusic()
         {
-            var rt = PixRuntimeAssets.Load();
-            _music = gameObject.AddComponent<AudioSource>();
-            _music.loop = false; _music.playOnAwake = false; _music.spatialBlend = 0f;
-            if (rt != null && rt.menuMusic.Count > 0) NextTrack();
-            else Debug.LogWarning("[PIX] No menu music in PixRuntimeAssets (build the runtime assets): the main menu is silent.");
+            // v0.11.0 AUDIO+CROWD: instrumental Draft Fever OST cues (menu_calm / menu_drive / menu_house) through MusicDirector; the owner's sung songs are no longer played anywhere.
+            PixFootball.Gameplay.MusicDirector.Ensure().PlayMenu();
         }
 
         float _trackEndsAt, _trackStart;

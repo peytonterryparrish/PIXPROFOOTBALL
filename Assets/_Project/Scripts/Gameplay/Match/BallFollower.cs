@@ -125,7 +125,7 @@ namespace PixFootball.Gameplay
 
         public void SetCarry(SimAgentView holder, int side)
         {
-            if (_mode == Mode.Carry && _holder == holder && _side != side) { MarkAttach(0.2f, 0.07f); _side = side; return; }   // E-132: the arm switch carries the ball across the chest
+            if (_mode == Mode.Carry && _holder == holder && _side != side) { if (PixFootball.Sim.CarryStyleConfig.Enabled) MarkAttach(0.07f, 0.015f); else MarkAttach(0.2f, 0.07f); _side = side; return; }      // v0.11.0 RB (B-065): the carry layer has both hands on the ball when it changes arms, so the blend is 0.07 s (it was 0.2 s with neither hand at the ball: 0.5 m off the hands)   // E-132: the arm switch carries the ball across the chest
             if (_mode == Mode.Carry && _holder == holder) { _side = side; return; }
             if (_mode == Mode.Catch && _holder == holder) { _side = side; return; }       // the catch hold hands over to the tuck by itself
             if (_mode == Mode.Exchange && _holder == holder) { _side = side; return; }
@@ -239,6 +239,7 @@ namespace PixFootball.Gameplay
                     break;
                 }
             }
+            GfxTee(); GfxGroundClamp();      // v0.11.0 QB: the tee under a kickoff ball, never below the turf
             TrackBall(dt);      // v0.10.0 BODIES: the ball's own velocity (a spike leaves the hand with it)
         }
 

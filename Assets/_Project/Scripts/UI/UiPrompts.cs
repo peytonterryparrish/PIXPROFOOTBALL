@@ -99,10 +99,12 @@ namespace PixFootball.UI
         public static RectTransform ButtonIcon(Transform parent, string glyph, float size)
         {
             var holder = UiKit.Rect(parent, "Icon_" + glyph);
+            if (UiTheme.IsTile && TileButtonIcon(holder, glyph, size)) { var tle = holder.gameObject.AddComponent<LayoutElement>(); tle.preferredWidth = holder.sizeDelta.x; tle.preferredHeight = holder.sizeDelta.y; return holder; }
             if (InputDeviceTracker.GamepadActive)
             {
                 holder.sizeDelta = new Vector2(size * 1.4f, size);
                 var g = UiKit.Glyph(holder, glyph == "glyph_dpad" ? "glyph_dpad_up" : glyph, size);
+                holder.sizeDelta = new Vector2(Mathf.Max(size * 1.4f, g.rectTransform.sizeDelta.x + 10f), size);   // v0.11 B-091: wide LB / RB art no longer touches the label
                 UiKit.Anchor(g.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, g.rectTransform.sizeDelta);
                 DirectionMark(holder, glyph, size);
             }
@@ -144,6 +146,32 @@ namespace PixFootball.UI
 
         public static string GlyphOf(Btn b) { return "glyph_" + b.ToString().ToLowerInvariant(); }
 
+        /// <summary>Direction 16 prompt art: coloured face-button discs (A green, B red, X blue, Y gold) and grey key caps (LB RB LT RT, keyboard keys). False for glyphs without tile art (d-pad, sticks, menu): the sprite path draws those.</summary>
+        static bool TileButtonIcon(RectTransform holder, string glyph, float size)
+        {
+            bool pad = InputDeviceTracker.GamepadActive;
+            RectTransform part = null; float h = size * 0.86f;
+            if (pad)
+            {
+                switch (glyph)
+                {
+                    case "glyph_a": part = PixFootball.UI.Glass.GlassKit.GlyphDisc(holder, "A", h); break;
+                    case "glyph_b": part = PixFootball.UI.Glass.GlassKit.GlyphDisc(holder, "B", h); break;
+                    case "glyph_x": part = PixFootball.UI.Glass.GlassKit.GlyphDisc(holder, "X", h); break;
+                    case "glyph_y": part = PixFootball.UI.Glass.GlassKit.GlyphDisc(holder, "Y", h); break;
+                    case "glyph_lb": part = PixFootball.UI.Glass.GlassKit.GlyphCap(holder, "LB", h); break;
+                    case "glyph_rb": part = PixFootball.UI.Glass.GlassKit.GlyphCap(holder, "RB", h); break;
+                    case "glyph_lt": part = PixFootball.UI.Glass.GlassKit.GlyphCap(holder, "LT", h); break;
+                    case "glyph_rt": part = PixFootball.UI.Glass.GlassKit.GlyphCap(holder, "RT", h); break;
+                }
+            }
+            else part = PixFootball.UI.Glass.GlassKit.GlyphCap(holder, KeyOf(glyph), h);
+            if (part == null) return false;
+            UiKit.Anchor(part, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, part.sizeDelta);
+            holder.sizeDelta = new Vector2(part.sizeDelta.x, size);
+            return true;
+        }
+
         /// <summary>Fills <paramref name="row"/> (a HorizontalLayoutGroup is added) with glyph + label pairs.</summary>
         public static void FillRow(RectTransform row, IList<HintPair> hints, float size = 44f, float font = 26f, float spacing = 40f)
         {
@@ -166,7 +194,7 @@ namespace PixFootball.UI
                 if (p.Glyphs != null) foreach (string g in p.Glyphs) if (!string.IsNullOrEmpty(g)) ButtonIcon(pr, g, size);
                 if (!string.IsNullOrEmpty(p.Text))
                 {
-                    var t = UiKit.Label(pr, p.Text, font, UiColors.TextPrimary, true, TextAlignmentOptions.MidlineLeft, "Text");
+                    var t = UiKit.Label(pr, p.Text, font, UiColors.TextPrimary, true, TextAlignmentOptions.MidlineLeft, "Text"); if (UiTheme.IsTile) t.characterSpacing = PixFootball.UI.Glass.GlassTokens.Em(1.2f, font);
                     var le = t.gameObject.AddComponent<LayoutElement>(); le.preferredHeight = size;
                     var fit = t.gameObject.AddComponent<ContentSizeFitter>(); fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
                 }

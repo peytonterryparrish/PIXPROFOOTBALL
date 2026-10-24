@@ -62,6 +62,7 @@ namespace PixFootball.Sim
                 }
             }
             SimAgent carrier = S.Carrier;
+            if (GangAssists && carrier != null && carrier.State == AgentState.Down && S.EndPending && S.Phase == PlayPhase.Live) PileOn(carrier);      // v0.11.0 SIM-FLOW: the pile forms while the carrier is going down (E-244 only ran for a carrier still on his feet, so it almost never fired)
             if (carrier == null || carrier.State == AgentState.Down) return;
             UpdateDrag(carrier);
             if (S.Phase != PlayPhase.Live) return;
@@ -137,6 +138,7 @@ namespace PixFootball.Sim
         /// <summary>v0.9.0 (E-235): an engaged defender gets an arm on the runner: about a third of the time it is a tackle, otherwise the runner shakes the arm and stumbles on.</summary>
         private void ArmTackle(SimAgent d, SimAgent c)
         {
+            if (S.Options.ForceTackleAfter > 0f && c.Pos.Y < S.LosY + S.Options.ForceTackleAfter) return;      // v0.11.0: the test hook "open-field contact only" covers the engaged arm tackle too
             d.TackleCooldown = 0.8f;
             float p = 0.18f + 0.30f * SimMath.Rating01(d.R.Tackling) - 0.18f * SimMath.Rating01(c.R.BreakTackle) - 0.10f * SimMath.Clamp01(c.Speed / Math.Max(1f, c.Body.VMax));
             if (S.Rng.NextFloat() < p)
@@ -155,14 +157,26 @@ namespace PixFootball.Sim
         /// <summary>
         /// v0.9.0 (E-244): defenders who arrive inside the wrap window pile on instead of running through the pair: they wrap up, go to the grass and the pile is the picture at the whistle.
         /// </summary>
+        private readonly HashSet<int> _piled = new HashSet<int>();
         private void PileOn(SimAgent carrier)
         {
+            if (_piled.Count >= 2) return;
             for (int i = 0; i < 22; i++)
             {
                 SimAgent d = S.Agents[i];
                 if (d.Side == carrier.Side || d.State != AgentState.Normal || d.Body.FallenTime > 0f || d.Move != CarrierMove.None) continue;
-                float gap = (d.Pos - carrier.Pos).Length - d.Body.Radius - carrier.Body.Radius;
-                if (gap > 0.7f) continue;
+                Vec2 toC = carrier.Pos - d.Pos; float dist = Math.Max(0.05f, toC.Length);
+                float gap = dist - d.Body.Radius - carrier.Body.Radius;
+                float closing = d.Vel.Dot(toC * (1f / dist));
+                float maxGap = closing > 1.8f ? 1.5f : 0.7f;      // v0.11.0 SIM-FLOW: a man who is still closing at speed arrives and piles on (about a third of tackles have an assist)
+                if (_piled.Contains(d.Id)) continue;
+                if ((((S.TacklerId * 37) ^ (int)(S.BallX0 * 13f) ^ (int)(S.LosY * 7f) ^ (int)(S.Time * 0f)) & 0x7fffffff) % 100 >= 28) continue;      // about a third of the tackles get an assist
+                if (gap > maxGap)
+                {
+                    if (closing > 2.4f && gap < 3.4f && gap - 0.45f * closing < maxGap) S.ExtendEnd(0.45f);
+                    continue;
+                }
+                _piled.Add(d.Id);
                 d.State = AgentState.Tackling; d.StateTime = 0f;
                 S.PlayAction(d, AgentAction.TackleGang, 0.7f);
                 d.Body.Vel = d.Body.Vel * 0.3f;
@@ -170,7 +184,23 @@ namespace PixFootball.Sim
                 d.TackleCooldown = 1.5f;
                 S.LogEvent(SimEventType.PileOn, d.Id, carrier.Id, new Vec3(carrier.Pos, 0f), TackleType.GangTackle);
                 if (S.Choreo != null) S.Choreo.OnPileOn(d, carrier);      // v0.10.0 CHOREO
+                if (!S.Options.ForceTackle.HasValue && carrier.HasBall && S.Ball.Holder == carrier.Id && S.Rng.NextFloat() < StripChance(d, carrier, closing))
+                {
+                    // v0.11.0 SIM-FLOW: the second man rakes at the ball while the first holds the carrier (about a quarter of NFL fumbles come out in a pile)
+                    S.CancelEnd();
+                    S.Fumble(carrier, d, (carrier.Pos - d.Pos).Norm() * (1.1f + 0.2f * Math.Max(0f, closing)));
+                    return;
+                }
             }
+        }
+
+        internal float StripChance(SimAgent d, SimAgent c, float closing)
+        {
+            float p = 0.025f * (0.55f + d.R.Tackling / 160f) * (1.5f - SimMath.Rating01(c.R.Carrying));
+            if (c.Protecting) p *= 0.55f;
+            if (d.Fx != null) p *= Math.Max(0.1f, 1f + d.Fxv(SimHook.ForcedFumble) / 100f);
+            if (c.Fx != null) p *= Math.Max(0.1f, 1f + c.Fxv(SimHook.FumbleResist) / 100f);
+            return p;
         }
 
         private bool IsDragger(SimAgent a)
@@ -206,12 +236,13 @@ namespace PixFootball.Sim
 
             float tkEff = d.R.Tackling >= 75 ? 75f + (d.R.Tackling - 75f) * 1.45f : 75f + (d.R.Tackling - 75f) * 0.68f;
             float tackleSkill = 0.52f * tkEff + 0.16f * d.R.Strength + 0.12f * d.R.Awareness + 0.10f * d.R.Agility + 0.10f * d.R.Speed - 8f * (1f - d.Body.Energy);   // v0.9.0 (E-355): a gassed tackler loses up to 8 points
+            float fxAdj = 0f;      // the career abilities act at full strength; only the raw rating gap is compressed (SimTuning.TackleGapScale)
             float carrierSkill = 0.34f * c.R.BreakTackle + 0.22f * c.R.Strength + 0.14f * c.R.Carrying + 0.18f * c.R.Elusiveness + 0.12f * c.R.Agility;
             if (c.Fx != null)
             {
                 // v0.8.0: Short-Yardage Bruiser (third-and-one, goal line) and Yards Machine (after the catch) make the carrier harder to bring down
-                carrierSkill += c.Fxv(SimHook.ShortYardage) * ShortYardageSkillPerPercent;
-                if (c.Id == S.CatcherId && S.PassCompleted) carrierSkill += c.Fxv(SimHook.YardsAfterCatch) * YardsAfterCatchSkillPerPercent;
+                fxAdj += c.Fxv(SimHook.ShortYardage) * ShortYardageSkillPerPercent;
+                if (c.Id == S.CatcherId && S.PassCompleted) fxAdj += c.Fxv(SimHook.YardsAfterCatch) * YardsAfterCatchSkillPerPercent;
             }
             float mod = 0f;
             mod += category == 0 ? 5f : (category == 2 ? -14f : -3f);
@@ -228,7 +259,7 @@ namespace PixFootball.Sim
             if (c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown) mod += SimTuning.PasserBonus; // passers rarely escape an unblocked rusher (v0.9.0 E-242: +7, was +12; the grasp itself is the sack, a passer in the arms of a rusher is not a flat coin flip)
             if (c.State == AgentState.Normal && c.Body.FallenTime > 0f) mod += 20f;
 
-            float margin = tackleSkill - carrierSkill + mod + S.Rng.Gaussian(0f, 12f) + 2.0f;
+            float margin = (tackleSkill - carrierSkill) * SimTuning.TackleGapScale - fxAdj + mod + S.Rng.Gaussian(0f, 12f) + 2.0f + SimTuning.TackleGapOffset;
 
             // sack bookkeeping
             bool sackCandidate = c.Slot == 0 && c.Side == SimSide.Offense && S.OffAI.IsPassPlay && !S.PassThrown && c.Pos.Y <= S.LosY + 0.01f && S.BallSide == SimSide.Offense;
@@ -356,14 +387,14 @@ namespace PixFootball.Sim
         /// <summary>Chance that the ball comes out on a tackle (before the whistle): the tackle type, the carrier's Carrying, the tackler's skill and closing speed, a passer's strip-sack, and the v0.8.0 abilities (Strip Artist / Bone Rattler on the tackler, Wrecking Ball on the carrier).</summary>
         internal float FumbleChance(SimAgent d, SimAgent c, TackleType type, float closing, bool qbPass)
         {
-            float pFum = 0.0040f;
+            float pFum = 0.0052f;
             if (type == TackleType.BigHit) pFum = 0.030f;
-            else if (type == TackleType.GangTackle) pFum = 0.012f;
+            else if (type == TackleType.GangTackle) pFum = 0.014f;
             else if (type == TackleType.DiveTackle) pFum = 0.006f;
             pFum *= 1.45f - SimMath.Rating01(c.R.Carrying);
             pFum *= 0.75f + d.R.Tackling / 200f + closing / 40f;
             if (c.Protecting) pFum *= 0.45f;
-            if (qbPass) pFum = 0.05f * (1.55f - SimMath.Rating01(c.R.Carrying)) * (0.8f + d.R.Strength / 200f);
+            if (qbPass) pFum = 0.062f * (1.55f - SimMath.Rating01(c.R.Carrying)) * (0.8f + d.R.Strength / 200f);
             if (c.Move == CarrierMove.Spin || c.Move == CarrierMove.Truck) pFum *= 1.6f;
             pFum *= 0.92f;   // QA-351: lost fumbles were 0.35 per team-game against about 0.5 in the NFL
             if (d.Fx != null) pFum *= Math.Max(0.1f, 1f + d.Fxv(SimHook.ForcedFumble) / 100f);   // v0.8.0 Strip Artist, Bone Rattler
@@ -427,8 +458,10 @@ namespace PixFootball.Sim
                 S.EndPlay(EndReason.OutOfBounds);
                 return;
             }
+            bool blowUp = IsBlowUp(d, c, type, sack, closing);      // v0.11.0 SIM-FLOW: decided here, before it is shown
             S.LogEventVel(SimEventType.Tackle, d.Id, c.Id, new Vec3(c.Pos, 0f), type, closing, cVel0);
-            if (S.Choreo != null) S.Choreo.OnContact(d, c, type, sack, false, d.Move == CarrierMove.Dive, closing, cVel0);      // v0.10.0 CHOREO: book the take
+            if (blowUp) { var evs = S.Log.Events; var le = evs[evs.Count - 1]; le.Note = "BlowUp"; evs[evs.Count - 1] = le; c.Body.Vel = c.Body.Vel * 0.55f; }
+            else if (S.Choreo != null) S.Choreo.OnContact(d, c, type, sack, false, d.Move == CarrierMove.Dive, closing, cVel0);      // v0.10.0 CHOREO: book the take
 
             if (sack && fumble)
             {
@@ -462,6 +495,21 @@ namespace PixFootball.Sim
             }
             S.EndPlayAfter(EndReason.Tackle, WrapFor(type));
         }
+
+        /// <summary>
+        /// v0.11.0 SIM-FLOW: a blow-up hit (the highlight hit-stick collision): a big hit from the front or the side at 10.8+ yd/s closing (about 22 mph) with the tackler at least as heavy as 85% of the carrier, or a receiver caught in the air / without his feet set.
+        /// About 3 to 5 a game (NFL broadcasts show 3 to 6 hits a game that rock the ball carrier). The view does not play a form-tackle pair for it: the carrier is thrown back by the ragdoll.
+        /// </summary>
+        private bool IsBlowUp(SimAgent d, SimAgent c, TackleType type, bool sack, float closing)
+        {
+            if (!BlowUps || type != TackleType.BigHit || sack || S.Options.ForceTackle.HasValue || S.Kind != PlayKind.Scrimmage) return false;
+            if (closing < 10.8f) return false;
+            Vec2 cdir = c.Speed > 1.2f ? c.Vel.Norm() : c.Facing;
+            if (cdir.Dot((d.Pos - c.Pos).Norm()) < -0.2f) return false;      // not from behind
+            return d.Body.Mass >= 0.85f * c.Body.Mass;
+        }
+        public static bool GangAssists = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoGang") < 0;
+        public static bool BlowUps = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoBlowUps") < 0;
 
         /// <summary>v0.9.0 (E-369): a form tackle takes 0.5-0.8 s from contact to the whistle (0.7 s for a big hit, a gang tackle or a dive), long enough for its clip to finish; the ball is spotted at contact.</summary>
         private static float WrapFor(TackleType t)

@@ -91,6 +91,11 @@ namespace PixFootball.Presentation
         void Launch(Card c, OverlaySlot slot, int priority, float hold, string id)
         {
             c.Slot = slot; c.Priority = priority; c.Hold = hold; c.Id = id; c.Age = 0f;
+            if (slot != OverlaySlot.Center && c.Root != null)
+            {
+                c.Root.localScale = Vector3.one * HudMetrics.CardScale;
+                if (c.Root.anchorMin.y < 0.5f) { float lift = HudMetrics.BarLift - 24f + 14f; c.Rest.y += lift; c.Hidden.y += lift; }   // clear of the (lifted) score bar
+            }   // v0.11: one scale for every lower third, side card and next-play card
             c.Group = c.Root.gameObject.AddComponent<CanvasGroup>(); c.Group.alpha = 0f;
             c.Root.anchoredPosition = c.Hidden;
             _cards.Add(c);
@@ -284,7 +289,7 @@ namespace PixFootball.Presentation
 
         public void ShowScoreUpdate(TeamVis away, int awayScore, TeamVis home, int homeScore, string play, string clock, float hold = 5.5f, int scorerIdx = -1)
         {
-            Request(OverlaySlot.Side, 3, hold, "score", () =>
+            Request(OverlaySlot.Side, 4, hold, "score", () =>
             {
                 var c = MakeSide("ScoreUpdate", 268, TvUi.Gold, "SCORE UPDATE", null, null);
                 for (int i = 0; i < 2; i++)
@@ -304,7 +309,7 @@ namespace PixFootball.Presentation
 
         public void ShowTwoMinute(string quarterText, float hold = 4.5f)
         {
-            Request(OverlaySlot.Side, 4, hold, "twominute", () =>
+            Request(OverlaySlot.Side, 3, hold, "twominute", () =>
             {
                 var c = MakeSide("TwoMinute", 190, new Color(1f, 0.565f, 0f), "TWO-MINUTE WARNING", null, null);
                 TvUi.Text(c.Root, "2:00", 84, new Color(1f, 0.565f, 0f), true, TextAlignmentOptions.Center, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-120, 22), new Vector2(240, 96), 3f);

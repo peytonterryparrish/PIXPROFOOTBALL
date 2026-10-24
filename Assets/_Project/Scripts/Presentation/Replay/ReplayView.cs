@@ -47,6 +47,9 @@ namespace PixFootball.Presentation
             Angle = ReplayAngle.Free;
         }
 
+        /// <summary>v0.11: when not 0 the sideline replay angle stands on this side (the live camera side of a watched game).</summary>
+        public static float SideOverride;
+
         public ShotPose Compute(ReplayClip clip, float t, float dt)
         {
             float down = clip.TowardsPlusZ ? 1f : -1f;
@@ -58,7 +61,7 @@ namespace PixFootball.Presentation
             switch (Angle)
             {
                 case ReplayAngle.Sideline:
-                    pos = new Vector3(down * 28.5f, 2.3f, fp.z - down * 3f); fov = 22f; ap = 3.2f;
+                    pos = new Vector3((SideOverride != 0f ? SideOverride : down) * 28.5f, 2.3f, fp.z - down * 3f); fov = 22f; ap = 3.2f;
                     break;
                 case ReplayAngle.EndZone:
                     pos = new Vector3(fp.x * 0.35f, 8.5f, -down * 60f); fov = 15f; ap = 3.5f;

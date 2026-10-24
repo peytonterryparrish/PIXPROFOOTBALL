@@ -27,9 +27,12 @@ namespace PixFootball.UI.Glass
         /// <summary>Extra brightness the surface gets when focused.</summary>
         public float FocusBrighten = 0.035f;
 
-        float _f, _press;
+        float _f, _press; bool _alphaEnabled = true;
         bool _selected, _hover, _down, _enabledLook = true;
         Selectable _sel;
+
+        /// <summary>Edit-mode tools and shots (no Update loop): draws the control at a focus amount (0..1) and enabled or disabled look now.</summary>
+        public void ShowState(float focus, bool enabled) { _f = Mathf.Clamp01(focus); _enabledLook = enabled; Apply(); }
 
         public bool IsOn { get { return _selected || _hover; } }
         public float Amount { get { return _f; } }
@@ -43,12 +46,16 @@ namespace PixFootball.UI.Glass
             _f = _selected ? 1f : 0f; Apply();
         }
 
-        public void OnSelect(BaseEventData e) { _selected = true; if (PlaySound) UiAudio.Move(); }
+        /// <summary>Tile look: the object that moves to the front (last sibling) while this control is focused, so its scaled glow is never covered by neighbours (the mock raises the focused tile).</summary>
+        public Transform RaiseTarget;
+        void Raise() { if (RaiseTarget != null && RaiseTarget.parent != null && RaiseTarget.GetSiblingIndex() != RaiseTarget.parent.childCount - 1) RaiseTarget.SetAsLastSibling(); }
+
+        public void OnSelect(BaseEventData e) { _selected = true; Raise(); if (PlaySound) UiAudio.Move(); }
         public void OnDeselect(BaseEventData e) { _selected = false; }
         public void OnPointerEnter(PointerEventData e)
         {
             if (_sel != null && !_sel.IsInteractable()) return;
-            _hover = true;
+            _hover = true; Raise();
             if (PointerSelects && EventSystem.current != null && EventSystem.current.currentSelectedGameObject != gameObject) EventSystem.current.SetSelectedGameObject(gameObject);
         }
         public void OnPointerExit(PointerEventData e) { _hover = false; _down = false; }
@@ -60,13 +67,16 @@ namespace PixFootball.UI.Glass
         /// <summary>The surface is invisible until focused (ghost buttons, tabs): its opacity follows the focus amount.</summary>
         public bool GhostSurface;
 
-        void Update()
+        void Update() { Step(Time.unscaledDeltaTime); }
+
+        /// <summary>One frame of focus / press easing (also called by the measurement tools): no allocation.</summary>
+        public void Step(float dt)
         {
             bool interactable = _sel == null || _sel.IsInteractable();
             float target = (interactable && (IsOn || Pinned)) ? 1f : 0f;
             float speed = 1f / Mathf.Max(0.02f, GlassTheme.T.motionBase);
-            float nf = Mathf.MoveTowards(_f, target, Time.unscaledDeltaTime * speed);
-            float np = Mathf.MoveTowards(_press, (_down && interactable) ? 1f : 0f, Time.unscaledDeltaTime * speed * 2f);
+            float nf = Mathf.MoveTowards(_f, target, dt * speed);
+            float np = Mathf.MoveTowards(_press, (_down && interactable) ? 1f : 0f, dt * speed * 2f);
             if (Mathf.Approximately(nf, _f) && Mathf.Approximately(np, _press) && interactable == _enabledLook) return;
             _f = nf; _press = np; _enabledLook = interactable;
             Apply();
@@ -79,9 +89,13 @@ namespace PixFootball.UI.Glass
             {
                 Surface.SetFocus(e);
                 if (GhostSurface) { var sc = Surface.color; sc.a = e; Surface.color = sc; }
+                else if (GlassTheme.T.flat && _enabledLook != _alphaEnabled) { _alphaEnabled = _enabledLook; var sc = Surface.color; sc.a = _enabledLook ? 1f : 0.4f; Surface.color = sc; }   // Tile: a disabled control is drawn at 40%
                 Surface.SetBrighten(e * FocusBrighten - _press * 0.05f - (_enabledLook ? 0f : 0.04f));
             }
-            float s = Mathf.Lerp(1f, FocusScale, e) * (1f - _press * 0.012f);
+            var tk = GlassTheme.T;
+            float fs = FocusScale;
+            if (tk.flat && Surface != null && (Surface.Kind == GlassKind.Row || Surface.Kind == GlassKind.Tab)) fs = 1f;   // rows and tabs do not grow: their focus is the gold bar / plate
+            float s = Mathf.Lerp(1f, fs, e) * (1f - _press * (tk.flat ? 1f - tk.pressScale : 0.012f));
             transform.localScale = new Vector3(s, s, 1f);
             if (Label != null && !KeepLabelColor)
             {
