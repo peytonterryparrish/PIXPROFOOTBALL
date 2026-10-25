@@ -177,11 +177,18 @@ namespace PixFootball.Gameplay
         /// <summary>QA: the play on the field was built as a hurry-up (no huddle).</summary>
         public bool NextBeginHurryUsed { get { return _lastHurry; } }
         public static float HuddleScale = 1f;
+        /// <summary>v0.12.0 (RULES): seconds the director gives the next play from its build to the snap count (the dead-ball time minus what the whistle and the aftermath already used); 0 = the old fixed holds. The huddle hold stretches to fill it, the walk-in and the set keep their own durations.</summary>
+        public float NextBeginBudget;
+        /// <summary>v0.12.0 (RULES): the budget the play on the field was built with (read by the walk-in: how long the break, the walk and the set may take).</summary>
+        public float PreSnapBudget { get; private set; }
+        /// <summary>Walk from the ring to the line, the quarterback's walk-in and crouch, and the set: what the huddle hold leaves out of the budget.</summary>
+        const float WalkInAndSetSeconds = 5.5f;
 
         /// <summary>Called from <see cref="ConnectBegin"/> for a play built from carried bodies: starts every body's walk (huddle first for the offense and the defense, or straight to the line in a hurry).</summary>
         void PlaceBetween(PlaySimulation sim, PlayFrame frame, bool huddle)
         {
             _lastHurry = NextBeginHurry;
+            PreSnapBudget = NextBeginBudget; NextBeginBudget = 0f;
             _betweenClock = 0f;
             bool scrim = sim.Kind == PlayKind.Scrimmage;
             var order = new List<int>();
@@ -228,6 +235,11 @@ namespace PixFootball.Gameplay
                 if (doHuddle)
                 {
                     float hold = (side == 0 ? 2.4f : 1.5f) * HuddleScale;
+                    if (PreSnapBudget > 0f)      // v0.12.0 (RULES): the huddle talks as long as the dead-ball time allows (the offense up to 14 s, the defense breaks a little earlier)
+                    {
+                        float fill = Mathf.Clamp(PreSnapBudget - maxArrive - WalkInAndSetSeconds, 0f, 14f);
+                        hold = Mathf.Max(hold, side == 0 ? fill : fill * 0.85f);
+                    }
                     for (int k = 0; k < n; k++)
                     {
                         int i = order[k]; var g = _g[i];

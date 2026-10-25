@@ -85,6 +85,7 @@ namespace PixFootball.UI
             var game = sp.NewPage(holder, "Gameplay");
             UiControls.Selector(game, "Scorebug", PixSettings.ScorebugNames, (int)PixSettings.Scorebug, i => { PixSettings.Scorebug = (ScorebugStyle)i; });
             WatchSettingsUi.AddSettingsRows(game);   // v0.11: controller input (watch / play), helper bar, game speed
+            UiControls.Selector(game, "Time between plays (watch)", PixSettings.DeadBallNames, PixSettings.DeadBallIndex, i => { PixSettings.DeadBallIndex = i; });   // v0.12.0 (RULES): whistle to snap, default 25 s
             // look controls apply to free roam, the first-person camera and the replay free camera (the behind-the-QB camera has no look input)
             UiControls.Selector(game, "Invert look Y", new[] { "Off", "On" }, PixSettings.InvertLookY ? 1 : 0, i => { PixSettings.InvertLookY = i == 1; });
             UiControls.SliderRow(game, "Look sensitivity", Mathf.InverseLerp(0.2f, 3f, PixSettings.LookSensitivity), x => { PixSettings.LookSensitivity = Mathf.Lerp(0.2f, 3f, x); });

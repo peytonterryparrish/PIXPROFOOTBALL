@@ -52,6 +52,8 @@ namespace PixFootball.Gameplay
         public float Layer { get; private set; }
         public float Warp { get; private set; } = 1f;
         public float Rate { get; private set; } = 1f;
+        /// <summary>v0.12.0 NATURAL: this player's own cadence factor for the loops (set by the view each frame, 1 = the database's).</summary>
+        public float StyleRate = 1f;
         public bool LeftContact { get; private set; }
         public bool RightContact { get; private set; }
         /// <summary>Orientation warp: degrees the legs are turned toward the travel direction (the upper body keeps the facing).</summary>
@@ -63,6 +65,10 @@ namespace PixFootball.Gameplay
         public float PostureDropW { get; private set; }
         public const float PostureDrop = 0.035f;
         public static bool NoPosture;
+        /// <summary>QA (-pixMmNoSettle): a stop take plays to its end even when the body is already at rest.</summary>
+        public static bool SettleStops = Array.IndexOf(Environment.GetCommandLineArgs(), "-pixMmNoSettle") < 0;
+        /// <summary>Largest playback rate of a take that shares by cadenceK (1.38 on a 3.5 steps/s run = 4.9 steps/s).</summary>
+        public static float RateMax = 1.36f;
         /// <summary>QA (-pixMmNoTrans): the start / stop / cut takes of the database are never searched (A/B against loops only).</summary>
         public static bool NoTransitions;
         /// <summary>How many source frames ahead of the playing frame the contact tag is read (the foot is stopped on the frame it lands).</summary>
@@ -228,6 +234,8 @@ namespace PixFootball.Gameplay
                 if (c.loop) { if (_t >= loopLen) _t -= loopLen * Mathf.Floor(_t / loopLen); }
                 else if (_t >= last) { _t = last; _ended = true; }
                 _row = c.first + Mathf.Clamp(Mathf.FloorToInt(_t * MotionDb.Fps + 0.5f), 0, c.count - 1);
+                // v0.12.0: the simulation brakes harder than a stop take: with the body at rest the rest of the take would slide its feet at the root speed it still carries - the take ends here and the standing animator takes over (inertialized)
+                if (!c.loop && (c.kind & (int)MotionDb.Kind.Stop) != 0 && !_ended && SettleStops && _vSmooth < 0.25f && Mathf.Sqrt(_db.vel[_row * 2] * _db.vel[_row * 2] + _db.vel[_row * 2 + 1] * _db.vel[_row * 2 + 1]) * ls > 0.45f) _ended = true;
             }
             _sinceSwitch += dt; _sinceSearch += dt;
             // ---- search
@@ -239,6 +247,7 @@ namespace PixFootball.Gameplay
             if (_row < 0) { Park(); return false; }
             // ---- play the frame
             var cur = _db.clips[_clip];
+            if (SelLog != null) { float sc; _selSeconds.TryGetValue(cur.name, out sc); _selSeconds[cur.name] = sc + dt; }
             SetActive(_clip);
             var pl = _cp[_clip];
             pl.SetTime(Mathf.Clamp(_t, 0f, cur.clip.length));
@@ -247,7 +256,8 @@ namespace PixFootball.Gameplay
             float r = 1f; bool shot = !cur.loop;
             if (shot) { if (gv > 0.35f && _vSmooth > 0.2f) r = Mathf.Clamp(_vSmooth / gv, 0.45f, 2.2f); }      // a start / stop / cut changes speed through the clip: it plays by distance (time runs as fast as the body covers the ground the take covers), the feet stay on the turf
             else if (gv > 0.9f && _vSmooth > 0.5f) r = Mathf.Clamp(_vSmooth / gv, 0.5f, 2f);
-            float rate = shot ? Mathf.Clamp(r, 0.6f, 1.8f) : Mathf.Clamp(Mathf.Sqrt(r), 0.9f, 1.22f);      // cadence and stride share the difference (a faster runner takes quicker AND longer steps)
+            float rate = RateFor(r, cur.cadenceK, shot);      // cadence and stride share the difference (a faster runner takes quicker AND longer steps); a long-stride take takes more of it as cadence
+            if (!shot && Mathf.Abs(StyleRate - 1f) > 1e-4f) rate = Mathf.Clamp(rate * StyleRate, 0.85f, RateMax * 1.08f);      // v0.12.0 NATURAL: his own cadence (the warp below takes the difference back: same ground speed, his own step rate and stride)
             Rate = Mathf.Lerp(Rate, rate, 1f - Mathf.Exp(-dt / 0.06f));
             float warpT = Mathf.Clamp(r / Mathf.Max(0.5f, Rate) * TrimOf(_clip), 0.5f, 1.6f);
             Warp = fresh ? warpT : Mathf.Lerp(Warp, warpT, 1f - Mathf.Exp(-dt / 0.045f));      // a jump to another take must not jerk the planted feet
@@ -272,6 +282,14 @@ namespace PixFootball.Gameplay
             byte cb = _db.contact[cr];
             LeftContact = (cb & 1) != 0; RightContact = (cb & 2) != 0;
             return true;
+        }
+
+        /// <summary>Playback rate for a speed ratio <paramref name="r"/> (wanted ground speed / speed of the matched frame): a one-shot plays by distance; a loop takes the ratio to the power <paramref name="cadenceK"/> as cadence (0.5: both equally, the v0.11 split), the stride warp takes the rest.</summary>
+        public static float RateFor(float r, float cadenceK, bool shot)
+        {
+            if (shot) return Mathf.Clamp(r, 0.6f, 1.8f);
+            if (cadenceK > 0.51f) return Mathf.Clamp(Mathf.Pow(r, cadenceK), 0.9f, RateMax);
+            return Mathf.Clamp(Mathf.Sqrt(r), 0.9f, 1.22f);
         }
 
         void BuildQuery(in Query qy, float ls, bool fresh)
@@ -327,8 +345,36 @@ namespace PixFootball.Gameplay
             bool newClip = c != _clip;
             _clip = c; _row = row; _t = (row - _db.clips[c].first) / MotionDb.Fps; _ended = false;
             _sinceSwitch = 0f; Switches++; _switched = true;
-            _ = newClip;
+            if (newClip && SelLog != null) Selected(_db.clips[c].name);
         }
+
+        // ------------------------------------------------------------------------------------------ QA: which takes the matcher chooses
+        /// <summary>v0.12.0 (-pixMmSelLog path.csv): how often each take of the database was entered (a jump to another take) and for how many seconds it played, over all matchers of the run. Written every 400 entries and when the player quits.</summary>
+        public static string SelLog = ArgOf("-pixMmSelLog");
+        static string ArgOf(string name) { var a = Environment.GetCommandLineArgs(); int i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
+        static readonly System.Collections.Generic.Dictionary<string, int> _selEnter = new System.Collections.Generic.Dictionary<string, int>();
+        static readonly System.Collections.Generic.Dictionary<string, float> _selSeconds = new System.Collections.Generic.Dictionary<string, float>();
+        static int _selTotal; static bool _selHooked;
+
+        static void Selected(string name)
+        {
+            int n; _selEnter.TryGetValue(name, out n); _selEnter[name] = n + 1;
+            if (!_selHooked) { _selHooked = true; Application.quitting += FlushSelections; }
+            if (++_selTotal % 400 == 0) FlushSelections();
+        }
+
+        public static void FlushSelections()
+        {
+            if (SelLog == null) return;
+            try
+            {
+                var sb = new System.Text.StringBuilder("clip,entered,seconds\n");
+                foreach (var kv in _selEnter) { float s; _selSeconds.TryGetValue(kv.Key, out s); sb.Append(kv.Key).Append(',').Append(kv.Value).Append(',').Append(s.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)).Append('\n'); }
+                System.IO.File.WriteAllText(SelLog, sb.ToString());
+            }
+            catch (System.Exception) { }
+        }
+
 
 
         // ------------------------------------------------------------------------------------------ closed loop on the planted foot

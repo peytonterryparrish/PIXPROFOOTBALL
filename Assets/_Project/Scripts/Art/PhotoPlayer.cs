@@ -84,7 +84,8 @@ namespace PixFootball.Art
             Inst("Jersey", library.jersey); Inst("Pants", library.pants); Inst("Socks", library.socks); Inst("Cleats", library.cleats);
             Inst("SleeveR", library.sleeve); Inst("SleeveL", library.sleeve, "SleeveR");
             Inst("Wristband", library.band); Inst("PlayCard", library.band, "Wristband"); Inst("Towel", library.towel); Inst("Pouch", library.pouch);
-            Inst("Helmet_Shell", library.helmet); Inst("FaceMask", library.faceMask); Inst("Chinstrap", library.padding); Inst("HelmetPad", library.padding, "Chinstrap");
+            Inst("Helmet_Shell", library.helmet); Inst("FaceMask", library.faceMask); Inst("Chinstrap", library.padding); Inst("HelmetPad", library.padding);
+            { Material cs; if (_mat.TryGetValue("Chinstrap", out cs) && cs.HasProperty(BaseColor)) { { var nc = new Color(0.30f, 0.31f, 0.33f); cs.SetColor(BaseColor, nc); if (cs.HasProperty(Primary)) { cs.SetColor(Primary, nc); cs.SetColor(Secondary, nc); cs.SetColor(Tertiary, nc); } } if (cs.HasProperty(Smoothness)) cs.SetFloat(Smoothness, 0.18f); } }   // v0.12.0 BODIES: the chin cup + straps are a matte charcoal part of their own (the white cup read as a flat block under the mouth); the cheek / forehead pads keep the white padding
             Inst("Visor", library.visor);
             Inst("Gloves", library.gloves);
             Inst("HeadBrows", library.hair); Inst("HeadBeard", library.hair); Inst("HeadScalp", library.hair);

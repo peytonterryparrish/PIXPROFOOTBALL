@@ -13,6 +13,9 @@ namespace PixFootball.Gameplay
     public partial class SimAgentView
     {
         float _actOff;
+        /// <summary>v0.12.0: largest change (m) of the ground-fit offset in one frame (0.06 = 3.6 m/s).</summary>
+        public const float OffsetSlew = 0.06f;
+        public static readonly bool NoOffsetSlew = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixSlew") < 0;      // off by default (opt in with -pixSlew): it cut OL hips jumps but slowed the climb out of the turf, FEET_BELOW_TURF_7CM 35 -> 271 in 40 plays
         /// <summary>QA: switch the action ground pass off (the "before" state).</summary>
         public static bool DebugNoActionGround;
         /// <summary>QA: a pair take (ContactDriven) does not get the planted-foot hold (the pre-v0.10.0 behaviour).</summary>
@@ -76,7 +79,7 @@ namespace PixFootball.Gameplay
             float gap = low - FootPlant.SoleGoal;
             float target = ContactDriven ? 0f : (Mathf.Abs(gap) < 0.012f ? 0f : Mathf.Clamp(-gap, -0.5f, 0.08f));      // (a pair take keeps the director's own ground fit: only the feet are held)
             float tau = target < _actOff ? 0.03f : 0.06f;      // down fast (the body follows its lowest foot to the turf within two frames), up slower
-            _actOff = Mathf.Lerp(_actOff, target, 1f - Mathf.Exp(-dt / tau));
+            { float next = Mathf.Lerp(_actOff, target, 1f - Mathf.Exp(-dt / tau)); _actOff = (EngageStepper.V011 || NoOffsetSlew) ? next : _actOff + Mathf.Clamp(next - _actOff, -OffsetSlew * dt * 60f, OffsetSlew * dt * 60f); }      // v0.12.0 CONTACT: the body never drops or rises more than OffsetSlew in one frame (a hips jump over 10 cm is a pop, not a fit)
             ApplyActionOffset();
             // 2. planted feet of a still body stay planted
             if (plant.Speed < (ContactDriven ? ContactPlantSpeed : ActionPlantSpeed))

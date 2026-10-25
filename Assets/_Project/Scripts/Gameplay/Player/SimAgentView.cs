@@ -97,6 +97,7 @@ namespace PixFootball.Gameplay
         {
             if (Avatar != null && playerId != IdentityId) Avatar.SetAppearance(playerId, RoleUtil.AppearanceRole(pos));
             IdentityId = playerId;
+            NaturalIdentity(playerId, pos);      // v0.12.0 NATURAL: his own movement style
         }
 
         public void Dress(TeamColors uniform, TeamColors helmet)
@@ -194,7 +195,7 @@ namespace PixFootball.Gameplay
             facing = LocoFacing(velocity, facing, action, dt);      // v0.11.0 MOTION B-018: no running backwards at sprint speed
             float target = Mathf.Atan2(facing.x, facing.z) * Mathf.Rad2Deg;
             float turnRate = (action == AgentAction.Tackled || action == AgentAction.Fallen) ? 120f : LocoTurnRate;      // v0.11.0 MOTION B-017: the body turns no faster than a runner can (SimAgentView.Loco.cs)
-            _yaw = Mathf.MoveTowardsAngle(_yaw, target, turnRate * dt);
+            _yaw = TurnYaw(_yaw, target, turnRate, action, velocity, dt);      // v0.12.0 NATURAL: eased, rate-limited turn of a free body (the plain MoveTowardsAngle for everything else)
             if (!ragdollOn) transform.rotation = Quaternion.Euler(0f, _yaw, 0f);
             Vector3 f = Forward;
             if (Motion != null) Anim.Trim = Motion.LocoTrim;      // v0.7.0: stride matching
@@ -375,6 +376,7 @@ namespace PixFootball.Gameplay
             UpdateFacingLoop(Time.deltaTime);
             PopFilterLate(Time.deltaTime);      // v0.9.0 CONNECT E-250
             FitGround(Time.deltaTime);
+            NaturalSecondaryLate(Time.deltaTime);      // v0.12.0 NATURAL: arms, shoulders, head, idle micro-motion (before the foot planter)
             if (Motion != null) Motion.Late(Time.deltaTime);
             LateStancePose(Time.deltaTime);      // v0.9.0 QBSTANCE: the authored stance poses (hand on the turf, hips high, QB crouch) over the animation
             ArmIkLate(Time.deltaTime);          // v0.9.0 CONNECT E-125 / E-127 / E-146
@@ -384,6 +386,8 @@ namespace PixFootball.Gameplay
             EngageStepLate(Time.deltaTime);       // v0.10.0 CHOREO: engaged bodies step instead of skating
             HipsLeashLate(Time.deltaTime);      // v0.11.0 MOTION B-020: the skeleton stays within 0.3 m of the simulated position
             PixIk.Late(this, Time.deltaTime);   // v0.11.0 MOTION: Final IK (bridge, absent in the public repo) solves the hand / foot / body effectors other systems asked for this frame
+            EngageLegsRestore();                // v0.12.0 CONTACT: the legs of an engaged body stay the stepper's (Final IK moves the pelvis for the hands; the ankles go back on their anchors)
+            NaturalLookLate(Time.deltaTime);    // v0.12.0 NATURAL: head over chest and chest over pelvis inside their limits and rates, on the final pose (after Final IK)
             KickIkLate(Time.deltaTime);         // v0.10.0 QB: the kicking foot meets the ball on the contact frame
             if (_kickT < 0f || Avatar == null || Avatar.RightUpperLeg == null || Avatar.RightLowerLeg == null) return;
             _kickT += Time.deltaTime;

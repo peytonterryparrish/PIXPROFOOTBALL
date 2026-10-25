@@ -117,7 +117,7 @@ namespace PixFootball.Gameplay
             if (instant && Brain != null)
             {
                 SnapProxies();
-                Brain.ManualUpdate();
+                MatchCameraRig.ForceBrainUpdate(Brain);
             }
         }
 

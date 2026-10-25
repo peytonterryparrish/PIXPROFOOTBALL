@@ -19,8 +19,37 @@ import phr2_warp as W
 STAGING = os.path.join(OUT_ASSET, "Staging_v07", "Meshes")
 B.LOD0_TRIS["Pads"] = 4000          # hidden under the jersey (only the neck roll can show): the 47k-tri store pads need no more
 B.LOD_MIN["Pads"] = [2000, 900, 400]
+# v0.12.0 BODIES: helmet detail was half of R1 (shell 9.0 k of 18.8 k, face mask 6.5 k of 14.4 k) and the match shows LOD1-LOD2 almost all the time (LOD2 face mask 1.4 k: bars alias away) -> more triangles where the helmet is seen, LOD floors that keep the bars; jersey LOD floors up (collar trim shredded at LOD1 / LOD2)
+B.LOD0_TRIS.update({"Helmet_Shell": 11500, "FaceMask": 9500, "Chinstrap": 2800, "HelmetPad": 1900})
+B.LOD_MIN.update({"Helmet_Shell": [3400, 1800, 800], "FaceMask": [3200, 1800, 800], "Jersey": [2300, 1300, 800]})
+# v0.12.0 BODIES: the pads got ~20 % smaller, the Large (OL / DL) body gets the weight back in the trunk, arms and legs (bigger and heavier, no thin spots)
+BULK = {"Large": dict(torso=(1.045, 1.04), leg=1.05, arm=0.95)}
+import copy as _copy
+for _k, _b in BULK.items():
+    _P = phr_body.BODY[_k]
+    _P["torso"] = [(z, sx * _b["torso"][0], sy * _b["torso"][1]) for z, sx, sy in _P["torso"]]
+    _P["leg"] = [(z, f * _b["leg"]) for z, f in _P["leg"]]
+    _P["arm"] = [(t, f * _b["arm"]) for t, f in _P["arm"]]
 B.NO_SEAM_PARTS.add("Pads")
 PAD_SLEEVE_EXT = 0.0
+
+
+def shrink_chin_cup(obj):
+    """v0.12.0 BODIES (coordinator S1-visual): the R1 chin cup is 12 x 5 x 5 cm and sticks out in front of the chin, a big flat block under the mouth. Shrinks it to about 8.6 x 3.5 x 4 cm around its centre
+    (R1 frame, rigid part): width x0.72, height x0.70, depth x0.95, faded out over the straps (0.075-0.105 m from the centre line / above the cup)."""
+    me = obj.data
+    co = np.empty(len(me.vertices) * 3, np.float32)
+    me.vertices.foreach_get('co', co)
+    co = co.reshape(-1, 3).astype(np.float64)
+    cx, cz, y0 = -0.0065, 1.621, -0.05      # cz = the bottom of the cup: it shrinks upward (the cup keeps cradling the chin)
+    sm = lambda a, b, x: np.clip((x - a) / (b - a + 1e-12), 0, 1) ** 2 * (3 - 2 * np.clip((x - a) / (b - a + 1e-12), 0, 1))
+    w = (1.0 - sm(0.075, 0.105, np.abs(co[:, 0] - cx))) * (1.0 - sm(1.668, 1.684, co[:, 2])) * (1.0 - sm(-0.058, -0.044, co[:, 1]) * 0.0) * sm(-0.046, -0.058, co[:, 1])
+    co[:, 0] = cx + (co[:, 0] - cx) * (1.0 - w * 0.28)
+    co[:, 2] = cz + (co[:, 2] - cz) * (1.0 - w * 0.30)
+    co[:, 1] = np.where(co[:, 1] < y0, y0 + (co[:, 1] - y0) * (1.0 - w * 0.05), co[:, 1])
+    me.vertices.foreach_set('co', co.astype(np.float32).ravel())
+    me.update()
+    return int((w > 0.01).sum())
 
 
 def build2(body, base, out_dir, export=True, pads=True):
@@ -84,6 +113,7 @@ def build2(body, base, out_dir, export=True, pads=True):
             before = tri_count(objs[n].data)
             decimate_to(objs[n], t, extra_protect=material_border_vertices if n in ("Arms", "Pads") else None, seam=n not in B.NO_SEAM_PARTS)
             log("LOD0", n, before, "->", tri_count(objs[n].data))
+    log("chin cup shrunk, vertices:", shrink_chin_cup(objs["Chinstrap"]))
     lod0 = dict(objs)
     lod0["Head"] = sub
     lod0["Eyes"] = eyes
@@ -150,6 +180,8 @@ def build2(body, base, out_dir, export=True, pads=True):
         PD.drape_jersey(sets["Jersey"], arm, pad0, PAD_SLEEVE_EXT)
         for po in sets["Pads"]:
             log("pads tucked under the jersey:", po.name, PD.tuck_pads(po, sets["Jersey"][0]), "of", len(po.data.vertices), "vertices")
+        for po in sets["Pads"]:
+            log("pads follow the jersey weights:", po.name, PD.pads_follow_jersey(po, sets["Jersey"][0]), "of", len(po.data.vertices), "vertices")
     for n in B.RIGID + ["Visor"]:
         for o in sets[n]:
             rigid_to_bone(o, arm, "rig:Head")

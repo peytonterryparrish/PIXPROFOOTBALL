@@ -45,13 +45,14 @@ namespace PixFootball.EditorTools
         sealed class VT
         {
             public SimAgentView V; public Animator An;
-            public Transform Hips, Spine, Chest, Head, LF, RF, LT, RT, LH, RH, LUL, RUL;
+            public Transform Hips, Spine, Chest, Head, LF, RF, LT, RT, LH, RH, LUL, RUL, LTE, RTE;
             public Renderer[] Rs; public SkinnedMeshRenderer[] Smrs; public PhotoPlayer Pp; public int RsPlay = -1; public int RsChildCount;
             public Vector3 PrevLT, PrevRT, PrevLF, PrevRF, PrevHipsLocal; public Quaternion PrevHipsRot, PrevChestRot; public bool Have;
             public bool PlantL, PlantR;
             public int FloatRun, AirRun, SunkRun, LagRun, FaceRun, TravelRun, BackRun, NoDrawRun, BoundsRun, OffHandRun, LvlChanges, PrevLvl = -1, LvlPrevChangeFrame = -99, MissRun;
             public string PrevClip = ""; public int ClipSwitches; public float Alive; public int LastClipSwitchFrame;
             public int LoopHips; public bool WasStale; public int StaleFrames; public int BuriedRun;
+            public Vector3 PrevRoot; public bool HaveRoot; public float ViewSpeed; public int FloatRunOld, LagRunOld, FaceRunOld;   // v0.12: horizontal speed of the body on the stage (the pre-snap glide moves bodies that the simulation still lists as Stance at 0 m/s)
         }
         readonly Dictionary<SimAgentView, VT> _vt = new Dictionary<SimAgentView, VT>();
 
@@ -66,6 +67,7 @@ namespace PixFootball.EditorTools
             t.Head = an.GetBoneTransform(HumanBodyBones.Head);
             t.LF = an.GetBoneTransform(HumanBodyBones.LeftFoot); t.RF = an.GetBoneTransform(HumanBodyBones.RightFoot);
             t.LT = an.GetBoneTransform(HumanBodyBones.LeftToes); t.RT = an.GetBoneTransform(HumanBodyBones.RightToes);
+            t.LTE = t.LT != null && t.LT.childCount > 0 ? t.LT.GetChild(0) : null; t.RTE = t.RT != null && t.RT.childCount > 0 ? t.RT.GetChild(0) : null;
             t.LH = an.GetBoneTransform(HumanBodyBones.LeftHand); t.RH = an.GetBoneTransform(HumanBodyBones.RightHand);
             t.LUL = an.GetBoneTransform(HumanBodyBones.LeftUpperLeg); t.RUL = an.GetBoneTransform(HumanBodyBones.RightUpperLeg);
             if (t.Hips == null || t.LF == null || t.RF == null) return null;
@@ -73,7 +75,7 @@ namespace PixFootball.EditorTools
             return t;
         }
 
-        void ResetVTs() { foreach (var t in _vt.Values) { t.Have = false; t.FloatRun = t.AirRun = t.SunkRun = t.LagRun = t.FaceRun = t.TravelRun = t.BackRun = t.NoDrawRun = t.BoundsRun = t.OffHandRun = t.MissRun = 0; t.RsPlay = -1; t.ClipSwitches = 0; t.Alive = 0f; t.PlantL = t.PlantR = false; } Array.Clear(_overlapRun, 0, _overlapRun.Length); }
+        void ResetVTs() { foreach (var t in _vt.Values) { t.Have = false; t.FloatRun = t.AirRun = t.SunkRun = t.LagRun = t.LagRunOld = t.FaceRun = t.FaceRunOld = t.TravelRun = t.BackRun = t.NoDrawRun = t.BoundsRun = t.OffHandRun = t.MissRun = 0; t.RsPlay = -1; t.ClipSwitches = 0; t.Alive = 0f; t.PlantL = t.PlantR = false; } Array.Clear(_overlapRun, 0, _overlapRun.Length); Array.Clear(_overlapRunOld, 0, _overlapRunOld.Length); }
 
         static bool Drawn(Renderer r, bool allowShadowOnly = false)
         {
@@ -87,7 +89,7 @@ namespace PixFootball.EditorTools
         SimStateSnap _prevSimPhase; PlayPhase _lastSimPhaseSeen = PlayPhase.Dead;
         struct SimStateSnap { public PlayPhase Phase; public PlayKind Kind; }
         readonly int[,] _overlapRunDummy = new int[1, 1];
-        int[] _overlapRun = new int[22 * 22];
+        int[] _overlapRun = new int[22 * 22], _overlapRunOld = new int[22 * 22];      // (v0.12: _overlapRunOld = the v0.11 rule, any body speed; _overlapRun = both bodies still on the stage)
         int _snapAtPlay = -1;
 
         void OnPlayStarted(PlaySimulation sim)
@@ -96,11 +98,11 @@ namespace PixFootball.EditorTools
             _prevSimPhase = new SimStateSnap { Phase = PlayPhase.PreSnap, Kind = sim.Kind };
             _ballOffRun = 0; _ballDesyncRun = 0; _camOff = 0; _carrierOff = 0;
             _flightPlay.Clear();
-            _simStartFrame = _frame;
+            _simStartFrame = _frame; _preFrames = 0;
             if (_playCount.ContainsKey(sim.Kind)) _playCount[sim.Kind]++; else _playCount[sim.Kind] = 1;
             RequestStripsOnPlayStart(sim);
         }
-        int _simStartFrame;
+        int _simStartFrame; int _preFrames;
         readonly Dictionary<PlayKind, int> _playCount = new Dictionary<PlayKind, int>();
         readonly Dictionary<int, int> _flightPlay = new Dictionary<int, int>();
 
@@ -204,12 +206,13 @@ namespace PixFootball.EditorTools
             bool live = sim.Phase == PlayPhase.Live;
             bool pre = sim.Phase == PlayPhase.PreSnap;
             // sim phase edge: stance snapshot at the moment the ball is snapped / kicked
-            if (_lastSimPhaseSeen == PlayPhase.PreSnap && sim.Phase != PlayPhase.PreSnap) { CommitStance(sim); }
+            if (_lastSimPhaseSeen == PlayPhase.PreSnap && sim.Phase != PlayPhase.PreSnap) { CommitStance(sim); if (sim.Kind == PlayKind.Scrimmage) SideShotsForGroups("snap", sim, 6); }
             _lastSimPhaseSeen = sim.Phase;
             if (pre && (_frame % 6) == 0) SampleStance(sim, st);
+            if (pre) { _preFrames++; if (_preFrames == 180 && sim.Kind == PlayKind.Scrimmage) SideShotsForGroups("early", sim, 6); }
 
             int[] teamNoBody = new int[2], teamInactive = new int[2], teamMissingParts = new int[2], teamOutOfFrustum = new int[2], teamOnField = new int[2], teamOffField = new int[2];
-            Vector3[] hipP = new Vector3[22]; bool[] hipOk = new bool[22];
+            Vector3[] hipP = new Vector3[22]; bool[] hipOk = new bool[22]; float[] hipSpd = new float[22];
             Vector3 ballU = st.Ball != null ? st.Ball.Position : Vector3.zero;
             for (int i = 0; i < 22; i++)
             {
@@ -221,6 +224,7 @@ namespace PixFootball.EditorTools
                 float gy = v.transform.position.y;
                 Vector3 vp = v.transform.position;
                 if (float.IsNaN(vp.x) || float.IsNaN(vp.y) || float.IsNaN(vp.z)) { Issue("VIS_POSITION_NAN", "agent " + i, 0, i); continue; }
+                { float inst = t.HaveRoot ? new Vector2(vp.x - t.PrevRoot.x, vp.z - t.PrevRoot.z).magnitude * 60f : 0f; t.ViewSpeed = t.HaveRoot ? Mathf.Lerp(t.ViewSpeed, inst, 0.25f) : 0f; t.PrevRoot = vp; t.HaveRoot = true; }
                 bool contact = v.ContactDriven;
                 // ---- off-screen bodies: v0.10.0 sets AnimatorCullingMode.CullUpdateTransforms, so the pose is frozen while procedural layers keep moving the hips (the body sinks); measure that separately and keep it out of every other check
                 {
@@ -304,9 +308,11 @@ namespace PixFootball.EditorTools
                 Vector3 sp = frame.ToUnity(a.Pos); sp.y = vp.y;
                 float lag = Vector3.Distance(new Vector3(vp.x, 0, vp.z), new Vector3(sp.x, 0, sp.z));
                 S("view-vs-sim position error m", lag);
-                if (lag > 1.0f) { t.LagRun++; if (t.LagRun == 12) Issue("SYNC_VIEW_FAR_FROM_SIM_1M", "agent " + i + " " + a.PlayPos + " action " + a.Action + " err " + lag.ToString("0.00", CI) + " m", lag, i); } else t.LagRun = 0;
+                // v0.12.0 CONTACT: a body that is walking to his place (view speed 0.35 m/s or more: the pre-snap walk-in, the huddle break, a post-whistle walk) is meant to lag the simulation; the v0.11 rule stays as _V011_RULE for the like-for-like count
+                if (lag > 1.0f) { t.LagRunOld++; if (t.LagRunOld == 12) Issue("SYNC_VIEW_FAR_FROM_SIM_1M_V011_RULE" + (t.ViewSpeed < 0.35f ? "_STILL" : "_MOVING"), "agent " + i + " " + a.PlayPos + " action " + a.Action + " err " + lag.ToString("0.00", CI) + " m, view speed " + t.ViewSpeed.ToString("0.00", CI), lag, i, false); } else t.LagRunOld = 0;
+                if (lag > 1.0f && t.ViewSpeed < 0.35f) { t.LagRun++; if (t.LagRun == 12) Issue("SYNC_VIEW_FAR_FROM_SIM_1M", "agent " + i + " " + a.PlayPos + " action " + a.Action + " err " + lag.ToString("0.00", CI) + " m", lag, i); } else t.LagRun = 0;
                 // hips away from the root (skeleton detached from its collider)
-                Vector3 hp = t.Hips.position; hipP[i] = hp; hipOk[i] = true;
+                Vector3 hp = t.Hips.position; hipP[i] = hp; hipOk[i] = true; hipSpd[i] = t.ViewSpeed;
                 float hoff = Vector3.Distance(new Vector3(hp.x, 0, hp.z), new Vector3(vp.x, 0, vp.z));
                 S("hips offset from root m " + g, hoff);
                 if (hoff > 1.2f && !contact && !a.IsDown) Issue("SYNC_HIPS_FAR_FROM_ROOT_1.2M_" + g, "agent " + i + " " + a.PlayPos + " action " + a.Action + " clip " + (v.Rig != null ? v.Rig.CurrentClipName : ""), hoff, i);
@@ -317,23 +323,34 @@ namespace PixFootball.EditorTools
                 float lowToe = Mathf.Min(lth, rth);
                 float hipsY = hp.y - gy;
                 float speedMs = a.Speed * 0.9144f;
+                if (pre && _preFrames < 520 && sim.Kind == PlayKind.Scrimmage && _dir.PlayNumber >= 2 && _dir.PlayNumber <= 5 && (i == 2 || i == 8 || i == 12)) ProbeRow("dense", i, v, t, a, sim, gy, speedMs, hipsY);
                 var act = a.Action;
                 bool groundAct = a.IsDown || act == AgentAction.Tackled || act == AgentAction.Fallen || act == AgentAction.GetUp || act == AgentAction.Slide || act == AgentAction.Celebrate && hipsY < 0.6f;
                 bool airOk = act == AgentAction.Jump || act == AgentAction.Hurdle || act == AgentAction.Dive || act == AgentAction.TackleDive || act == AgentAction.Catch || act == AgentAction.Kick || act == AgentAction.Celebrate || act == AgentAction.Stumble || act == AgentAction.TackleBigHit || act == AgentAction.TackleGang || act == AgentAction.Spin || act == AgentAction.Juke || act == AgentAction.Truck || act == AgentAction.StiffArm || act == AgentAction.Throw || act == AgentAction.Shed;
                 bool standingAct = (act == AgentAction.Stance || act == AgentAction.Idle || act == AgentAction.Block || act == AgentAction.Engaged || act == AgentAction.Shuffle) && !contact;
                 if (!contact && !groundAct)
                 {
-                    if (standingAct && speedMs < 1.2f)
+                    bool simStanding = standingAct && speedMs < 1.2f, viewStill = t.ViewSpeed < 0.35f;      // v0.12: the pre-snap glide moves bodies at 0.5-5 m/s while the simulation still lists them as Stance / 0 m/s: those are walking, not standing
+                    if (simStanding && lowToe > 0.09f && lth > 0.09f && rth > 0.09f) { t.FloatRunOld++; if (t.FloatRunOld == 8) Issue("FLOAT_STANDING_V011_RULE_" + g + (viewStill ? "_STILL" : "_MOVING"), "agent " + i + " " + a.PlayPos + " act " + act + " lowest toe " + lowToe.ToString("0.00", CI) + " m, view speed " + t.ViewSpeed.ToString("0.00", CI) + " m/s, sim speed " + speedMs.ToString("0.00", CI), lowToe, i, false); } else t.FloatRunOld = 0;      // the v0.11 rule unchanged (same 8-frame run), for the like-for-like count; split by whether the body is moving on the stage
+                    if (simStanding && !viewStill)
+                    {
+                        H("standing by the simulation but moving on the stage (pre-snap glide / walk-in), frames");
+                        if (lowToe > 0.09f && lth > 0.09f && rth > 0.09f) H("v0.11 FLOAT_STANDING rule met by a body that is moving on the stage (walking, not a stance), frames");
+                        if (_frame % 12 == 0) ProbeRow("glide", i, v, t, a, sim, gy, speedMs, hipsY);
+                        t.FloatRun = 0;
+                    }
+                    else if (simStanding)
                     {
                         S("standing: lowest foot above turf m " + g, lowest);
-                        if (lowToe > 0.09f && lth > 0.09f && rth > 0.09f) { t.FloatRun++; if (t.FloatRun == 8) Issue("FLOAT_STANDING_BOTH_FEET_UP_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " lowest toe " + lowToe.ToString("0.00", CI) + " m, hips " + hipsY.ToString("0.00", CI) + " clip " + (v.Rig != null ? v.Rig.CurrentClipName : ""), lowToe, i, true); }
+                        if (_frame % 12 == 0) ProbeRow("stand", i, v, t, a, sim, gy, speedMs, hipsY);
+                        if (lowToe > 0.09f && lth > 0.09f && rth > 0.09f) { t.FloatRun++; if (t.FloatRun == 8) SideShot("float", i, 3); if (t.FloatRun == 8) Issue("FLOAT_STANDING_BOTH_FEET_UP_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " lowest toe " + lowToe.ToString("0.00", CI) + " m, hips " + hipsY.ToString("0.00", CI) + " clip " + (v.Rig != null ? v.Rig.CurrentClipName : ""), lowToe, i, true); }
                         else t.FloatRun = 0;
                     }
                     else t.FloatRun = 0;
                     bool loco = (act == AgentAction.Run || act == AgentAction.Sprint || act == AgentAction.Carry || act == AgentAction.Route || act == AgentAction.Backpedal) && speedMs > 3.0f;
                     if (loco)
                     {
-                        H("loco frames (speed>3 m/s) " + g); S("loco hips height " + g, hipsY);
+                        H("loco frames (speed>3 m/s) " + g); S("loco hips height " + g, hipsY); if (_frame % 24 == 0) ProbeRow("loco", i, v, t, a, sim, gy, speedMs, hipsY);
                         if (lth > 0.10f && rth > 0.10f) { t.AirRun++; H("loco flight frames (both toes >10 cm) " + g); if (t.AirRun == 14) Issue("FLOAT_RUN_AIRBORNE_OVER_0.23S_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " speed " + speedMs.ToString("0.0", CI) + " m/s, toes " + lowToe.ToString("0.00", CI) + " m", lowToe, i, true); }
                         else t.AirRun = 0;
                     }
@@ -371,7 +388,10 @@ namespace PixFootball.EditorTools
                     Vector3 fd = frame.DirToUnity(a.Facing); float simYaw = Mathf.Atan2(fd.x, fd.z) * Mathf.Rad2Deg;
                     float errF = Mathf.Abs(StanceRules.YawDelta(pose.Yaw, simYaw));
                     S("body yaw vs sim facing deg " + g, errF);
-                    if (speedMs < 1.0f && errF > 70f && act != AgentAction.Block && act != AgentAction.Engaged) { t.FaceRun++; if (t.FaceRun == 20) Issue("FACE_BODY_70DEG_OFF_SIM_FACING_STANDING_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " err " + errF.ToString("0"), errF, i); } else t.FaceRun = 0;
+                    // v0.12.0 CONTACT: the same view-speed guard as FLOAT_STANDING (a body that walks to his place turns toward where he walks); the v0.11 rule stays as _V011_RULE
+                    bool faceStill = t.ViewSpeed < 0.35f;
+                    if (speedMs < 1.0f && errF > 70f && act != AgentAction.Block && act != AgentAction.Engaged) { t.FaceRunOld++; if (t.FaceRunOld == 20) Issue("FACE_BODY_70DEG_OFF_SIM_FACING_STANDING_V011_RULE_" + g + (faceStill ? "_STILL" : "_MOVING"), "agent " + i + " " + a.PlayPos + " act " + act + " err " + errF.ToString("0") + " view speed " + t.ViewSpeed.ToString("0.00", CI), errF, i, false); } else t.FaceRunOld = 0;
+                    if (speedMs < 1.0f && errF > 70f && act != AgentAction.Block && act != AgentAction.Engaged && faceStill) { t.FaceRun++; if (t.FaceRun == 20) Issue("FACE_BODY_70DEG_OFF_SIM_FACING_STANDING_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " err " + errF.ToString("0"), errF, i); } else t.FaceRun = 0;
                     if (speedMs > 3.0f && (act == AgentAction.Run || act == AgentAction.Sprint || act == AgentAction.Carry || act == AgentAction.Route))
                     {
                         Vector3 vd = frame.DirToUnity(a.Vel); float vy = Mathf.Atan2(vd.x, vd.z) * Mathf.Rad2Deg; float errV = Mathf.Abs(StanceRules.YawDelta(pose.Yaw, vy));
@@ -408,15 +428,16 @@ namespace PixFootball.EditorTools
                     int k = i * 22 + j;
                     if (d2 < 0.26f * 0.26f && Mathf.Abs(hipP[i].y - hipP[j].y) < 0.6f)
                     {
-                        _overlapRun[k]++;
-                        if (_overlapRun[k] == 10)
-                        {
-                            var ai = sim.Agents[i]; var aj = sim.Agents[j];
-                            bool pile = ai.IsDown || aj.IsDown || ai.Action.ToString().StartsWith("Tackle") || aj.Action.ToString().StartsWith("Tackle") || ai.Action == AgentAction.Tackled || aj.Action == AgentAction.Tackled;
-                            Issue(pile ? "OVERLAP_BODIES_IN_TACKLE_OR_PILE" : "OVERLAP_BODIES_STANDING_OR_BLOCKING", i + " " + ai.PlayPos + "/" + ai.Action + " vs " + j + " " + aj.PlayPos + "/" + aj.Action + " hips " + Mathf.Sqrt(d2).ToString("0.00", CI) + " m apart", Mathf.Sqrt(d2), i, !pile);
-                        }
+                        // v0.12.0 CONTACT: two bodies that are walking to their places (view speed 0.35 m/s or more) pass each other; the v0.11 rule (_overlapRunOld) is kept as _V011_RULE
+                        bool still2 = hipSpd[i] < 0.35f && hipSpd[j] < 0.35f;
+                        _overlapRunOld[k]++; _overlapRun[k] = still2 ? _overlapRun[k] + 1 : 0;
+                        var ai = sim.Agents[i]; var aj = sim.Agents[j];
+                        bool pile = ai.IsDown || aj.IsDown || ai.Action.ToString().StartsWith("Tackle") || aj.Action.ToString().StartsWith("Tackle") || ai.Action == AgentAction.Tackled || aj.Action == AgentAction.Tackled;
+                        string oinfo = i + " " + ai.PlayPos + "/" + ai.Action + " vs " + j + " " + aj.PlayPos + "/" + aj.Action + " hips " + Mathf.Sqrt(d2).ToString("0.00", CI) + " m apart";
+                        if (_overlapRunOld[k] == 10 && !pile) Issue("OVERLAP_BODIES_STANDING_OR_BLOCKING_V011_RULE" + (still2 ? "_STILL" : "_MOVING"), oinfo + ", view speed " + hipSpd[i].ToString("0.00", CI) + " / " + hipSpd[j].ToString("0.00", CI), Mathf.Sqrt(d2), i, false);
+                        if (pile ? _overlapRunOld[k] == 10 : _overlapRun[k] == 10) Issue(pile ? "OVERLAP_BODIES_IN_TACKLE_OR_PILE" : "OVERLAP_BODIES_STANDING_OR_BLOCKING", oinfo, Mathf.Sqrt(d2), i, !pile);
                     }
-                    else _overlapRun[k] = 0;
+                    else { _overlapRun[k] = 0; _overlapRunOld[k] = 0; }
                 }
             }
             // ---- ball

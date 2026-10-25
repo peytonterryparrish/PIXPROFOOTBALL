@@ -35,6 +35,23 @@ namespace PixFootball.Core
         /// <summary>Seconds burned when the clock stopped and restarts on "ready for play".</summary>
         public int RestartOnReadyRunoff = 20;
 
+        // Pre-snap legality (v0.12.0 RULES, PreSnapRules): modelled on the pro and college codes, which agree on all of these
+        /// <summary>A player whose hips are within this many yards of the line of scrimmage is "on the line" (linemen stand at 0.15, receivers on the line at 0, off the line at 1 yard).</summary>
+        public float OnLineDepthYards = 0.6f;
+        public int MinOnLine = 7;
+        /// <summary>At most this many players off the line (the backfield).</summary>
+        public int MaxBackfield = 4;
+        /// <summary>After a shift (two or more players changing place together) everybody must be still this long before the snap.</summary>
+        public float ShiftSetSeconds = 1.0f;
+        /// <summary>A player is "moving" above this speed (yd/s).</summary>
+        public float MovingSpeed = 0.5f;
+        /// <summary>One man in motion; a second moving man at the snap is illegal motion.</summary>
+        public int MaxMenInMotion = 1;
+        /// <summary>The man in motion may not be moving toward the line of scrimmage faster than this at the snap (yd/s); lateral and backward motion is legal.</summary>
+        public float MotionForwardTolerance = 0.45f;
+        /// <summary>The length of the ball: a defender whose front is closer to the line than this is in the neutral zone.</summary>
+        public float NeutralZoneYards = 0.3f;
+
         // Challenges
         public int Challenges = 2;
         public bool ThirdChallengeIfBothWon = true;

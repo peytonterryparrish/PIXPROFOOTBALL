@@ -265,6 +265,7 @@ namespace PixFootball.EditorTools
         // ------------------------------------------------------------------------------------------ metric plays
         IEnumerator MetricPlays(int n)
         {
+            NaturalProbe.Reset();
             _csv.AppendLine("play,t,agent,pos,simAction,clip,rigW,speedMs,hipsY,lowToeY,footLslide,footRslide,plantedL,plantedR,hipsRotDegS,chestRotDegS,headRotDegS,bodyYawErrFace,bodyYawErrVel,ballDistHand,mmLayer,mmClip,mmRow,fpL,fpR,hintL,hintR,mmWarp,mmRate,hipsOff,soleLow");
             var offense = _book.AllPlays.Where(p => p.Side == PlaySide.Offense && p.Category != PlayCategory.Kneel && p.Category != PlayCategory.Spike && p.Name != "Hail Mary").ToList();
             var rnd = new System.Random(4242);
@@ -291,6 +292,8 @@ namespace PixFootball.EditorTools
                 }
                 // 2.5 s after the whistle (falls, get-ups)
                 for (int f = 0; f < 150 && sim.Phase == PlayPhase.Dead; f++) { sim.Tick(Dt, default(ControlInput), -1); _stage.Present(Dt); yield return null; t += Dt; Sample(sim, pi, t, true); }
+                CutProbe.EndPlay();      // v0.12.0 GAIT
+                NaturalProbe.EndPlay();      // v0.12.0 NATURAL
                 for (int i = 0; i < 22; i++)
                 {
                     var v = _stage.Views[i]; Bones b; if (v == null || !_bones.TryGetValue(v, out b)) continue;
@@ -301,6 +304,7 @@ namespace PixFootball.EditorTools
                 yield return null;
             }
             File.WriteAllText(_out + "/motion_frames.csv", _csv.ToString());
+            File.WriteAllText(_out + "/natural.md", NaturalProbe.Report());      // v0.12.0 NATURAL
         }
 
         void Sample(PlaySimulation sim, int play, float t, bool afterWhistle = false)
@@ -324,6 +328,8 @@ namespace PixFootball.EditorTools
                 float lowToe = Mathf.Min(lth, rth);
                 float lah = b.LF.position.y - gy, rah = b.RF.position.y - gy;
                 float lc = Mathf.Min(lth, lah - 0.09f), rc = Mathf.Min(rth, rah - 0.09f);   // contact height: ball of the foot or the ankle above its resting height
+                if (speedMs <= 1.5f) FormAuditHook.NoteSlow(v, speedMs);      // v0.12.0 GAIT: keeps the 0.2 s acceleration window of FormProbe continuous across a start from rest
+                { var cp = v.Motion != null ? v.Motion.Plant : null; bool cok = cp != null && cp.Ok; CutProbe.Feed(i, a.PlayPos.ToString(), a.Action == AgentAction.Carry || a.HasBall, new CutProbe.Fr { Vel = new Vector2(frame.DirToUnity(a.Vel).x, frame.DirToUnity(a.Vel).z), Speed = speedMs, Valid = !contact && !afterWhistle && !a.IsDown, AL = b.LF.position, AR = b.RF.position, TL = ltP, TR = rtP, SoleL = cok ? Mathf.Min(lth - cp.RestToeL, lah - cp.RestAnkleL) : lc, SoleR = cok ? Mathf.Min(rth - cp.RestToeR, rah - cp.RestAnkleR) : rc, HipsY = hipsY, FlagL = cok && cp.PlantedLeft, FlagR = cok && cp.PlantedRight, RigW = rigW, MmLayer = v.Mm != null ? v.Mm.Layer : -1f, Clip = clip, Act = a.Action }); }      // v0.12.0 GAIT: cut audit series
                 bool plantL = b.PlantL ? lc < 0.07f : lc < 0.04f, plantR = b.PlantR ? rc < 0.07f : rc < 0.04f;
                 float slideL = -1f, slideR = -1f, hipsRot = 0f, chestRot = 0f, headRot = 0f;
                 if (b.HavePrev)
@@ -404,6 +410,7 @@ namespace PixFootball.EditorTools
                     Add("ball to nearest hand m, holder " + g + " " + act, ballD);
                     if (ballD > 0.45f) Hist("ball >45cm from both hands while held " + g + " " + act);
                 }
+                NaturalProbe.Feed(play, i, v, g, a.Side.ToString(), act, a.Action == AgentAction.Carry || a.HasBall, speedMs, frame.DirToUnity(a.Vel), frame.DirToUnity(a.Facing), t, !contact && !a.IsDown, Mathf.RoundToInt(t / Dt));      // v0.12.0 NATURAL
                 _csv.Append(play).Append(',').Append(t.ToString("0.000")).Append(',').Append(i).Append(',').Append(a.PlayPos).Append(',').Append(act).Append(',').Append(clip).Append(',').Append(F(rigW)).Append(',').Append(F(speedMs)).Append(',').Append(F(hipsY)).Append(',').Append(F(lowToe)).Append(',').Append(F(slideL)).Append(',').Append(F(slideR)).Append(',').Append(plantL ? 1 : 0).Append(',').Append(plantR ? 1 : 0).Append(',').Append(F(hipsRot)).Append(',').Append(F(chestRot)).Append(',').Append(F(headRot)).Append(',').Append(F(errFace)).Append(',').Append(F(errVel)).Append(',').Append(F(ballD)).Append(',').Append(v.Mm != null ? F(v.Mm.Layer) : "-").Append(',').Append(v.Mm != null ? v.Mm.ClipName : "-").Append(',').Append(v.Mm != null ? v.Mm.Row : -1).Append(',').Append(v.Motion != null && v.Motion.Plant.PlantedLeft ? 1 : 0).Append(',').Append(v.Motion != null && v.Motion.Plant.PlantedRight ? 1 : 0).Append(',').Append(v.Motion != null ? v.Motion.Plant.HintLeft : -1).Append(',').Append(v.Motion != null ? v.Motion.Plant.HintRight : -1).Append(',').Append(v.Mm != null ? F(v.Mm.Warp) : "-").Append(',').Append(v.Mm != null ? F(v.Mm.Rate) : "-").Append(',').Append(F(new Vector2(b.Hips.position.x - v.transform.position.x, b.Hips.position.z - v.transform.position.z).magnitude)).Append(',').Append(F(v.Motion != null && v.Motion.Plant != null && v.Motion.Plant.Ok ? Mathf.Min(Mathf.Min(ltP.y - gy - v.Motion.Plant.RestToeL, b.LF.position.y - gy - v.Motion.Plant.RestAnkleL), Mathf.Min(rtP.y - gy - v.Motion.Plant.RestToeR, b.RF.position.y - gy - v.Motion.Plant.RestAnkleR)) : lowToe)).AppendLine();
                 b.PrevLT = ltP; b.PrevRT = rtP; b.PrevHipsRot = b.Hips.rotation; b.PrevChestRot = b.Chest != null ? b.Chest.rotation : Quaternion.identity; b.PrevHeadRot = b.Head != null ? b.Head.rotation : Quaternion.identity;
                 b.PrevHipsLocal = v.transform.InverseTransformPoint(b.Hips.position);
@@ -490,7 +497,7 @@ namespace PixFootball.EditorTools
             sb.AppendLine("\n## counters");
             foreach (var kv in _hist.OrderBy(x => x.Key)) if (!kv.Key.StartsWith("clip-in-use") && !kv.Key.StartsWith("clip: ")) sb.AppendLine(kv.Key + " = " + kv.Value);
             File.WriteAllText(_out + "/motion_summary.txt", sb.ToString());
-            FormAuditHook.Write(_out); File.WriteAllText(_out + "/leg_quality.md", "# Leg quality in real plays (final pose, every running player each frame)" + System.Environment.NewLine + System.Environment.NewLine + LegProbe.Table(_legAcc));
+            FormAuditHook.Write(_out); CutProbe.Write(_out); File.WriteAllText(_out + "/leg_quality.md", "# Leg quality in real plays (final pose, every running player each frame)" + System.Environment.NewLine + System.Environment.NewLine + LegProbe.Table(_legAcc));
             var sb2 = new StringBuilder("# clip usage per sim action: group action :: clip -> frames\n");
             foreach (var kv in _hist.OrderBy(x => x.Key)) if (kv.Key.StartsWith("clip-in-use")) sb2.AppendLine(kv.Key + " = " + kv.Value);
             File.WriteAllText(_out + "/clip_usage.txt", sb2.ToString());

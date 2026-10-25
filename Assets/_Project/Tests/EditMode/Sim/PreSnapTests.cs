@@ -238,13 +238,13 @@ namespace PixFootball.Tests
         [Test]
         public void PreSnapFoulsBlowTheSnapDeadWithNoPlay()
         {
-            // the false start roll happens at the snap: force the worst case with a lineman who knows nothing
+            // a false start / offside is a body that moved early (v0.12.0): a team of linemen who know nothing draws one now and then
             int dead = 0;
             for (int seed = 1; seed <= 400 && dead < 3; seed++)
             {
-                var opts = new PlaySimOptions { AutoSnap = true, AutoSnapDelay = 0.1f, Penalties = true };
+                var opts = new PlaySimOptions { AutoSnap = true, AutoSnapDelay = 0.8f, Penalties = true };      // v0.12.0 (RULES): the foul is a body that moved early in the count, so the count needs some length
                 var sim = SimTestKit.RunNamed("Slants", "Shotgun", "Cover 3 Sky", "Nickel", 40, 40, seed, null, null, opts);
-                for (int k = 0; k < 20 && sim.Phase == PlayPhase.PreSnap; k++) sim.Step(new ControlInput());
+                for (int k = 0; k < 120 && sim.Phase == PlayPhase.PreSnap; k++) sim.Step(new ControlInput());
                 if (sim.Phase == PlayPhase.Dead && sim.Result != null && sim.Result.Type == PlayType.Penalty)
                 {
                     dead++;

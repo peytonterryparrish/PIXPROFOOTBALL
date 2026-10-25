@@ -380,7 +380,7 @@ namespace PixFootball.Tests
             Assert.AreEqual(d.Id, sim.UserAgent);
             Assert.IsTrue(dove, "the dive input launches a dive");
             // switching moves control to another defender (never an offensive player)
-            PlaySimulation sim2 = SimTestKit.RunNamed("Mesh", "Shotgun", "Cover 3 Sky", "4-3 Base", 75, 75, 18);
+            PlaySimulation sim2 = SimTestKit.RunNamed("Mesh", "Shotgun", "Cover 3 Sky", "4-3 Base", 75, 75, 18, null, null, new PlaySimOptions { Penalties = false });      // v0.12.0 (RULES): the test is about switching defenders; a pre-snap foul on this seed (a new random stream) ends the play before the snap
             SimTestKit.StepToLive(sim2);
             sim2.Tick(1f / 60f, default(ControlInput), 11 + 4);
             Assert.AreEqual(11 + 4, sim2.UserAgent);

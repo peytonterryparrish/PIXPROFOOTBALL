@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from phr_tex import *
 import bmesh
 
-OUT = os.path.join(OUT_ASSET, "Textures", "Uniform")
+OUT = os.environ.get("PHR_TEX_OUT") or os.path.join(OUT_ASSET, "Textures", "Uniform")   # v0.12.0 BODIES: PHR_TEX_OUT writes to a private stage folder
+SLEEVE_BANDS = os.environ.get("PHR_SLEEVE_BANDS", "0") == "1"   # v0.12.0 BODIES: the sleeve-end bands land on the pad dome as black / white slabs (the jersey sleeve ends at the cap): off
 SZ = {"jersey": 2048, "pants": 2048, "socks": 1024}
 
 
@@ -87,8 +88,9 @@ def jersey(arm, meshes):
     ter = np.zeros((size, size))
     band2 = smoothstep(0.014, 0.017, s) * (1 - smoothstep(0.030, 0.033, s))      # wide secondary band
     band3 = smoothstep(0.036, 0.038, s) * (1 - smoothstep(0.046, 0.048, s))      # thin tertiary band
-    sec = np.maximum(sec, band2 * sleeve)
-    ter = np.maximum(ter, band3 * sleeve)
+    if SLEEVE_BANDS:
+        sec = np.maximum(sec, band2 * sleeve)
+        ter = np.maximum(ter, band3 * sleeve)
     # collar trim: the neck opening is not an open boundary on R1's jersey (closed collar fold), so use the distance to the neck axis
     rho = np.sqrt(x ** 2 + (y - 0.062) ** 2)
     collar = (1 - smoothstep(0.108, 0.112, rho)) * (z > 1.49)

@@ -101,6 +101,48 @@ namespace PixFootball.Tests
         }
 
         [Test]
+        public void CadenceSplitKeepsTheStrideWarpNearOneForALongStrideRun()
+        {
+            // v0.12.0: a run take played 30 percent over its own ground speed: the v0.11 split stretches the stride by 14 percent, the long-stride split (k 0.85) by 3 percent; rate x warp is always the speed ratio
+            foreach (float r in new[] { 0.95f, 1.1f, 1.3f })
+            {
+                float half = MotionMatcher.RateFor(r, 0.5f, false), cad = MotionMatcher.RateFor(r, 0.85f, false);
+                Assert.AreEqual(Mathf.Clamp(Mathf.Sqrt(r), 0.9f, 1.22f), half, 1e-5f);
+                Assert.AreEqual(Mathf.Pow(r, 0.85f), cad, 1e-4f);
+            }
+            Assert.Less(Mathf.Abs(1.3f / MotionMatcher.RateFor(1.3f, 0.85f, false) - 1f), 0.05f);
+            Assert.Greater(1.3f / MotionMatcher.RateFor(1.3f, 0.5f, false), 1.1f);
+            Assert.LessOrEqual(MotionMatcher.RateFor(3f, 0.85f, false), MotionMatcher.RateMax + 1e-5f);
+            Assert.AreEqual(1.8f, MotionMatcher.RateFor(2.5f, 0.85f, true), 1e-5f);      // a one-shot plays by distance
+        }
+
+        [Test]
+        public void MobilitySpecsAreWellFormed()
+        {
+            // v0.12.0: the MoCap Online takes of the database build list (no licensed file is needed to list them)
+            var mob = new System.Collections.Generic.List<PixFootball.EditorTools.MotionDbBuilder.Spec>();
+            foreach (var s in PixFootball.EditorTools.MotionDbBuilder.Specs()) if (s.Dir != null) mob.Add(s);
+            Assert.Greater(mob.Count, 12, "loops and starts of the pack");
+            var names = new System.Collections.Generic.HashSet<string>();
+            foreach (var s in mob)
+            {
+                Assert.IsTrue(s.Name.StartsWith("MOB1_"), s.Name);
+                Assert.IsTrue(names.Add(s.Name), "duplicate " + s.Name);
+                Assert.IsFalse(s.Lib);
+                if (s.Name.Contains("_To_Stand_Relaxed")) Assert.AreEqual((int)MotionDb.Kind.Stop, s.Kind, s.Name);
+                if (s.Name.StartsWith("MOB1_Stand_Relaxed_To_")) Assert.AreEqual((int)MotionDb.Kind.Start, s.Kind, s.Name);
+                if (s.Name.StartsWith("MOB1_Run_") && s.Name.EndsWith("_Loop") && s.Kind != (int)MotionDb.Kind.Back) Assert.Greater(s.CadenceK, 0.51f, s.Name);      // a 3.5 steps/s run takes a speed difference as cadence
+            }
+            Assert.AreEqual(0.5f, new MotionDb.Clip().cadenceK, "databases built before v0.12 keep the equal split");
+        }
+
+        [Test]
+        public void SelectionLogIsOffUnlessAskedFor()
+        {
+            Assert.IsNull(MotionMatcher.SelLog);
+        }
+
+        [Test]
         public void StagingDatabasePathFollowsTheCommandLine()
         {
             Assert.AreEqual(MotionDb.EditorPath, MotionDb.AssetPath);      // no -pixMmDb in the test run: the shipped database path

@@ -177,8 +177,17 @@ namespace PixFootball.Gameplay
             {
                 Broadcast.PreviousStateIsValid = false; Behind.PreviousStateIsValid = false; FirstPerson.PreviousStateIsValid = false; Close.PreviousStateIsValid = false;
                 UpdateProxies(0.0167f, true);
-                if (Brain != null) Brain.ManualUpdate();
+                if (Brain != null) ForceBrainUpdate(Brain);
             }
+        }
+
+        /// <summary>v0.12.0: one immediate brain update. Cinemachine logs an error (175 a game) when ManualUpdate runs outside ManualUpdate mode, so the mode is switched for the call.</summary>
+        internal static void ForceBrainUpdate(CinemachineBrain brain)
+        {
+            var mode = brain.UpdateMethod;
+            brain.UpdateMethod = CinemachineBrain.UpdateMethods.ManualUpdate;
+            brain.ManualUpdate();
+            brain.UpdateMethod = mode;
         }
 
         // ---- first-person polish: look-to-ball assist and stride head bob

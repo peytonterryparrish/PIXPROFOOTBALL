@@ -141,7 +141,7 @@ namespace PixFootball.Gameplay
             float plant = f.CutPhase == (int)CarryCutPhase.Plant ? 1f : f.CutPhase == (int)CarryCutPhase.Drive ? Mathf.Clamp01(1f - f.CutT / 0.5f) * 0.55f : f.CutPhase == (int)CarryCutPhase.Approach ? 0.25f : 0f;
             _plantW = Mathf.Lerp(_plantW, plant, 1f - Mathf.Exp(-dt / (plant > _plantW ? 0.05f : 0.14f)));
             leanWant += 6f * _plantW;
-            float leanT = Mathf.Clamp(Mathf.Clamp(leanWant, -4f, 30f) - curLean, -12f, 14f);      // only the difference is added
+            float leanT = Mathf.Clamp(Mathf.Clamp(Motion != null ? Motion.GaitWant(leanWant) : leanWant, -14f, 30f) - curLean, -12f, 14f);      // v0.12.0 GAIT hook: the start / stop lean of the layer (one line, floor -4 -> -14)      // only the difference is added
             _lean = Mathf.Lerp(_lean, leanT, 1f - Mathf.Exp(-dt / 0.12f));
             float sinkT = DebugNoCarrySink ? 0f : 0.045f * f.Crouch + 0.03f * f.Press + 0.05f * _plantW;
             if (f.Tight) sinkT *= 0.5f;

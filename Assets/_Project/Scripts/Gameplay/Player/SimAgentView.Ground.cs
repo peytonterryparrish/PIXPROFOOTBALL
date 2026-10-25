@@ -18,6 +18,7 @@ namespace PixFootball.Gameplay
         /// <summary>Heights of the ankle and toe bones above the view root in the bind pose (the avatar was just created: nothing has animated it yet).</summary>
         void CaptureRest()
         {
+            NaturalInit();      // v0.12.0 NATURAL: the bind pose of the spine and head, now, before anything animates them
             if (Avatar == null || Avatar.Animator == null || !Avatar.Animator.isHuman) return;
             var a = Avatar.Animator;
             Transform lf = a.GetBoneTransform(HumanBodyBones.LeftFoot), rf = a.GetBoneTransform(HumanBodyBones.RightFoot), lt = a.GetBoneTransform(HumanBodyBones.LeftToes), rt = a.GetBoneTransform(HumanBodyBones.RightToes);

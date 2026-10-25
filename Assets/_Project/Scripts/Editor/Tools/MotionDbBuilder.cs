@@ -32,7 +32,17 @@ namespace PixFootball.EditorTools
         static readonly float[] MaxStd = { 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 14f, 14f, 14f };
 
         /// <summary>Clips that go into the database (file name without extension) and their role flags. Everything else in the folder (goalkeeper, soccer, football actions) belongs to the action systems.</summary>
-        public sealed class Spec { public string Name; public int Kind; public bool ForceOneShot; public float SpeedScale = 0f; public bool Lib; }
+        public sealed class Spec
+        {
+            public string Name; public int Kind; public bool ForceOneShot; public float SpeedScale = 0f; public bool Lib; public float CadenceK = 0.5f;
+            /// <summary>v0.12.0: folder of the FBX (null = the Mixamo set). The MoCap Online takes (<see cref="MobilityImport"/>) keep their cleaned and mirrored copies inside their own package folder.</summary>
+            public string Dir;
+            public string Src { get { return Dir ?? MixamoImport.Folder; } }
+            /// <summary>Where the cleaned and mirrored copies go: inside the MoCap Online package folder for its takes; a staging build (-pixMmDb) keeps the Mixamo copies next to it, never in the shared Mixamo folder.</summary>
+            public string OutDir { get { return Dir != null ? MobilityImport.OutDir : (Suffix.Length > 0 ? MobilityImport.StageRoot + "/Mixamo" : null); } }
+            /// <summary>Muscle statistics of one source (the offsets of the Mixamo export are not those of the MotusMan export).</summary>
+            public string Group { get { return Dir == null ? "mixamo" : "mobility"; } }
+        }
 
         public static List<Spec> Specs()
         {
@@ -53,9 +63,52 @@ namespace PixFootball.EditorTools
                 foreach (var n in new[] { "Run_Sprint_Turn", "Run_Running_Right_Turn", "Turn_Goalkeeper_Sidestep", "Turn_Goalkeeper_Sidestep_2", "Jog_Turn_To_Runninggx" }) add(n, C);
                 add("Jog_Running_Turn_180", T);
             }
-
-
+            string src = LocoCycleScan.CmdArg("-pixMmSrc", "mix");      // v0.12.0: mixamo = the v0.11 database, mobility = MoCap Online only (plus the library walk), mix = both
+            if (src == "mobility") L.RemoveAll(s => !s.Lib);
+            // mix: the pack carries jog, run, the strafes and the walks; Mixamo stays where the pack has no take (the 2.4-2.7 m/s jog, the 4.4 m/s run, the back-runs). Measured per take in the plays (Docs/QA/v0120/mobility.md): the Mixamo strafes and jogs slide 0.17-0.29 m/s per stance, the pack's 0.03-0.08.
+            if (src == "mix") L.RemoveAll(s => !MixamoKept.Contains(s.Name));
+            if (src != "mixamo") AddMobility(L);
             return L;
+        }
+
+        /// <summary>
+        /// v0.12.0 MOBILITY: the MoCap Online "Mobility 27B Pro" takes (<see cref="MobilityImport"/>; 30 fps, MotusMan Humanoid, root motion node = the reference "Root"). Loops: walk, jog and run forward, 45 degree and 90 degree strafes,
+        /// back-pedals; one-shots: the starts from standing (straight and turning), the stops from walk / jog / run (both feet), the 90 and 180 degree turns on the move. Each with its mirror. -pixMmMobSet a,b picks the groups
+        /// (walk,jog,run,strafe,back,trans: default all), -pixMmSkip drops single takes.
+        /// </summary>
+        static HashSet<string> MixamoKept { get { return new HashSet<string>(LocoCycleScan.CmdArg("-pixMmMixKeep", "Run_Jog_Forward,Jog_Runningk,Run_Medium_Run,Run_Jog_Backward,Run_Running_Backward,Run_Jog_Backward_Diagonal").Split(',')); } }
+
+        static float CmdFloat(string name, float def) { float v; return float.TryParse(LocoCycleScan.CmdArg(name, ""), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : def; }
+
+        static void AddMobility(List<Spec> L)
+        {
+            const int S = (int)MotionDb.Kind.Strafe, B = (int)MotionDb.Kind.Back, T = (int)MotionDb.Kind.Turn, St = (int)MotionDb.Kind.Start, Sp = (int)MotionDb.Kind.Stop, C = (int)MotionDb.Kind.Cut;
+            var sets = new HashSet<string>(LocoCycleScan.CmdArg("-pixMmMobSet", "walk,jog,run,strafe,back,trans").Split(','));
+            string dir = MobilityImport.Dir;
+            float runK = CmdFloat("-pixMmRunK", 0.85f), jogK = CmdFloat("-pixMmJogK", 0.6f);
+            Func<string, int, Spec> add = (n, k) => { var sp = new Spec { Name = "MOB1_" + n, Kind = k, Dir = dir, CadenceK = n.StartsWith("Run_") ? runK : n.StartsWith("Jog_") ? jogK : 0.5f }; L.Add(sp); return sp; };
+            if (sets.Contains("walk")) foreach (var n in new[] { "Walk_F_Loop" }) add(n, 0);
+            if (sets.Contains("jog")) foreach (var n in new[] { "Jog_F_Loop" }) add(n, 0);
+            if (sets.Contains("run")) foreach (var n in new[] { "Run_F_Loop" }) add(n, 0);
+            if (sets.Contains("strafe"))
+            {
+                foreach (var n in new[] { "Walk_L_Loop", "Walk_R_Loop", "Jog_L_Loop", "Jog_R_Loop", "Run_L_Loop", "Run_R_Loop" }) add(n, S);
+                if (sets.Contains("bkpd")) add("Jog_L_BkPd", S);      // a swing foot that skims the turf at 7-11 m/s (flagged planted by the geometric rule): opt-in
+                if (sets.Contains("diag")) foreach (var n in new[] { "Jog_FL_Loop", "Run_FL_Loop" }) add(n, S);      // the 45 degree strafes slide 0.2-1.0 m/s per stance in the plays (the orientation warp turns the straight takes instead): opt-in
+            }
+            if (sets.Contains("back")) foreach (var n in new[] { "Walk_B_Loop", "Jog_B_Loop" }) add(n, B);
+            if (sets.Contains("trans"))
+            {
+                foreach (var n in new[] { "Stand_Relaxed_To_Walk_F", "Stand_Relaxed_To_Jog_F", "Stand_Relaxed_To_Run_F", "Stand_Relaxed_To_Jog_L45_Fwd", "Stand_Relaxed_To_Jog_R45_Fwd" }) add(n, St);
+                if (sets.Contains("turn180")) foreach (var n in new[] { "Run_L_180", "Run_R_180" }) add(n, T);
+            }
+            // measured per take in the plays (min slide per stance): the walk stop 0.52 m/s (499 stances), the jog / run stops 0.65-1.97, the 90 degree cuts 0.30-1.72, the 180 turns 0.14-11 (the take's root yaw fights the simulated one): out unless asked for
+            if (sets.Contains("stops")) foreach (var n in new[] { "Walk_F_To_Stand_Relaxed", "Jog_F_To_Stand_Relaxed", "Jog_F_To_Stand_Relaxed_LU", "Jog_F_To_Stand_Relaxed_RU", "Run_F_To_Stand_Relaxed", "Run_F_To_Stand_Relaxed_LU", "Run_F_To_Stand_Relaxed_RU", "Jog_L_To_Stand_Relaxed", "Jog_R_To_Stand_Relaxed", "Run_L_To_Stand_Relaxed", "Run_R_To_Stand_Relaxed", "Jog_B_To_Stand_Relaxed" }) add(n, Sp);
+            if (sets.Contains("cuts"))
+            {
+                foreach (var n in new[] { "Jog_L_90", "Jog_R_90", "Run_L_90", "Run_R_90" }) add(n, C);
+                foreach (var n in new[] { "Jog_L_180", "Jog_R_180" }) add(n, T);
+            }
         }
 
         /// <summary>Steady loops (runs, jogs, strafes, back-pedals) bake the body's yaw sway into the pose; starts, stops and turns keep their turning in the root transform.</summary>
@@ -70,7 +123,9 @@ namespace PixFootball.EditorTools
         /// <summary>Height (m above the floor of the foot) at which a fast take lets go of a contact (the sprinter's foot leaves the turf late, the lock holds it to the turf for the whole push-off).</summary>
         public static float TagExitFast { get { float v; return float.TryParse(LocoCycleScan.CmdArg("-pixMmTagExit", "0.07"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : 0.07f; } }
 
-        public const string CalibPath = "D:/PIXFootball/anim_loco/mm_calibration.csv";
+        public const string CalibShared = "D:/PIXFootball/anim_loco/mm_calibration.csv";
+        /// <summary>v0.12.0: -pixMmCalibFile reads (builder) and writes (LocoShots mmlearn) another calibration table, so a private experiment never changes the shared one.</summary>
+        public static string CalibPath { get { return LocoCycleScan.CmdArg("-pixMmCalibFile", CalibShared); } }
         static readonly Dictionary<string, float> Calib = new Dictionary<string, float>();
 
         struct Pose2 { public Vector2 P; public float Yaw; }
@@ -93,21 +148,25 @@ namespace PixFootball.EditorTools
             if (LocoCycleScan.CmdArg("-pixMmCalib", "0") == "1" && File.Exists(CalibPath)) foreach (var ln in File.ReadAllLines(CalibPath).Skip(1)) { var p = ln.Split(','); float t; if (p.Length >= 3 && float.TryParse(p[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out t)) Calib[p[0]] = t; }
             // humanoid muscles inside human range: re-zero the left arm chain, soft-limit the rest (MotionClean)
             bool noClean = LocoCycleScan.CmdArg("-pixMmNoClean", "0") == "1"; int cleanBefore = 0, cleanAfter = 0;
-            var allClips = new List<AnimationClip>(); foreach (var sp in Specs()) if (!sp.Lib) { var cc = MixamoImport.LoadClip(MixamoImport.Folder + "/" + sp.Name + ".fbx"); if (cc != null) allClips.Add(cc); }
-            var deltas = MotionClean.Deltas(MuscleReport.Collect(allClips)); report.AppendLine("muscle re-zero: " + string.Join(", ", deltas.Select(kv => kv.Key + " " + kv.Value.ToString("+0.00;-0.00"))));
-            foreach (var spec in Specs())
+            var specs = Specs(); var deltaOf = new Dictionary<string, Dictionary<string, float>>();
+            foreach (var grp in specs.Where(s => !s.Lib).GroupBy(s => s.Group))
+            {
+                var allClips = new List<AnimationClip>(); foreach (var sp in grp) { var cc = MixamoImport.LoadClip(sp.Src + "/" + sp.Name + ".fbx"); if (cc != null) allClips.Add(cc); }
+                var dl = MotionClean.Deltas(MuscleReport.Collect(allClips)); deltaOf[grp.Key] = dl; report.AppendLine("muscle re-zero (" + grp.Key + "): " + string.Join(", ", dl.Select(kv => kv.Key + " " + kv.Value.ToString("+0.00;-0.00"))));
+            }
+            foreach (var spec in specs)
             {
                 if (only.Length > 0 && !only.Split(',').Contains(spec.Name)) continue;
                 if (skip.Length > 0 && skip.Split(',').Contains(spec.Name)) continue;      // QA: leave takes out (-pixMmSkip a,b)
-                string path = MixamoImport.Folder + "/" + spec.Name + ".fbx";
+                string path = spec.Src + "/" + spec.Name + ".fbx";
                 var clip = spec.Lib ? LocoCycleBuilder.FindExact(spec.Name) : MixamoImport.LoadClip(path);
                 if (clip == null) { Debug.LogWarning("[MotionDb] missing " + path); continue; }
-                if (!spec.Lib && !noClean) { int cb, ca; clip = MotionClean.Clean(clip, spec.Name, deltas, out cb, out ca); cleanBefore += cb; cleanAfter += ca; }
+                if (!spec.Lib && !noClean) { int cb, ca; clip = MotionClean.Clean(clip, spec.Name, deltaOf[spec.Group], out cb, out ca, spec.OutDir == null ? null : spec.OutDir + "/Clean"); cleanBefore += cb; cleanAfter += ca; }
                 AddClip(db, rig, plant, clip, spec, rows, vel, yawr, contact, clipOf, report);
                 if (!spec.Lib && LocoCycleScan.CmdArg("-pixMmNoMirror", "0") != "1")
                 {
-                    int orig = db.clips.Count - 1; var tw = MakeMirror(clip, spec.Name);
-                    AddClip(db, rig, plant, tw, new Spec { Name = spec.Name + "_M", Kind = spec.Kind }, rows, vel, yawr, contact, clipOf, report);
+                    int orig = db.clips.Count - 1; var tw = MakeMirror(clip, spec.Name, spec.OutDir);
+                    AddClip(db, rig, plant, tw, new Spec { Name = spec.Name + "_M", Kind = spec.Kind, Dir = spec.Dir, SpeedScale = spec.SpeedScale, CadenceK = spec.CadenceK }, rows, vel, yawr, contact, clipOf, report);
                     db.clips[db.clips.Count - 1].mirrorOf = orig; db.clips[orig].mirrorOf = db.clips.Count - 1;
                 }
             }
@@ -137,12 +196,21 @@ namespace PixFootball.EditorTools
             Debug.Log("[MotionDb] built " + db.clips.Count + " clips, " + n + " rows");
         }
 
+        /// <summary>Creates a folder path of any depth.</summary>
+        public static void EnsureFolder(string dir)
+        {
+            if (AssetDatabase.IsValidFolder(dir)) return;
+            string parent = System.IO.Path.GetDirectoryName(dir).Replace((char)92, (char)47);
+            if (!AssetDatabase.IsValidFolder(parent)) EnsureFolder(parent);
+            AssetDatabase.CreateFolder(parent, System.IO.Path.GetFileName(dir));
+        }
+
         /// <summary>The ground velocity (root frame, m/s) the planted feet say the take moves at: the feet stand still in the world, so the body moves over them at minus their velocity relative to the root. Sampled at 120 Hz over the middle 40 percent of every contact (the touch-down and lift-off frames skid).</summary>
         /// <summary>A left / right mirrored twin of a take (the humanoid mirror flag of the clip: the same muscle curves swapped left for right). The two feet of a mocap take are never alike (one lands flatter, one turns out more); with the twin in the database the matcher has both, so no side of the body is the one that always plays the worse foot.</summary>
-        static AnimationClip MakeMirror(AnimationClip clip, string name)
+        static AnimationClip MakeMirror(AnimationClip clip, string name, string outDir = null)
         {
-            string dir = MixamoImport.Folder + "/Mirrored" + Suffix;
-            if (!AssetDatabase.IsValidFolder(dir)) AssetDatabase.CreateFolder(MixamoImport.Folder, "Mirrored" + Suffix);
+            string dir = outDir != null ? outDir + "/Mirrored" : MixamoImport.Folder + "/Mirrored" + Suffix;
+            if (!AssetDatabase.IsValidFolder(dir)) EnsureFolder(dir);
             string path = dir + "/" + name + "_M.anim";
             AssetDatabase.DeleteAsset(path); AnimationClip tw = null;      // always rebuilt from the (cleaned) source
             if (tw == null) { tw = UnityEngine.Object.Instantiate(clip); tw.name = name + "_M"; AssetDatabase.CreateAsset(tw, path); }
@@ -298,7 +366,7 @@ namespace PixFootball.EditorTools
             ci.speed = sumSpeed / Mathf.Max(1, count);
             ci.angle = sumVel.magnitude > 0.2f * Mathf.Max(0.01f, sumSpeed) ? Mathf.Atan2(sumVel.x, sumVel.y) * Mathf.Rad2Deg : 0f;
             ci.turnRate = dth / (N * dt);
-            ci.speedScale = scale; ci.floorY = Mathf.Clamp(floor, -0.05f, 0.16f);
+            ci.cadenceK = spec.CadenceK; ci.speedScale = scale; ci.floorY = Mathf.Clamp(floor, -0.05f, 0.16f);
             ci.stepsPerSec = sc.SteppsPerSec;
             db.clips.Add(ci);
             report.AppendLine(spec.Name.PadRight(40) + " rootMean " + rootMean.ToString("0.00") + " native " + (haveNat ? nat.magnitude.ToString("0.00") : "-") + " runs " + natRuns + " scale " + scale.ToString("0.00") + " frames " + count + (seam ? " loop" : " once") + " speed " + ci.speed.ToString("0.00") + " angle " + ci.angle.ToString("0") + " turn " + ci.turnRate.ToString("0") + " floor " + floor.ToString("0.000") + " contactL " + cl.Count(x => x) + " contactR " + cr.Count(x => x));

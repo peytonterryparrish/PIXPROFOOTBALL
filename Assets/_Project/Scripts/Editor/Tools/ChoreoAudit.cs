@@ -52,7 +52,7 @@ namespace PixFootball.EditorTools
         }
     }
 
-    public sealed class ChoreoAuditRunner : MonoBehaviour
+    public sealed partial class ChoreoAuditRunner : MonoBehaviour
     {
         const float Dt = 1f / 60f;
         string _out, _tag;
@@ -70,6 +70,7 @@ namespace PixFootball.EditorTools
             public Transform Hips, Chest, LF, RF, LT, RT, LH, RH, LUL, RUL;
             public Vector3 PrevRoot, PrevLT, PrevRT; public Quaternion PrevHipsRot = Quaternion.identity, PrevChestRot = Quaternion.identity;
             public AnimationClip PrevClip; public float PrevClipTime, PrevRemain; public AgentAction PrevAct;
+            public Vector3 DrAL, DrAR, DrRL, DrRR; public float DrML, DrMR; public int DrSL, DrSR; public Vector3 DrKAL, DrKAR; public float DrKML, DrKMR, DrWL = 1f, DrWR = 1f; public bool DrSwL, DrSwR;      /* ankle (foot bone) anchor and max drift */      // v0.12.0 CONTACT: planted-interval drift (anchor = first planted position of the toe, max horizontal distance from it over the interval)
             public int CntL, CntR; public float MinL = 99f, MinR = 99f; public bool ActL, ActR, UpL, UpR; public Vector3 PrevLF, PrevRF; public bool Have, PlantL, PlantR;
             public int ClipSwitches; public float Alive, LastSwitch = -9; public int Short;
             public readonly float[] FlipH = new float[90], FlipF = new float[90], FlipS = new float[90]; public readonly float[] FlipV = new float[90], FlipAng = new float[90]; public readonly string[] FlipN = new string[90]; public readonly bool[] FlipClean = new bool[90]; public float PrevYaw; public readonly float[] RC = new float[10], RTm = new float[10], RW = new float[10], RHp = new float[10]; public int RK; public int RN, Cd = -1; public float LastBack = -9f, CurPls = -1f; public Vec2 PrevFace;
@@ -124,8 +125,10 @@ namespace PixFootball.EditorTools
             _stage.Init();
             yield return null;
             int nPlays = int.Parse(ChoreoAudit.Arg("-pixChoreoAuditPlays", "36"));
-            yield return Plays(nPlays);
-            Cnt("get-off takes released early by the planned path", SimAgentView.GetOffFitCut); Cnt("sack celebrations started", PlayStage.CelebrationsStarted); Write();
+            int nWalk = int.Parse(ChoreoAudit.Arg("-pixChoreoAuditWalkIn", "0"));      // v0.12.0 CONTACT: the pre-snap walk-in probe (ChoreoAudit.WalkIn.cs)
+            if (nWalk > 0) yield return WalkIn(nWalk);
+            if (nPlays > 0) yield return Plays(nPlays);
+            Cnt("get-off takes released early by the planned path", SimAgentView.GetOffFitCut); Cnt("pad hand requests (v0.12.0, Final IK present = " + PixIk.Available + ")", PlayStage.PadHandRequests); Cnt("sack celebrations started", PlayStage.CelebrationsStarted); Write();
             Debug.Log("[ChoreoAudit] done");
             yield return null;
             EditorApplication.Exit(0);
@@ -299,6 +302,19 @@ namespace PixFootball.EditorTools
                 bool plantL = b.PlantL ? lc < 0.07f : lc < 0.04f, plantR = b.PlantR ? rc < 0.07f : rc < 0.04f;
                 if (b.Have)
                 {
+                    // v0.12.0 CONTACT: both soles in the air in a block / hand fight of a body that stands still (lowest point of each foot from the ankle and toe bones against FootPlant's flat-foot rest heights)
+                    { if (!dead && (a.Action == AgentAction.Block || a.Action == AgentAction.Engaged) && (root - b.PrevRoot).magnitude / Dt < 0.35f && (_soleTick++ % 3) == 0)
+                      { float sl, sr; if (SoleMeshMin(v, b.LF, b.RF, gy, out sl, out sr)) { Cnt("still " + a.Action + " frames (visible sole, every 3rd)"); if (sl > 0.04f && sr > 0.04f) { Cnt("still " + a.Action + " frames, both visible soles over 4 cm up"); Cnt("  both-up while stepper " + (v.EngageStepWeight > 0.95f ? "on" : (v.EngageStepWeight > 0.01f ? "ramping" : "off")) + (v.ContactDriven ? ", contact-driven" : "") + ", " + a.Action + (v.Stepper != null && v.Stepper.HasDrawnSole ? "" : ", NO drawn sole") + (Mathf.Min(sl, sr) > 0.12f ? ", lowest over 12 cm" : ", lowest 4-12 cm")); } if (Mathf.Min(sl, sr) < -0.04f) Cnt("still " + a.Action + " frames, a visible sole more than 4 cm under the turf"); Add("still " + a.Action + " lowest visible sole m", Mathf.Min(sl, sr)); } } }
+                    // v0.12.0 CONTACT: the MatchWatchAudit detector (toe or ankle BONE more than 7 cm under the turf) for every Block / Engaged / Tackle frame, by stepper state
+                    { if (!dead && DriftClass(a.Action) != null) { float lowB = Mathf.Min(Mathf.Min(lth, rth), Mathf.Min(lah, rah)); string st = v.EngageStepWeight > 0.95f ? "stepper on" : (v.EngageStepWeight > 0.01f ? "stepper ramping" : "stepper off"); Cnt("bone frames " + a.Action + ", " + st); if (lowB < -0.07f) Cnt("bone under turf 7 cm: " + a.Action + ", " + st + (v.Stepper != null && v.Stepper.PelvisPull > 0.005f ? ", pelvis pulled" : "")); } }
+                    // v0.12.0 CONTACT: who writes the legs after the stepper? the pinned ankle's final position against the stepper's target (0 = nobody does), and the leg-reach error right after the re-apply
+                    { var stp = v.Stepper; if (!dead && stp != null && stp.Weight > 0.95f && DriftClass(a.Action) != null)
+                      { if (!stp.SwingL) Add("stepper: pinned left ankle, final pose vs target m", (stp.AnkleL.position - stp.OutL).magnitude); if (!stp.SwingR) Add("stepper: pinned right ankle, final pose vs target m", (stp.AnkleR.position - stp.OutR).magnitude);
+                        Add("stepper: leg reach error right after the re-apply m", Mathf.Max(stp.ErrL, stp.ErrR)); } }
+                    // v0.12.0 CONTACT: hands on the pads: distance of each hand bone to the chest bone of the man across (the pads' front is about 0.19 m in front of it)
+                    { var eg = a.Engagement; if (!dead && eg != null && eg.Defender != null && eg.Primary != null && (a.Action == AgentAction.Engaged || a.Action == AgentAction.Block) && b.LH != null && b.RH != null)
+                      { var opp = eg.Defender == a ? eg.Primary : eg.Defender; var ov = _stage.Views[opp.Id]; var ob = ov != null && ov.Avatar != null ? Bones(ov) : null;
+                        if (ob != null && ob.Chest != null) { float hl = (b.LH.position - ob.Chest.position).magnitude, hr = (b.RH.position - ob.Chest.position).magnitude; Add("engaged hand to the opponent's chest bone m, mean of both hands", (hl + hr) * 0.5f); Add("engaged hand to the opponent's chest bone m, nearer hand", Mathf.Min(hl, hr)); Cnt("engaged hand-gap frames"); if (Mathf.Min(hl, hr) < 0.40f) Cnt("engaged hand-gap frames with a hand within 0.40 m of the chest bone"); } } }
                     float hipsRot = Quaternion.Angle(b.Hips.rotation, b.PrevHipsRot) / Dt;
                     float chestRot = b.Chest != null ? Quaternion.Angle(b.Chest.rotation, b.PrevChestRot) / Dt : 0f;
                     if (hipsRot > 900f) Cnt("hips rotation snaps over 900 deg/s " + g);
@@ -320,8 +336,8 @@ namespace PixFootball.EditorTools
                         float slL = Mathf.Min(Vector3.ProjectOnPlane(ltP - b.PrevLT, Vector3.up).magnitude, Vector3.ProjectOnPlane(b.LF.position - b.PrevLF, Vector3.up).magnitude) / Dt;
                         float slR = Mathf.Min(Vector3.ProjectOnPlane(rtP - b.PrevRT, Vector3.up).magnitude, Vector3.ProjectOnPlane(b.RF.position - b.PrevRF, Vector3.up).magnitude) / Dt;
                         bool teleport = (root - b.PrevRoot).magnitude > 1.0f;
-                        FootContact(b, 0, plantL, slL, action, upper, a, dead, teleport);
-                        FootContact(b, 1, plantR, slR, action, upper, a, dead, teleport);
+                        FootContact(b, 0, plantL, slL, action, upper, a, dead, teleport, ltP);
+                        FootContact(b, 1, plantR, slR, action, upper, a, dead, teleport, rtP);
                         if (!teleport && _curSim.Choreo != null && _curSim.Choreo.OwnerOf(a.Id) != null)
                         {
                             // a foot is truly planted when it is low AND moving backward under the body (a lunging foot that drags forward over the turf is swinging)
@@ -383,13 +399,14 @@ namespace PixFootball.EditorTools
                 if (!dead) b.Alive += Dt;
                 b.PrevLF = b.LF.position; b.PrevRF = b.RF.position;
                 b.PrevYaw = v.transform.eulerAngles.y; b.PrevRoot = root; b.PrevLT = ltP; b.PrevRT = rtP; b.PrevHipsRot = b.Hips.rotation; b.PrevChestRot = b.Chest != null ? b.Chest.rotation : Quaternion.identity;
-                b.PrevRemain = v.Rig != null && v.Rig.Valid ? v.Rig.RemainingSeconds : 0f; b.PrevAct = a.Action; b.PrevClip = clip; b.PrevClipTime = ct; b.PlantL = plantL; b.PlantR = plantR; b.Have = true;
+                b.PrevRemain = v.Rig != null && v.Rig.Valid ? v.Rig.RemainingSeconds : 0f; b.PrevAct = a.Action; b.PrevClip = clip; b.PrevClipTime = ct; if (!b.Have) { b.DrAL = ltP; b.DrAR = rtP; b.DrML = b.DrMR = 0f; b.DrRL = b.DrRR = root; b.DrKAL = b.LF.position; b.DrKAR = b.RF.position; b.DrKML = b.DrKMR = 0f; }      /* v0.12.0: an interval already running on the first sampled frame of a play starts here, not at the last play's anchor */
+                b.PlantL = plantL; b.PlantR = plantR; b.Have = true;
             }
         }
 
         // The defensive back's turn-and-run: a window around every moment a back-pedaling back (sim velocity against his facing) is running (velocity along his facing) within 0.9 s.
         // Reported: the peak pelvis yaw rate and the peak sim facing rate in the 1.2 s window, the mean slide of the planted foot, and the hip snaps over 900 deg/s inside it.
-        int _flipTraces, _slideTraces, _snapTraces, _wrapTraceFrames, _duelRolls, _duelBooks;
+        int _flipTraces, _slideTraces, _snapTraces, _wrapTraceFrames, _duelRolls, _duelBooks, _driftTraces, _driftSeen, _driftSeen2;
         static string cname0(AnimationClip c) { return c != null ? c.name : ""; }
         static bool ownedNow(PlaySimulation s, int id) { return s.Choreo != null && s.Choreo.OwnerOf(id) != null && !GameChoreoLibrary.NoRootScale; } PlaySimulation _curSim; float _hoMin = 9f;
         void DbFlipWatch(B b, SimAgent a, string g, float t, float hipsRot, string cname)
@@ -413,14 +430,29 @@ namespace PixFootball.EditorTools
             }
         }
 
-        void FootContact(B b, int foot, bool plant, float slide, bool action, bool upper, SimAgent a, bool dead, bool teleport)
+        /// <summary>v0.12.0 CONTACT: the contact classes of the drift metric (engaged / blocking and tackle takes), null for everything else.</summary>
+        static string DriftClass(AgentAction a)
+        {
+            switch (a)
+            {
+                case AgentAction.Engaged: case AgentAction.Shed: case AgentAction.Block: return "block";
+                case AgentAction.TackleWrapUp: case AgentAction.TackleBigHit: case AgentAction.TackleShoestring: case AgentAction.TackleDive: case AgentAction.TackleGang: case AgentAction.Tackled: return "tackle";
+            }
+            return null;
+        }
+
+        void FootContact(B b, int foot, bool plant, float slide, bool action, bool upper, SimAgent a, bool dead, bool teleport, Vector3 toe)
         {
             bool was = foot == 0 ? b.PlantL : b.PlantR;
             ref int n = ref (foot == 0 ? ref b.CntL : ref b.CntR); ref float mn = ref (foot == 0 ? ref b.MinL : ref b.MinR); ref bool act = ref (foot == 0 ? ref b.ActL : ref b.ActR); ref bool up = ref (foot == 0 ? ref b.UpL : ref b.UpR);
             if (plant)
             {
-                if (!was || teleport) { n = 0; mn = 99f; act = true; up = false; }
+                if (!was || teleport) { n = 0; mn = 99f; act = true; up = false; if (foot == 0) { b.DrKAL = b.LF.position; b.DrKML = 0f; b.DrWL = 1f; b.DrSwL = false; } else { b.DrKAR = b.RF.position; b.DrKMR = 0f; b.DrWR = 1f; b.DrSwR = false; } if (foot == 0) { b.DrAL = toe; b.DrML = 0f; b.DrRL = a.Id >= 0 && _stage.Views[a.Id] != null ? _stage.Views[a.Id].transform.position : Vector3.zero; b.DrSL = a.Id >= 0 && _stage.Views[a.Id] != null ? _stage.Views[a.Id].EngageSteps : 0; } else { b.DrAR = toe; b.DrMR = 0f; b.DrRR = a.Id >= 0 && _stage.Views[a.Id] != null ? _stage.Views[a.Id].transform.position : Vector3.zero; b.DrSR = a.Id >= 0 && _stage.Views[a.Id] != null ? _stage.Views[a.Id].EngageSteps : 0; } }
                 n++; if (was && !teleport && slide < mn) mn = slide;
+                { var sv = _stage.Views[a.Id]; float sw = sv != null ? sv.EngageStepWeight : 0f; if (sv != null && sv.EngageLocoOn) sw = Mathf.Min(sw, 0.001f); if (foot == 0) { if (sw < b.DrWL) b.DrWL = sw; } else if (sw < b.DrWR) b.DrWR = sw; var stp2 = sv != null ? sv.Stepper : null; if (stp2 != null) { if (foot == 0 && stp2.SwingL) b.DrSwL = true; if (foot == 1 && stp2.SwingR) b.DrSwR = true; } }
+                { Vector3 ka = foot == 0 ? b.DrKAL : b.DrKAR, kp = foot == 0 ? b.LF.position : b.RF.position; float kd = Vector3.ProjectOnPlane(kp - ka, Vector3.up).magnitude; if (foot == 0) { if (kd > b.DrKML) b.DrKML = kd; } else if (kd > b.DrKMR) b.DrKMR = kd; }
+                { Vector3 an = foot == 0 ? b.DrAL : b.DrAR; float dd = Vector3.ProjectOnPlane(toe - an, Vector3.up).magnitude; if (foot == 0) { if (dd > b.DrML) b.DrML = dd; } else if (dd > b.DrMR) b.DrMR = dd; }
+                { string dc = DriftClass(a.Action); if (dc != null && was && !teleport) { Add("planted frame slide m/s " + dc + (dead ? " dead" : " live"), slide); Add("planted frame slide m/s all engaged-block-tackle", slide); } }
                 act &= action; up |= upper;
             }
             else if (was)
@@ -428,6 +460,8 @@ namespace PixFootball.EditorTools
                 if (n >= 3 && mn < 98f && !teleport)
                 {
                     AgentAction ac = b.PrevAct;
+                    { string dc = DriftClass(ac); { var v0 = _stage.Views[a.Id]; Vector3 r00 = foot == 0 ? b.DrRL : b.DrRR; if (dc != null && v0 != null && Vector3.ProjectOnPlane(v0.transform.position - r00, Vector3.up).magnitude / (Mathf.Max(1, n) * Dt) > 10f) { Cnt("drift intervals skipped: the root moved over 10 m/s (a re-layout, not a slide)"); dc = null; } } if (dc != null) { float dm = foot == 0 ? b.DrML : b.DrMR; Add("planted-interval drift m " + dc + (dead ? " dead" : " live"), dm); Add("planted-interval drift m all engaged-block-tackle", dm); Add("planted-interval ANKLE drift m " + dc + (dead ? " dead" : " live"), foot == 0 ? b.DrKML : b.DrKMR); if (!dead) { Add("planted-interval drift m LIVE, " + ((foot == 0 ? b.DrWL : b.DrWR) > 0.95f ? "stepper on for the whole interval" : "stepper off or ramping"), dm); if ((foot == 0 ? b.DrWL : b.DrWR) > 0.95f) Add("planted-interval drift m LIVE, stepper on, " + ((foot == 0 ? b.DrSwL : b.DrSwR) ? "a swing of this foot was running in the interval" : "no swing of this foot in the interval"), dm); } { float sp = a.Speed * 0.9144f; Add("planted-interval drift m by action " + ac + (sp < 1f ? " spd<1" : (sp < 2.6f ? " spd1-2.6" : " spd>=2.6")) + (up ? " upper" : "") + ((foot == 0 ? b.DrWL : b.DrWR) > 0.95f ? " [on]" : ((foot == 0 ? b.DrWL : b.DrWR) > 0.01f ? " [ramp]" : " [off]")), dm); } if (!dead) Add("planted-interval drift m all engaged-block-tackle LIVE", dm);
+                        if (!dead && ((dm > 1.5f && (_driftSeen++ % 12) == 0) || (ac == AgentAction.Engaged && a.Speed * 0.9144f < 1f && dm > 0.12f && (_driftSeen2++ % 10) == 0)) && _driftTraces++ < 90) { var vv = _stage.Views[a.Id]; Vector3 r0 = foot == 0 ? b.DrRL : b.DrRR; _report.AppendLine("   drift trace " + a.PlayPos + " " + ac + " t-end frames " + n + " drift " + dm.ToString("0.00") + " root moved " + (vv != null ? Vector3.ProjectOnPlane(vv.transform.position - r0, Vector3.up).magnitude.ToString("0.00") : "?") + " simSpd " + (a.Speed * 0.9144f).ToString("0.0") + " clip " + (b.PrevClip != null ? b.PrevClip.name : "(loco)") + " steps=" + (vv != null ? (vv.EngageSteps - (foot == 0 ? b.DrSL : b.DrSR)).ToString() : "?") + " cd=" + (vv != null && vv.ContactDriven) + " stepW=" + (vv != null ? vv.EngageStepWeight.ToString("0.0") : "?") + " viewOff " + (vv != null ? vv.ViewOffset.magnitude.ToString("0.00") : "?") + " locoOwns=" + (vv != null && vv.LocoOwns) + " upper=" + (vv != null && vv.Rig != null && vv.Rig.UpperBodyActive) + " rigW=" + (vv != null && vv.Rig != null ? vv.Rig.Weight.ToString("0.00") : "?") + " viewSpd=" + (vv != null ? (Vector3.ProjectOnPlane(vv.transform.position - r0, Vector3.up).magnitude / (Mathf.Max(1, n) * Dt)).ToString("0.0") : "?") + " pl" + (_curSim != null ? _curSim.Time.ToString("0.0") : "")); } } }
                     if (act && mn > 3f && (ac == AgentAction.GetUp || ac == AgentAction.Fallen || ac == AgentAction.Jump || ac == AgentAction.Stumble) && _slideTraces++ < 12) _report.AppendLine("   slide trace " + ac + " agent " + a.Id + " " + a.PlayPos + " min slide " + mn.ToString("0.0") + " m/s, sim speed " + (a.Speed * 0.9144f).ToString("0.0") + " m/s, owner " + (_curSim != null && _curSim.Choreo != null && _curSim.Choreo.OwnerOf(a.Id) != null ? _curSim.Choreo.OwnerOf(a.Id).Kind.ToString() : "none") + ", view offset " + (_stage != null && _stage.Views[a.Id] != null ? _stage.Views[a.Id].ViewOffset.magnitude.ToString("0.00") : "?") + ", contact frames " + n);
                     if (act) { string k = (dead ? "dead " : "live ") + ac + (up ? " (upper-body take)" : ""); Add("contact min slide m/s ACTION " + k, mn); Cnt("slide contacts ACTION " + k); if (mn > 0.30f) Cnt("slide contacts over 0.30 m/s ACTION " + k); Add("contact min slide m/s ACTION all", mn); Cnt("slide contacts ACTION all"); if (mn > 0.30f) Cnt("slide contacts over 0.30 m/s ACTION all"); }
                     else if (!dead && (ac == AgentAction.Run || ac == AgentAction.Sprint || ac == AgentAction.Carry || ac == AgentAction.Route || ac == AgentAction.Backpedal || ac == AgentAction.Shuffle || ac == AgentAction.Idle))

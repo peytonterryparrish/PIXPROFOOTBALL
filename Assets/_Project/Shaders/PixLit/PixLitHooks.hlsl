@@ -377,8 +377,8 @@ void PixSurfaceHook(FragInputs input, LayerTexCoord ltc, float3 V, inout Surface
         if (((int)_PixDebug & 512) != 0) albedo = saturate(float3(hxD.x, hxD.y, hxD.z) * 0.5 + 0.5);
         if (((int)_PixDebug & 1024) != 0) albedo = saturate(hnD * 0.5 + 0.5);
         sd.baseColor = albedo;
-        sd.metallic = lerp(sd.metallic, 0.35, shellW);
-        sd.perceptualSmoothness = lerp(sd.perceptualSmoothness, 0.9, shellW);
+        sd.metallic = lerp(sd.metallic, 0.12, shellW);                         // v0.12.0 BODIES (cross-track edit, helmet branch only): satin like R1 (was metallic 0.35 / smoothness 0.9 = mirror plastic)
+        sd.perceptualSmoothness = lerp(sd.perceptualSmoothness, 0.66, shellW);
         float scuff = _PixScuff.x;
         if (scuff > 0.001)
         {

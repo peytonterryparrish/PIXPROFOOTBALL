@@ -58,6 +58,10 @@ namespace PixFootball.EditorTools
         /// <param name="facing">body forward (horizontal)</param><param name="travel">velocity (horizontal)</param>
         float _frameSole; int _hintRun, _hn; readonly bool[] _hh = new bool[5]; readonly float[] _hs = new float[5];
         Acc _b;
+        /// <summary>v0.12.0 GAIT: the last sampled frame (lean deg forward +, longitudinal acceleration m/s2 over 0.2 s, pelvis height over leg length).</summary>
+        public bool LastHaveAcc; public float LastAccel, LastLean, LastHipsOverLeg;
+        /// <summary>v0.12.0 GAIT: a frame below the probe speed gate (a body standing or starting): keeps the 0.2 s acceleration window continuous across a start from rest.</summary>
+        public void NoteSpeed(float speed) { _speeds.Enqueue(speed); while (_speeds.Count > 13) _speeds.Dequeue(); }
         void Put(Acc a, string k, float v) { a.Add(k, v); if (_b != null) _b.Add(k, v); }
 
         public void Sample(Acc acc, Vector3 facing, Vector3 travel, float speed, float gy, float dt, Acc second = null)
@@ -101,6 +105,7 @@ namespace PixFootball.EditorTools
             if (ab != null && speed > 1.5f) Put(acc, "trunk lean deg (" + ab + ")", lean);
             if (speed > 1.5f) Put(acc, "trunk lean deg (all)", lean);
             if (haveAcc && speed > 1.5f) { Put(acc, "accel m/s2 (all)", accel); Put(acc, "lean-accel pair", lean); Put(acc, "lean-accel pair", accel); }
+            LastHaveAcc = haveAcc && speed > 1.5f; LastAccel = accel; LastLean = lean; LastHipsOverLeg = (P.y - gy) / _legLen;      // v0.12.0 GAIT: read by FormAuditHook for the lean-vs-acceleration curve
             // arm-leg phase: the hand opposite to the forward foot should be forward
             if (_l.Hand != null && _r.Hand != null && speed > 2.5f)
             {
@@ -160,9 +165,9 @@ namespace PixFootball.EditorTools
 
         // ------------------------------------------------------------------------------------------ report
         static float Mean(List<float> l) { return l == null || l.Count == 0 ? float.NaN : l.Average(); }
-        static float P(List<float> l, float p) { if (l == null || l.Count == 0) return float.NaN; var s = l.OrderBy(x => x).ToList(); return s[Mathf.Clamp((int)(p * (s.Count - 1) + 0.5f), 0, s.Count - 1)]; }
-        static string F(float v) { return float.IsNaN(v) ? "-" : v.ToString("0.0", CultureInfo.InvariantCulture); }
-        static string F2(float v) { return float.IsNaN(v) ? "-" : v.ToString("0.00", CultureInfo.InvariantCulture); }
+        internal static float P(List<float> l, float p) { if (l == null || l.Count == 0) return float.NaN; var s = l.OrderBy(x => x).ToList(); return s[Mathf.Clamp((int)(p * (s.Count - 1) + 0.5f), 0, s.Count - 1)]; }
+        internal static string F(float v) { return float.IsNaN(v) ? "-" : v.ToString("0.0", CultureInfo.InvariantCulture); }
+        internal static string F2(float v) { return float.IsNaN(v) ? "-" : v.ToString("0.00", CultureInfo.InvariantCulture); }
         static string MP(Acc a, string k) { List<float> l; a.V.TryGetValue(k, out l); return F(Mean(l)) + " / " + F(P(l, 0.95f)); }
         static string M1(Acc a, string k) { List<float> l; a.V.TryGetValue(k, out l); return F(Mean(l)); }
         static string Frac(Acc a, string k) { List<float> l; a.V.TryGetValue(k, out l); return F2(Mean(l)); }
@@ -199,7 +204,18 @@ namespace PixFootball.EditorTools
         static readonly Dictionary<PixFootball.Gameplay.SimAgentView, FormProbe> Probes = new Dictionary<PixFootball.Gameplay.SimAgentView, FormProbe>();
         static readonly SortedDictionary<string, FormProbe.Acc> Gait = new SortedDictionary<string, FormProbe.Acc>(), Pos = new SortedDictionary<string, FormProbe.Acc>();
 
-        public static void Reset() { Probes.Clear(); Gait.Clear(); Pos.Clear(); }
+        public static void Reset() { Probes.Clear(); Gait.Clear(); Pos.Clear(); LeanPairs.Clear(); }
+
+        /// <summary>v0.12.0 GAIT: lean (deg) / acceleration (m/s2) / pelvis height over leg length pairs by group: "Free" (not carrying, not QB), "Carry", "QB".</summary>
+        static readonly SortedDictionary<string, List<float[]>> LeanPairs = new SortedDictionary<string, List<float[]>>();
+
+        /// <summary>A frame below the probe's speed gate (a body standing, or starting out of a stance): keeps the 0.2 s acceleration window continuous.</summary>
+        public static void NoteSlow(PixFootball.Gameplay.SimAgentView v, float speedMs)
+        {
+            if (v == null || v.Avatar == null || v.Avatar.Animator == null) return;
+            FormProbe p; if (!Probes.TryGetValue(v, out p)) Probes[v] = p = new FormProbe(v.Avatar.Animator, v.Motion != null ? v.Motion.Plant : null);
+            p.NoteSpeed(speedMs);
+        }
 
         public static void Feed(PixFootball.Gameplay.SimAgentView v, string action, bool carry, string position, float speedMs, Vector3 vel, float gy, float dt)
         {
@@ -210,11 +226,50 @@ namespace PixFootball.EditorTools
             string pk = position + " " + (carry ? "Carry" : action) + (speedMs < 3f ? " <3" : speedMs < 5.5f ? " 3-5.5" : " >=5.5");
             FormProbe.Acc b; if (!Pos.TryGetValue(pk, out b)) Pos[pk] = b = new FormProbe.Acc();
             p.Sample(a, v.Forward, vel, speedMs, gy, dt, b);
+            if (p.LastHaveAcc && (action == "Run" || action == "Sprint" || action == "Carry" || action == "Route" || action == "Idle"))      // facing his path (not back-pedal / shuffle)
+            {
+                string grp = position == "QB" ? "QB" : carry ? "Carry" : "Free";
+                List<float[]> l; if (!LeanPairs.TryGetValue(grp, out l)) LeanPairs[grp] = l = new List<float[]>();
+                l.Add(new[] { p.LastLean, p.LastAccel, p.LastHipsOverLeg });
+            }
+        }
+
+        static readonly float[] BinEdges = { -99f, -6f, -4f, -2f, -1f, 1f, 2f, 4f, 6f, 99f };
+        static string BinName(int i) { return i == 0 ? "<= -6" : i == BinEdges.Length - 2 ? ">= 6" : "[" + BinEdges[i].ToString("0") + ", " + BinEdges[i + 1].ToString("0") + ")"; }
+        static float P(List<float> l, float p) { return FormProbe.P(l, p); }
+        static string F(float v) { return FormProbe.F(v); }
+        static string F2(float v) { return FormProbe.F2(v); }
+        static float Med(List<float> l) { return P(l, 0.5f); }
+
+        /// <summary>Trunk lean (deg, forward +) against the simulated longitudinal acceleration (m/s2, over 0.2 s), per group, per acceleration bin; the headline medians for accel >= 4 and decel <= -4.</summary>
+        public static string LeanTable()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("## trunk lean vs acceleration (pelvis to neck, forward +; bodies facing their path, speed > 1.5 m/s)\n");
+            foreach (var kv in LeanPairs)
+            {
+                var l = kv.Value;
+                var up = l.Where(x => x[1] >= 4f).Select(x => x[0]).ToList(); var dn = l.Where(x => x[1] <= -4f).Select(x => x[0]).ToList();
+                var upH = l.Where(x => x[1] >= 4f).Select(x => x[2]).ToList(); var dnH = l.Where(x => x[1] <= -4f).Select(x => x[2]).ToList(); var stH = l.Where(x => Mathf.Abs(x[1]) < 1f).Select(x => x[2]).ToList();
+                sb.AppendLine("**" + kv.Key + "**: frames " + l.Count + "; median lean at accel >= 4 m/s2: " + F(Med(up)) + " deg (n " + up.Count + ", p25 " + F(P(up, 0.25f)) + ", p75 " + F(P(up, 0.75f)) + "); at decel <= -4 m/s2: " + F(Med(dn)) + " deg (n " + dn.Count + ", p25 " + F(P(dn, 0.25f)) + ", p75 " + F(P(dn, 0.75f)) + "); pelvis height / leg length: steady " + F2(Med(stH)) + ", accel >= 4 " + F2(Med(upH)) + ", decel <= -4 " + F2(Med(dnH)) + "\n");
+                sb.AppendLine("| accel bin (m/s2) | frames | lean p25 | lean median | lean p75 | pelvis h / leg (median) |");
+                sb.AppendLine("|---|---|---|---|---|---|");
+                for (int i = 0; i < BinEdges.Length - 1; i++)
+                {
+                    var bin = l.Where(x => x[1] >= BinEdges[i] && x[1] < BinEdges[i + 1]).ToList();
+                    var bl = bin.Select(x => x[0]).ToList(); var bh = bin.Select(x => x[2]).ToList();
+                    sb.AppendLine("| " + BinName(i) + " | " + bin.Count + " | " + F(P(bl, 0.25f)) + " | " + F(Med(bl)) + " | " + F(P(bl, 0.75f)) + " | " + F2(Med(bh)) + " |");
+                }
+                sb.AppendLine();
+            }
+            return sb.ToString();
         }
 
         public static void Write(string dir)
         {
-            System.IO.File.WriteAllText(dir + "/form_quality.md", "# Running form in real plays (final pose, every running player each frame)\n\n## by gait\n\n" + FormProbe.Table(Gait) + "\n## by position\n\n" + FormProbe.Table(Pos));
+            string lt = LeanTable();
+            System.IO.File.WriteAllText(dir + "/form_quality.md", "# Running form in real plays (final pose, every running player each frame)\n\n" + lt + "\n## by gait\n\n" + FormProbe.Table(Gait) + "\n## by position\n\n" + FormProbe.Table(Pos));
+            System.IO.File.WriteAllText(dir + "/lean_accel.md", "# v0.12.0 GAIT: trunk lean against acceleration\n\n" + lt);
         }
     }
 }

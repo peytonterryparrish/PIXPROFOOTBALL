@@ -39,6 +39,7 @@ namespace PixFootball.Gameplay
         {
             if (Sim == null) return;
             if (_chSim != Sim) { _chSim = Sim; System.Array.Clear(_chDriven, 0, 22); _chWalked.Clear(); }
+            ServicePadHands();      // v0.12.0 CONTACT: hands on the pads of the man across (Final IK, PlayStage.Hands.cs)
             var ch = Sim.Choreo;
             if (ch == null || SimAgentView.DebugNoChoreo) return;
             ServiceWarp(ch);      // the lead-in of a booked take plays at the bodies' speed

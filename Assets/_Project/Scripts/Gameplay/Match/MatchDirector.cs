@@ -299,6 +299,7 @@ namespace PixFootball.Gameplay
 
                 // ---- calls ----
                 _playClockCarry = Mathf.Max(8f, state.PlayClock);
+                if (FlowCarry) { float dbc = DeadBallPlayClock(); if (dbc > 0f) _playClockCarry = dbc; }      // v0.12.0 (RULES): the watched game's play clock runs from the whistle
                 yield return Safe(Calls(), "play calling");
                 if (_quit) yield break;
 
@@ -556,6 +557,7 @@ namespace PixFootball.Gameplay
                 float dt = Time.deltaTime;
                 if (Paused) { PauseFrame(); yield return null; continue; }
                 t += dt; playClock -= dt;
+                _preClock = playClock; _preT = t;
                 MatchInputFrame inp = ReadInput();
                 if (inp.Menu) { SetPaused(true); yield return null; continue; }
                 if (inp.View) { Cams.Cycle(); if (!Config.CpuVsCpu) PixSettings.DefaultCamera = Cams.Mode; }
@@ -595,11 +597,16 @@ namespace PixFootball.Gameplay
                         if (inp.DPadDown || inp.LTDown) TryUserTimeout();   // LT is the timeout button everywhere (D-pad down still works here)
                         SetHint("[LT] TIMEOUT   [VIEW] CAMERA");
                     }
-                    if (t > cpuDelay && _ps == PsMode.None) snap = true;
+                    if (t > cpuDelay && _ps == PsMode.None && !DeadBallHold()) snap = true;      // v0.12.0 (RULES): not before the dead-ball time is up
                 }
                 if (AutoRun && t > AutopilotSnapDelay) snap = true;
+                // v0.12.0 (RULES, S1 fix): in a watched game nobody snaps while a body is still walking, turning or settling (kicks, tries and hurry-ups included: the 8 s minimum play clock used to force the snap at 6 s); the set must hold 0.8 s
+                bool watchBreak = _watch && Stage != null && Stage.CarryActive && _ps == PsMode.None;
+                if (watchBreak) { if (Stage.BreakInProgress) _setT = 0f; else _setT += dt; }
+                bool watchHold = watchBreak && (Stage.BreakInProgress || _setT < 0.8f) && t < 45f;
+                if (snap && watchHold) { snap = false; if (Stage.BreakInProgress) Stage.QbSeqHurry(); }
                 if (snap && Stage != null && Stage.BreakInProgress && (Sim.Kind == PlayKind.Scrimmage || Stage.CarryActive) && playClock > 2f) { snap = false; Stage.QbSeqHurry(); }      // v0.9.0 CONNECT E-252: nobody snaps the ball while the team is still breaking to the line
-                if (playClock <= 0f && !snap)
+                if (playClock <= 0f && !snap && !watchHold)
                 {
                     // delay of game: the user's offense let the clock run out
                     if (_userIsOffense && !Autopilot && Sim.Kind == PlayKind.Scrimmage && Sim.CallDelayOfGame()) delayFoul = true;
@@ -703,6 +710,7 @@ namespace PixFootball.Gameplay
             Markers.SetRing(null); Ui?.SetReceiverIcons(null, MainCamera); UpdateUserMarker(false); if (Routes != null) Routes.SetShown(false); Ui?.SetRouteBadges(null, MainCamera);
             React(outcome);
             ShowWhistle(sim, outcome);   // v0.7: why the play ended, in a small banner (skipped when the result banner already says it)
+            _whistleAt = Time.time;      // v0.12.0 (RULES): the dead-ball time runs from here
             if (PlayFinished != null) PlayFinished(outcome);
             if (Broadcast != null) Broadcast.BeginPostPlay(outcome, sim);
             float wind = outcome.Headline == Headline.Touchdown ? 4.2f : (sim.Kind == PlayKind.Scrimmage && sim.Result != null && sim.Result.Type == PlayType.Penalty ? 1.6f : 2.9f);

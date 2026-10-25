@@ -237,6 +237,8 @@ namespace PixFootball.Sim
             PreSnapStances.Refresh(this);
             for (int i = 0; i < 22; i++) Agents[i].ClearHistory(Agents[i].Pos);
             _setup = true;
+            for (int i = 0; i < 22; i++) _lastMoving[i] = -99f;
+            ApplyLineupMistakes();      // v0.12.0 (RULES): a receiver or lineman lines up wrong (causal, awareness); the legality check at the snap decides
             InitChoreo();      // v0.10.0 CHOREO
             AutoJetMotion();
         }
@@ -455,19 +457,21 @@ namespace PixFootball.Sim
                     SimAgent a = Agents[i];
                     a.Want = Vec2.Zero; a.HasFace = false; a.Exertion = 0f;
                     Vec2 preWant = i == MotionSlot ? PreSnapWant(i) : (i >= 11 ? DefenseMotionResponse(i) : Vec2.Zero);
-                    if (_flinch != null && _flinch.Idx == i) preWant = FlinchWant(i);
-                    a.Body.Step(Dt, preWant, i == MotionSlot, new Vec2(0f, 1f), 0f);   // v0.6: the man in motion shuffles across the formation square to the line (QA-308 / QA-672)
-                    bool inMotion = i == MotionSlot && a.Speed > 0.6f;
+                    preWant = RulesWant(i, preWant);   // v0.12.0 (RULES): shift walks, a second man in motion, the early turn upfield
+                    bool mover = i == MotionSlot || i == _motion2 || _hasWalk[i];
+                    a.Body.Step(Dt, preWant, mover, new Vec2(0f, 1f), 0f);   // v0.6: the man in motion shuffles across the formation square to the line (QA-308 / QA-672)
+                    bool inMotion = mover && a.Speed > 0.6f;
                     a.Intent = inMotion ? AgentAction.Run : AgentAction.Stance;
                     a.SetAction(inMotion ? AgentAction.Run : AgentAction.Stance);
+                    JumpStep(i);   // v0.12.0 (RULES): a player who jumps the count leaves his stance (the false start / offside is the body that moved)
                     a.ActionTime += Dt;
                     a.RecordHistory();
                 }
+                if (RulesAfterStep()) return;      // v0.12.0 (RULES): the foul the movement just caused (false start, offside, neutral zone, encroachment, delay of game)
                 // a man in motion gets a few strides first and is never snapped while coming forward
-                if (Options.AutoSnap && Options.Cadence && !_cadencePlanned) PlanCadence();
-                float snapAfter = Options.Cadence && _cadencePlanned ? _cadenceSnapAt : Options.AutoSnapDelay;
-                bool motionSettled = MotionSlot < 0 || (PreSnapTime >= snapAfter + 0.8f && Agents[MotionSlot].Vel.Y < 0.4f);   // moving laterally at the snap is legal; coming toward the line is not (and he must have had a few steps)
-                if (_flinch != null) { StepFlinch(); return; }
+                if (Options.AutoSnap && !_countPlanned) PlanCadence();
+                float snapAfter = _countPlanned ? _snapAt : Options.AutoSnapDelay;
+                bool motionSettled = MotionSlot < 0 || _driftFrom >= 0f || (PreSnapTime >= snapAfter + (Options.Cadence ? 0f : 0.8f) && Agents[MotionSlot].Vel.Y < 0.4f);   // moving laterally at the snap is legal; coming toward the line is not (and he must have had a few steps)
                 if (input.Snap || (Options.AutoSnap && PreSnapTime >= snapAfter && motionSettled)) DoSnap();
                 return;
             }
@@ -503,7 +507,8 @@ namespace PixFootball.Sim
         private void DoSnap()
         {
             // pre-snap penalties
-            if (Options.Penalties && TryPreSnapPenalty()) return;
+            if (Options.Penalties && Kind != PlayKind.Kickoff && Kind != PlayKind.Kneel && Kind != PlayKind.Spike && !IsExtraPoint) Rng.NextFloat();      // v0.12.0 (RULES): the v0.11 snap roll is gone, its draw stays so the play draws the sequence it always drew (calibrations stay comparable)
+            if (Options.Penalties && EvaluateSnap()) return;      // v0.12.0 (RULES): computed from the alignment and movement at the snap (no dice)
             Phase = PlayPhase.Live;
             Time = 0f;
             Log.Add(0f, SimEventType.Snap, (Kind == PlayKind.Scrimmage || Kind == PlayKind.Kneel || Kind == PlayKind.Spike) ? Snapper.Id : Specials.SnapAgentId, -1, Ball.Pos);
@@ -943,101 +948,6 @@ namespace PixFootball.Sim
             }
         }
 
-        /// <summary>Picks one agent of a group, more likely the lower his awareness (the careless player draws the flag, not always the same one).</summary>
-        private int PickCareless(System.Collections.Generic.List<int> ids)
-        {
-            if (ids.Count == 0) return -1;
-            float total = 0f;
-            for (int i = 0; i < ids.Count; i++) total += 1.6f - Agents[ids[i]].R.Awareness / 99f;
-            float r = Rng.NextFloat() * total;
-            for (int i = 0; i < ids.Count; i++) { r -= 1.6f - Agents[ids[i]].R.Awareness / 99f; if (r <= 0f) return ids[i]; }
-            return ids[ids.Count - 1];
-        }
-
-        /// <summary>Number of offensive players standing on the line of scrimmage (within 1.1 yd of the ball), the legality test behind IllegalFormation.</summary>
-        public int OffensePlayersOnLine()
-        {
-            int n = 0;
-            for (int i = 0; i < 11; i++) if (Agents[i].Pos.Y >= LosY - 1.1f) n++;
-            return n;
-        }
-
-        private bool TryPreSnapPenalty()
-        {
-            if (Kind == PlayKind.Kickoff || Kind == PlayKind.Kneel || Kind == PlayKind.Spike || IsExtraPoint) return false;
-            bool scrimmage = Kind == PlayKind.Scrimmage;
-            // who is actually on the line: the culprits come from the real alignment, not from fixed slot numbers
-            var offLine = new System.Collections.Generic.List<int>(); var offLinemen = new System.Collections.Generic.List<int>();
-            for (int i = 0; i < 11; i++)
-            {
-                if (Agents[i].Pos.Y < LosY - 1.1f) continue;
-                offLine.Add(i);
-                if (PositionGroup.IsOffensiveLine(Agents[i].PlayPos)) offLinemen.Add(i);
-            }
-            var defLine = new System.Collections.Generic.List<int>();
-            for (int i = 11; i < 22; i++) if (Agents[i].Pos.Y - LosY < 1.8f && !(Agents[i].Assign is ReturnerAssignment)) defLine.Add(i);   // v0.9.0 (E-332): only a man on the line can jump it (a linebacker at 2-2.5 yd used to be a culprit)
-            if (offLinemen.Count == 0) offLinemen = offLine;
-            float awOl = 0.7f, dlAw = 0.7f;
-            if (offLinemen.Count > 0) { awOl = 0f; foreach (int i in offLinemen) awOl += Agents[i].R.Awareness; awOl = awOl / offLinemen.Count / 99f; }
-            if (defLine.Count > 0) { dlAw = 0f; foreach (int i in defLine) dlAw += Agents[i].R.Awareness; dlAw = dlAw / defLine.Count / 99f; }
-            float qbAw = Agents[0].R.Awareness / 99f;
-            float u = Rng.NextFloat();
-            float acc = 0f;
-            // a formation with fewer than seven men on the line is illegal whatever the dice say
-            if (scrimmage && OffensePlayersOnLine() < 7)
-            {
-                var culprits = new System.Collections.Generic.List<int>();
-                for (int i = 1; i < 11; i++) if (!offLine.Contains(i) && Agents[i].IsReceiverEligible) culprits.Add(i);
-                int cg = PickCareless(culprits);
-                var fcall = new PenaltyCall(PenaltyType.IllegalFormation, State.Possession, 0f, Agents[cg >= 0 ? cg : 10].PlayerId);
-                LogEvent(SimEventType.Penalty, cg >= 0 ? cg : 10, -1, TackleType.None, (float)PenaltyType.IllegalFormation, "IllegalFormation");
-                FinishPreSnap(PlayResult.PenaltyOnly(fcall));
-                return true;
-            }
-            if (offLinemen.Count > 0 && u < (acc += 0.0185f * (1.55f - awOl)))
-            {
-                int worst = PickCareless(offLinemen);
-                var call = new PenaltyCall(PenaltyType.FalseStart, State.Possession, 0f, Agents[worst].PlayerId);
-                LogEvent(SimEventType.Penalty, worst, -1, TackleType.None, (float)PenaltyType.FalseStart, "FalseStart");
-                BeginFlinch(worst, 1f, PlayResult.PenaltyOnly(call));   // v0.9.0 (E-332): the man actually jumps before the whistle
-                return true;
-            }
-            if (defLine.Count > 0 && u < (acc += 0.0075f * (1.55f - dlAw)))
-            {
-                int g = PickCareless(defLine);
-                var call = new PenaltyCall(PenaltyType.Offside, State.Possession.Opponent(), 0f, Agents[g].PlayerId);
-                LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.Offside, "Offside");
-                BeginFlinch(g, -1f, PlayResult.PenaltyOnly(call));
-                return true;
-            }
-            if (defLine.Count > 0 && u < (acc += 0.0026f * (1.55f - dlAw)))
-            {
-                int g = PickCareless(defLine);
-                var call = new PenaltyCall(PenaltyType.Encroachment, State.Possession.Opponent(), 0f, Agents[g].PlayerId);
-                LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.Encroachment, "Encroachment");
-                BeginFlinch(g, -1f, PlayResult.PenaltyOnly(call));
-                return true;
-            }
-            if (scrimmage && Options.AutoSnap && u < (acc += 0.0040f * (1.55f - qbAw)))   // v0.9.0 (E-364): the random delay-of-game roll is for automatic snaps only; a director-driven snap has the real play clock
-            {
-                var call = new PenaltyCall(PenaltyType.DelayOfGame, State.Possession, 0f, Agents[0].PlayerId);
-                LogEvent(SimEventType.Penalty, 0, -1, TackleType.None, (float)PenaltyType.DelayOfGame, "DelayOfGame");
-                FinishPreSnap(PlayResult.PenaltyOnly(call));
-                return true;
-            }
-            if (scrimmage && u < (acc += 0.0016f * (1.55f - qbAw)))
-            {
-                // a late shift: a back or receiver is still moving or lined up off the numbers
-                var off = new System.Collections.Generic.List<int>();
-                for (int i = 1; i < 11; i++) if (Agents[i].IsReceiverEligible) off.Add(i);
-                int g = PickCareless(off); if (g < 0) g = 10;
-                var call = new PenaltyCall(PenaltyType.IllegalFormation, State.Possession, 0f, Agents[g].PlayerId);
-                LogEvent(SimEventType.Penalty, g, -1, TackleType.None, (float)PenaltyType.IllegalFormation, "IllegalFormation");
-                FinishPreSnap(PlayResult.PenaltyOnly(call));
-                return true;
-            }
-            return false;
-        }
 
         private void FinishPreSnap(PlayResult r)
         {

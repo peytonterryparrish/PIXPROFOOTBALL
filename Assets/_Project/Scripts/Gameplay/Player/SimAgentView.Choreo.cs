@@ -72,10 +72,14 @@ namespace PixFootball.Gameplay
 
         // ---- v0.10.0 CHOREO: stepping legs for a pushed, engaged body ---------------------------------------------------------------------------------------
         public static bool NoEngageStep = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoEngageStep") >= 0;
+        /// <summary>v0.12.0 CONTACT: body speed (m/s) below which the stepper has the legs of an engaged / blocking body, a wrap, a get-off. QA: -pixStepCap sets the first one.</summary>
+        public static float StepCap = ArgF("-pixStepCap", 5.5f), StepCapWrap = ArgF("-pixStepCapWrap", 5.5f), StepCapGetOff = 4.5f;
         float _getOffUntil = -1f;
         EngageStepper _stepper; Animator _stepperAnim; Vector3 _stepPrev; bool _stepPrevHave;
         public int EngageSteps { get { return _stepper != null ? _stepper.Steps : 0; } }
         public float EngageStepWeight { get { return _stepper != null ? _stepper.Weight : 0f; } }
+        /// <summary>QA: the stepper of this body (null until it has been used).</summary>
+        public EngageStepper Stepper { get { return _stepper; } }
         void EngageStepLate(float dt)
         {
             if (Avatar == null || Avatar.Animator == null || !Avatar.Animator.isHuman || dt <= 1e-5f) return;
@@ -83,11 +87,41 @@ namespace PixFootball.Gameplay
             Vector3 p = transform.position, vel = _stepPrevHave ? (p - _stepPrev) / dt : Vector3.zero; vel.y = 0f; _stepPrev = p; _stepPrevHave = true;
             if (vel.magnitude > 12f) { vel = Vector3.zero; _stepper.Reset(); }      // a teleport (re-layout)
             bool engaged = _lastAction == PixFootball.Sim.AgentAction.Engaged || _lastAction == PixFootball.Sim.AgentAction.Shed || _lastAction == PixFootball.Sim.AgentAction.Block;
+            // v0.12.0 CONTACT: the tackler's and the carrier's feet in a wrap are pinned too (they used to slide 1.6 to 2 m/s: the pair take's legs are authored for a partner at one distance)
+            bool wrap = !EngageStepper.V011 && (_lastAction == PixFootball.Sim.AgentAction.TackleWrapUp || _lastAction == PixFootball.Sim.AgentAction.TackleGang || _lastAction == PixFootball.Sim.AgentAction.Tackled);
             bool getOff = _clock < _getOffUntil && !ContactDriven;      // the first steps out of a stance: the in-place take is played over a body that is already moving
             bool stumble = _lastAction == PixFootball.Sim.AgentAction.Stumble && !ContactDriven;
-            float cap = (getOff || stumble) ? 4.5f : 2.6f;
-            bool active = !DebugNoChoreo && !NoEngageStep && (engaged || getOff || stumble) && vel.magnitude < cap && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid;
-            _stepper.Late(dt, active, vel, Forward, p.y);
+            // a foot can be set down about every 0.3 s: above the cap the body is running, not being pushed, and the locomotion's own stride (FootPlant) has the legs; a margin keeps the hand-over from flickering
+            float cap = EngageStepper.V011 ? ((getOff || stumble) ? 4.5f : 2.6f) : ((getOff || stumble) ? StepCapGetOff : (wrap ? StepCapWrap : StepCap));
+            if (_stepper.Weight > 0.5f && !EngageStepper.V011) cap += 0.35f;
+            bool active = !DebugNoChoreo && !NoEngageStep && !_engLocoOn && (engaged || wrap || getOff || stumble) && vel.magnitude < cap && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid;
+            { var fp = Motion != null ? Motion.Plant : null; if (fp != null && fp.Ok) _stepper.SetRest(fp.RestAnkleL, fp.RestAnkleR, fp.RestToeL, fp.RestToeR); }      // v0.12.0: planted feet are pressed onto the turf
+            _stepper.Late(dt, active, vel, Forward, p.y, engaged || wrap);      // (contact = an engaged / blocking / wrapping body; the get-off and stumble windows keep the v0.11 stepping)
+        }
+
+        /// <summary>
+        /// v0.12.0 CONTACT: an engaged body (a hand fight whose clip plays on the upper body only) that the simulation moves faster than a push gets its legs from the locomotion matcher: a real shuffle / back-pedal / walk with the foot planter,
+        /// not a hand-fight clip's legs skating over the turf (the stepper cannot set a foot down more than about every 0.3 s). Hysteresis 1.0 / 1.3 m/s. The stepper (<see cref="EngageStepLate"/>) takes over again below it.
+        /// </summary>
+        bool ChoreoLocoLegs(PixFootball.Sim.AgentAction action, Vector3 velocity)
+        {
+            if (EngageStepper.V011 || DebugNoChoreo || NoEngageLoco || Rig == null || !Rig.Valid) { _engLocoOn = false; return false; }
+            bool eng = (action == PixFootball.Sim.AgentAction.Engaged || action == PixFootball.Sim.AgentAction.Shed) && Rig.UpperBodyActive;
+            float sp = new Vector2(velocity.x, velocity.z).magnitude;
+            _engLocoOn = eng && sp > (_engLocoOn ? EngageLocoLow : EngageLocoHigh);
+            return _engLocoOn;
+        }
+        bool _engLocoOn;
+        /// <summary>QA: the locomotion matcher has the legs of this engaged body (see <see cref="ChoreoLocoLegs"/>).</summary>
+        public bool EngageLocoOn { get { return _engLocoOn; } }
+        public static float EngageLocoHigh = ArgF("-pixEngageLoco", 99f), EngageLocoLow = 0.8f;      // off by default: measured, the matcher legs do not reach a body whose upper-body mask plays at full weight (drift 40 cm against 6 cm for the stepper)
+        public static bool NoEngageLoco = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoEngageLoco") >= 0;
+
+        /// <summary>v0.12.0 CONTACT: after the hips leash and Final IK (<c>PixIk.Late</c>) the ankles go back to where <see cref="EngageStepLate"/> put them; the hand solve may not move a planted foot. Also repairs the hips leash, which runs after the stepper.</summary>
+        void EngageLegsRestore()
+        {
+            if (_stepper == null || EngageStepper.V011) return;
+            _stepper.Reapply();
         }
 
         ClipPlan ChoreoMask(PixFootball.Sim.AgentAction action, ClipPlan plan)

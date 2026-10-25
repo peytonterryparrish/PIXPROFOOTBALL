@@ -23,7 +23,7 @@ namespace PixFootball.Tests
                 Assert.IsNotNull(p);
                 Assert.IsFalse(string.IsNullOrEmpty(p.Name));
             }
-            Assert.AreEqual(19, Penalty.All.Count);   // v0.9.0 (E-345): + RoughingTheKicker, RunningIntoKicker, KickCatchInterference
+            Assert.AreEqual(22, Penalty.All.Count);   // v0.9.0 (E-345): + RoughingTheKicker, RunningIntoKicker, KickCatchInterference; v0.12.0 (RULES): + IllegalShift, IllegalMotion, NeutralZoneInfraction
             Assert.IsTrue(Penalty.Get(PenaltyType.FalseStart).PreSnap);
             Assert.IsTrue(Penalty.Get(PenaltyType.IntentionalGrounding).LossOfDown);
             Assert.IsTrue(Penalty.Get(PenaltyType.DefensiveHolding).AutomaticFirstDown);
@@ -41,6 +41,22 @@ namespace PixFootball.Tests
             Assert.AreEqual(2, g.Down);
             Assert.AreEqual(11, g.Distance);
             Assert.IsFalse(g.ClockRunning);
+        }
+
+        [Test]
+        public void TheV012PreSnapFoulsAreFiveYardsAndReplayTheDown()
+        {
+            foreach (var t in new[] { PenaltyType.IllegalShift, PenaltyType.IllegalMotion, PenaltyType.NeutralZoneInfraction })
+            {
+                Assert.IsTrue(Penalty.Get(t).PreSnap, t.ToString());
+                var g = Start();
+                g.BallSpot = 40; g.Down = 2; g.Distance = 6;
+                g.Apply(PlayResult.PenaltyOnly(PenaltyCall.For(t, g)));
+                bool offense = Penalty.Get(t).Side == PenaltySide.Offense;
+                Assert.AreEqual(offense ? 35 : 45, g.BallSpot, t.ToString());
+                Assert.AreEqual(2, g.Down, t.ToString());
+                Assert.AreEqual(offense ? 11 : 1, g.Distance, t.ToString());
+            }
         }
 
         [Test]

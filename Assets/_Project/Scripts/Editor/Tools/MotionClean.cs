@@ -47,11 +47,11 @@ namespace PixFootball.EditorTools
         }
 
         /// <summary>Re-zeroed and soft-limited copy; <paramref name="before"/> / <paramref name="after"/> count the samples beyond +-1.</summary>
-        public static AnimationClip Clean(AnimationClip src, string name, Dictionary<string, float> deltas, out int before, out int after)
+        public static AnimationClip Clean(AnimationClip src, string name, Dictionary<string, float> deltas, out int before, out int after, string outDir = null)
         {
             before = after = 0;
-            string dir = MixamoImport.Folder + "/Clean" + MotionDbBuilder.Suffix;
-            if (!AssetDatabase.IsValidFolder(dir)) AssetDatabase.CreateFolder(MixamoImport.Folder, "Clean" + MotionDbBuilder.Suffix);
+            string dir = outDir ?? MixamoImport.Folder + "/Clean" + MotionDbBuilder.Suffix;
+            MotionDbBuilder.EnsureFolder(dir);
             string path = dir + "/" + name + "_C.anim";
             AssetDatabase.DeleteAsset(path);
             var c = UnityEngine.Object.Instantiate(src); c.name = name + "_C";

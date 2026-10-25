@@ -22,6 +22,26 @@ namespace PixFootball.Gameplay
         /// <summary>The director asks for the huddle break on the next Begin (scrimmage plays only).</summary>
         public bool NextBeginHuddle;
 
+        // v0.12.0 CONTACT: the pre-snap walk-in is a real walk or jog whose pace comes from the time there is, not a fixed 3.8 to 5.2 m/s sprint-jog (the body used to arrive in 1.5 s and stand there).
+        /// <summary>Seconds a body has, from the huddle break, to walk to his place. The pace is the distance over the time left, between <see cref="WalkInMinPace"/> and <see cref="WalkInMaxPace"/>.</summary>
+        public static float WalkInSeconds = 5.0f;
+        /// <summary>Seconds for a shift / audible / motion (a walk of its own) and for a hurry-up without a huddle.</summary>
+        public static float WalkInShiftSeconds = 2.2f, WalkInHurrySeconds = 2.5f;
+        /// <summary>Slowest pace (m/s; 3.0 for now: with the v12 motion database the walk and slow jog takes slide 0.2-0.4 m/s below 3 m/s, 0.10-0.15 above; lower it to 1.4 when those takes plant) and fastest jog (m/s) of the walk-in; start-up and stopping accelerations (m/s2).</summary>
+        public static float WalkInMinPace = 3.0f, WalkInMaxPace = 3.8f, WalkInAccel = 3.2f, WalkInDecel = 3.0f;
+        /// <summary>The director (RULES): seconds left for the next walk-in to the line, from the play clock; 0 or less = the defaults above.</summary>
+        public float WalkInBudgetOverride;
+        /// <summary>QA: the pre-v0.12 walk-in (3.8 to 5.2 m/s, 7 m/s2) for the A/B (<c>-pixOldWalkIn</c>).</summary>
+        public static bool OldWalkIn = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixOldWalkIn") >= 0 || EngageStepper.V011;
+
+        /// <summary>The pace (m/s) of a walk-in that has <paramref name="d"/> metres to go and <paramref name="left"/> seconds: the distance over the time, clamped to a walk .. jog, and slowed to stop on the spot.</summary>
+        public static float WalkInPace(float d, float left, float decel)
+        {
+            float want = Mathf.Clamp(d / Mathf.Max(0.5f, left), WalkInMinPace, WalkInMaxPace);
+            float stop = Mathf.Sqrt(2f * Mathf.Max(0.5f, decel) * Mathf.Max(0f, d));      // slow down so that the body stops at his spot: the locomotion shows a stopping gait, not a body that is cut off
+            return Mathf.Min(want, Mathf.Max(0.55f, stop));
+        }
+
         // ------------------------------------------------------------------------------------------ interpolation
         readonly Vector3[] _pP = new Vector3[22], _cP = new Vector3[22], _pV = new Vector3[22], _cV = new Vector3[22], _pF = new Vector3[22], _cF = new Vector3[22];
         Vector3 _bpP, _bcP; bool _snapValid; PlaySimulation _snapSim;
@@ -59,7 +79,7 @@ namespace PixFootball.Gameplay
         }
 
         // ------------------------------------------------------------------------------------------ begin / end
-        struct Glide { public bool Init, Active, Huddle; public Vector3 Shown, LastTarget, HuddleFace; public float Speed, Wait; public bool ToHuddle, Leader; public Vector3 HuddleSpot; public float BreakAt; }
+        struct Glide { public bool Init, Active, Huddle; public Vector3 Shown, LastTarget, HuddleFace; public float Speed, Wait; public bool ToHuddle, Leader; public Vector3 HuddleSpot; public float BreakAt; public bool Timed, FromHuddle; public float WalkT0, WalkBudget; }      // v0.12.0 CONTACT: Timed = the walk has its budget (seconds from WalkT0)
         readonly Glide[] _g = new Glide[22];
         readonly float[] _catchAt = new float[22], _dropAt = new float[22];
         int _lastHolder = -1; BallState _lastBallState; float _holderSince = -99f;
@@ -167,14 +187,14 @@ namespace PixFootball.Gameplay
                 if (v.Huddle) v.SetHuddle(false, 0);
                 _g[i] = g; return false;
             }
-            if ((target - g.LastTarget).sqrMagnitude > 0.36f) { g.Active = true; if (g.Speed < 0.2f) g.Speed = 0f; }   // the simulation moved him a long way in one go: walk it
+            if ((target - g.LastTarget).sqrMagnitude > 0.36f) { g.Active = true; g.Timed = false; g.FromHuddle = false; if (g.Speed < 0.2f) g.Speed = 0f; }   // the simulation moved him a long way in one go: walk it
             g.LastTarget = target;
             if (g.ToHuddle)
             {
                 Vector3 hto = g.HuddleSpot - g.Shown; hto.y = 0f; float hd = hto.magnitude;
                 if (hd > 0.12f)
                 {
-                    float hv = hd > 14f ? 5.4f : (hd > 6f ? 4.4f : 3.0f);
+                    float hv = OldWalkIn ? (hd > 14f ? 5.4f : (hd > 6f ? 4.4f : 3.0f)) : (hd > 14f ? WalkInMaxPace : (hd > 6f ? 3.3f : 2.4f));      // v0.12.0 CONTACT: a jog at most
                     float hw = Mathf.Min(hv, Mathf.Max(0.8f, hd * 2.2f));
                     g.Speed = Mathf.MoveTowards(g.Speed, hw, 5.5f * Mathf.Max(dt, 0.0001f));
                     float hs = Mathf.Min(hd, g.Speed * Mathf.Max(dt, 0.0001f));
@@ -184,7 +204,7 @@ namespace PixFootball.Gameplay
                     face = hd < 0.9f ? Vector3.Slerp(hdir, g.HuddleFace, Mathf.Clamp01(1f - hd / 0.9f)) : hdir;
                     _g[i] = g; return true;
                 }
-                g.ToHuddle = false; g.Speed = 0f; g.Wait = Mathf.Max(0.25f, g.BreakAt - _betweenClock); g.Shown = g.HuddleSpot;
+                g.ToHuddle = false; g.FromHuddle = true; g.Timed = false; g.Speed = 0f; g.Wait = Mathf.Max(0.25f, g.BreakAt - _betweenClock); g.Shown = g.HuddleSpot;
             }
             if (g.Wait > 0f)
             {
@@ -199,15 +219,31 @@ namespace PixFootball.Gameplay
             float d = to.magnitude;
             if (!g.Active && d < 0.06f) { g.Shown = target; _g[i] = g; return false; }
             if (!g.Active) g.Active = true;
-            float vmax = d > 6f ? 5.2f : (d > 2.5f ? 3.8f : 2.4f);
-            float want = Mathf.Min(vmax, Mathf.Max(0.55f, d * 2.4f));
-            g.Speed = Mathf.MoveTowards(g.Speed, want, 7f * Mathf.Max(dt, 0.0001f));
+            float want, accel;
+            if (OldWalkIn)
+            {
+                float vmax = d > 6f ? 5.2f : (d > 2.5f ? 3.8f : 2.4f);
+                want = Mathf.Min(vmax, Mathf.Max(0.55f, d * 2.4f)); accel = 7f;
+            }
+            else
+            {
+                // v0.12.0 CONTACT: the walk has a budget of seconds from where it starts (the huddle break: WalkInSeconds; a shift or audible: WalkInShiftSeconds; a hurry-up or a long way from the bench: see below) and the pace
+                // is what the time left asks for, between a walk and a jog; the locomotion is handed this very velocity, so the matcher and the foot planter get a gait that fits it
+                if (!g.Timed)
+                {
+                    g.Timed = true; g.WalkT0 = _betweenClock;
+                    g.WalkBudget = WalkInBudgetOverride > 0f ? WalkInBudgetOverride : (g.FromHuddle ? WalkInSeconds : (_lastHurry ? WalkInHurrySeconds : (d > 8f ? WalkInSeconds : WalkInShiftSeconds)));
+                }
+                float left = g.WalkT0 + g.WalkBudget - _betweenClock;
+                want = WalkInPace(d, left, WalkInDecel); accel = g.Speed < want ? WalkInAccel : WalkInDecel * 1.25f;
+            }
+            g.Speed = Mathf.MoveTowards(g.Speed, want, accel * Mathf.Max(dt, 0.0001f));
             float step = Mathf.Min(d, g.Speed * Mathf.Max(dt, 0.0001f));
             Vector3 dir = d > 1e-4f ? to / d : Vector3.forward;
             g.Shown += dir * step;
             bool arrived = d - step < 0.06f;
             Vector3 shownFace = d > 0.45f ? dir : face;
-            if (arrived) { g.Shown = target; g.Active = false; g.Speed = 0f; }
+            if (arrived) { g.Shown = target; g.Active = false; g.Speed = 0f; g.Timed = false; g.FromHuddle = false; }
             pos = new Vector3(g.Shown.x, pos.y, g.Shown.z);
             vel = arrived ? Vector3.zero : dir * g.Speed;
             face = shownFace;

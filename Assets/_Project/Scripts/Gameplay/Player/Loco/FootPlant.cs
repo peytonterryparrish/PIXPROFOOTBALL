@@ -30,7 +30,7 @@ namespace PixFootball.Gameplay
             public float RestAnkle, RestToe, Reach, Away, Corr, Resid, WHeel, WBall, HoldAbs; public Vector3 ToeHold; public bool YawHold;
             public Vector3 LocalLat = Vector3.right, LocalFwd = Vector3.forward; public bool HaveAxes;
             public Vector3 ShinAxis = Vector3.up, FootAxis = Vector3.up; public Quaternion ShinBind = Quaternion.identity, FootBind = Quaternion.identity; public bool HaveTwist; public float YawOut; public bool YawHave;
-            public Vector3 Target; public float Press; public Vector2 CorrVec; public float Age; public float Slip; public Vector2 PrevH, PrevB, PrevWH, PrevWB; public float Lift;
+            public Vector3 Target; public float Press; public Vector2 CorrVec; public float Age; public float Slip; public Vector2 PrevH, PrevB, PrevWH, PrevWB; public float Lift; public float HoldT;
         }
 
         struct Pt { public bool Planted; public Vector2 Anchor; public float Ramp, Away, H0; public bool Spent; }
@@ -39,6 +39,11 @@ namespace PixFootball.Gameplay
         float _hipDrop, _dip, _prevSpeed, _flightDrop, _hipsMean; bool _meanHave;
         bool _ok;
         public float HipDrop { get { return _hipDrop; } }
+        /// <summary>v0.12.0 GAIT: extra pelvis sink (m) the start / stop / cut layer asks for; the planted feet stay, the legs bend (set by BodyMotion each frame).</summary>
+        public float ExtraDrop;
+        /// <summary>v0.12.0 GAIT: 0..1, the body is in a cut. A foot whose contact tag ends while the other foot is not down yet is held planted for up to <see cref="CutHoldMax"/> s (no flight in the middle of a plant-and-cut).</summary>
+        /// <summary>v0.12.0 GAIT: weight of the heel anchor against the ball anchor in the correction of a planted foot (1 = the v0.11 average, the default; below 1 leans on the ball of the foot: measured no gain on the cut audit with the final tree, 77 vs 76 %, and a little more sprint slide). QA: -pixFpHeelBias.</summary>
+        public float CutHold; public static float HeelBias = 1f; public static float CutHoldMax = 0.08f; public static bool CutHoldOn = false;
         /// <summary>QA: bind-pose heights of the ankle / toe bones above the turf (the zero of the sole height).</summary>
         public float RestAnkleL { get { return _l.RestAnkle; } }
         public float RestToeL { get { return _l.RestToe; } }
@@ -156,8 +161,10 @@ namespace PixFootball.Gameplay
             Vector2 u = TravelDir; if (u.sqrMagnitude < 0.01f) u = Vector2.up; u.Normalize();
             float k = moving && !ActionMode && !DebugNoWarp ? Warp : 1f;
             // landing compression grows with speed, with the body's mass through the ground fit of the view
-            Step(_l, HintLeft, dt, gy, root, u, k, moving);
-            Step(_r, HintRight, dt, gy, root, u, k, moving);
+            int hl = HintLeft, hr = HintRight;
+            if (HintAuthority && CutHold > 0.25f && moving && !ActionMode) { int ol = hl, or2 = hr; hl = HoldHint(_l, ol, or2, dt); hr = HoldHint(_r, or2, ol, dt); } else { _l.HoldT = _r.HoldT = 0f; }
+            Step(_l, hl, dt, gy, root, u, k, moving);
+            Step(_r, hr, dt, gy, root, u, k, moving);
 
             // ---- pelvis: legs must reach their targets, plus the landing compression
             float need = Mathf.Clamp(Mathf.Max(Need(_l), Need(_r)), 0f, 0.07f);
@@ -168,7 +175,7 @@ namespace PixFootball.Gameplay
             if (!_meanHave) { _hipsMean = hy; _meanHave = true; }
             _hipsMean = Mathf.Lerp(_hipsMean, hy, 1f - Mathf.Exp(-dt / 0.25f));
             _flightDrop = (HintAuthority && moving && !ActionMode && Speed > 3f) ? Mathf.Clamp((hy - _hipsMean) * PeakFlatten * Mathf.Clamp01((Speed - 3f) / 2f), 0f, FlightDrop) : 0f;
-            float drop = Mathf.Clamp((_hipDrop + _dip + _flightDrop) * (moving ? 1f : 0.5f), 0f, 0.11f);
+            float drop = Mathf.Clamp((_hipDrop + _dip + _flightDrop + (moving ? ExtraDrop : 0f)) * (moving ? 1f : 0.5f), 0f, 0.11f + ExtraDrop);
             if (drop > 1e-4f) _hips.position -= Vector3.up * drop;
             // a pelvis that sits low (the first frames after a clip gave the legs back: its crouch is still blended in) leaves the feet in the turf: lift it to where the lowest foot stands on it
             if (HintAuthority && moving && !ActionMode && RiseOn) { float low = Mathf.Min(_l.Sole, _r.Sole); if (low < -0.015f) _hips.position += Vector3.up * Mathf.Min(0.15f, -low - 0.005f); }
@@ -183,6 +190,13 @@ namespace PixFootball.Gameplay
             if (wp > 0.001f) { FootFix(_l, line, wp, dt); FootFix(_r, line, wp, dt); if (Pivot && HintAuthority) { KeepToe(_l); KeepToe(_r); } } else { _l.YawHave = _r.YawHave = false; }
 
             _prevSpeed = Speed;
+        }
+
+        int HoldHint(Foot f, int hint, int other, float dt)
+        {
+            if (hint == 1) { f.HoldT = 0f; return 1; }
+            if (hint == 0 && f.Planted && other != 1 && f.HoldT < CutHoldMax) { f.HoldT += dt; return 1; }
+            f.HoldT = 0f; return hint;
         }
 
         // The foot touches the ground with two points, the heel (the ankle bone, the foot is flat or heel-first) and the ball (the toe bone). Each has its own anchor and plants / lifts on its own,
@@ -226,7 +240,7 @@ namespace PixFootball.Gameplay
             f.WHeel = wH; f.WBall = wB;
             float wt = wH + wB, wmax = Mathf.Max(wH, wB);
             Vector2 corr = Vector2.zero;
-            if (wt > 1e-4f) corr = ((f.H.Anchor - (pH + shiftH)) * wH + (f.B.Anchor - (pT + shiftT)) * wB) / wt;
+            if (wt > 1e-4f) { float wHc = wH * HeelBias, wc = wHc + wB; if (wc > 1e-4f) corr = ((f.H.Anchor - (pH + shiftH)) * wHc + (f.B.Anchor - (pT + shiftT)) * wB) / wc; else corr = ((f.H.Anchor - (pH + shiftH)) * wH + (f.B.Anchor - (pT + shiftT)) * wB) / wt; }
             f.CorrVec = corr;
             if (corr.magnitude > 0.30f) corr = corr.normalized * 0.30f;
             f.W = wmax;

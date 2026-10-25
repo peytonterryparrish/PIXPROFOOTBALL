@@ -73,6 +73,9 @@ namespace PixFootball.Gameplay
         /// <summary>v0.9.0 LOCOMOTION: stride warp, foot planting and pelvis compensation (the inputs are set by the view each frame).</summary>
         public readonly FootPlant Plant;
         public float Bank { get { return _bank; } }
+        /// <summary>v0.12.0 NATURAL: the simulated ground speed (m/s) and travel direction the lean layers work from.</summary>
+        public float SpeedNow { get { return _speed; } }
+        public Vector3 TravelDir { get { return _velDir; } }
         public float Pitch { get { return _pitch; } }
 
         public BodyMotion(PlayerAvatar av)
@@ -100,6 +103,53 @@ namespace PixFootball.Gameplay
             _fwdAcc = LeanMath.Smooth(_fwdAcc, Mathf.Clamp(Vector3.Dot(acc, forward), -30f, 30f), dt, 0.14f);
             _speed = new Vector3(velocity.x, 0f, velocity.z).magnitude;
             _velDir = _speed > 0.3f ? new Vector3(velocity.x, 0f, velocity.z) / _speed : _fwd;
+            Gait.Observe(velocity, forward, dt);      // v0.12.0 GAIT
+        }
+
+        // ------------------------------------------------------------------------------------------ v0.12.0 GAIT: start / stop / cut
+        /// <summary>The start / stop / cut state of this body (simulated acceleration, heading rate, lean difference, hip sink). The view sets <see cref="GaitScale"/>.</summary>
+        public readonly GaitLean Gait = new GaitLean();
+        /// <summary>0..1: the view lets the start / stop lean act (0 for the quarterback, whose carriage is authored, and while a back-pedal / action owns the pose).</summary>
+        public float GaitScale = 1f;
+        float _gaitApplied;
+        /// <summary>QA: the lean difference (deg) this layer added to the clip's lean this frame.</summary>
+        public float GaitLeanApplied { get { return _gaitApplied; } }
+        /// <summary>One-line hook for SimAgentView.Carry.cs: the carrier style target lean merged with what the start / stop asks.</summary>
+        public float GaitWant(float want) { return GaitLean.Enabled ? Gait.Merge(want) : want; }
+
+        float TrunkLean(Vector3 fwd)
+        {
+            var hips = Bone(HumanBodyBones.Hips); var top = Bone(HumanBodyBones.Neck) ?? Bone(HumanBodyBones.Head);
+            if (hips == null || top == null) return float.NaN;
+            Vector3 tr = top.position - hips.position;
+            return Mathf.Atan2(Vector3.Dot(tr, fwd), tr.y) * Mathf.Rad2Deg;      // pelvis to neck, forward + (the FormProbe definition)
+        }
+
+        void ApplyGaitLean(float dt, float w)
+        {
+            _gaitApplied = 0f;
+            if (Plant != null) { Plant.ExtraDrop = 0f; Plant.CutHold = 0f; }
+            if (!GaitLean.Enabled || w < 0.05f) { Gait.Solve(0f, dt, 0f); return; }
+            Vector3 fwd = new Vector3(_fwd.x, 0f, _fwd.z); if (fwd.sqrMagnitude < 1e-4f) return; fwd.Normalize();
+            float cur = TrunkLean(fwd); if (float.IsNaN(cur)) return;
+            float own = w * GaitScale;
+            float d = Gait.Solve(cur, dt, own) * own;
+            if (Plant != null && own > 0.01f) { Plant.ExtraDrop = Gait.SinkM * own; Plant.CutHold = FootPlant.CutHoldOn ? Gait.CutSev * own : 0f; }
+            if (Mathf.Abs(d) < 0.15f) return;
+            var spine = Bone(HumanBodyBones.Spine); var chest = Bone(HumanBodyBones.Chest) ?? Bone(HumanBodyBones.UpperChest); var head = Bone(HumanBodyBones.Head);
+            if (spine == null || chest == null) return;
+            Vector3 right = Vector3.Cross(Vector3.up, fwd);
+            // pelvis to neck turns by less than the joint angles add up to (the lower segment turns less): one correction pass on the measured lean
+            float want = d;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Quaternion q = Quaternion.AngleAxis(want, right);
+                spine.rotation = Quaternion.Slerp(Quaternion.identity, q, 0.5f) * spine.rotation;
+                chest.rotation = Quaternion.Slerp(Quaternion.identity, q, 0.5f) * chest.rotation;
+                if (head != null) head.rotation = Quaternion.AngleAxis(-want * 0.6f, right) * head.rotation;      // the eyes stay up
+                if (pass == 0) { float now = TrunkLean(fwd); if (float.IsNaN(now)) break; float miss = (cur + d) - now; if (Mathf.Abs(miss) < 1.5f) break; want = Mathf.Clamp(miss, -25f, 25f); }
+            }
+            _gaitApplied = d;
         }
 
         /// <summary>Starts a stiff arm toward a world point (the defender's chest) for the given time.</summary>
@@ -107,7 +157,7 @@ namespace PixFootball.Gameplay
 
         public void UpdateStiffArmTarget(Vector3 point) { _armTarget = point; }
 
-        public void Cancel() { if (Plant != null) Plant.Cancel(); _trim = 1f; _slideErr = 0f; _sHave = false; _carry = Carriage.None; _carryW = 0f; _toeL = _toeR = 0f; _protect = false; _protectW = 0f; _armTime = -1f; _left.Locked = _right.Locked = false; _left.Weight = _right.Weight = 0f; _bank = _pitch = 0f; _haveVel = false; }
+        public void Cancel() { if (Plant != null) Plant.Cancel(); _trim = 1f; _slideErr = 0f; _sHave = false; _carry = Carriage.None; _carryW = 0f; _toeL = _toeR = 0f; _protect = false; _protectW = 0f; _armTime = -1f; _left.Locked = _right.Locked = false; _left.Weight = _right.Weight = 0f; _bank = _pitch = 0f; _haveVel = false; Gait.Reset(); _gaitApplied = 0f; if (Plant != null) Plant.ExtraDrop = 0f; }
 
         /// <summary>LateUpdate, after the animation: lean, foot lock, stiff arm.</summary>
         public void Late(float dt)
@@ -130,6 +180,8 @@ namespace PixFootball.Gameplay
                 // the head stays up looking where the runner is going
                 if (head != null) head.rotation = Quaternion.Inverse(q) * head.rotation;     // QA-721: spine 0.45 + chest 0.55 = the full lean reaches the head, so the head takes all of it back
             }
+            // ---- v0.12.0 GAIT: start / stop / cut lean and sink on top of whatever the clip leans
+            ApplyGaitLean(dt, w);
             // ---- stiff arm
             if (_armTime >= 0f)
             {

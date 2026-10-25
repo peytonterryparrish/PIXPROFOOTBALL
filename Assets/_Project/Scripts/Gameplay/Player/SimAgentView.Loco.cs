@@ -33,6 +33,11 @@ namespace PixFootball.Gameplay
             if (System.Array.IndexOf(args, "-pixMmNoPosture") >= 0) MotionMatcher.NoPosture = true;
             if (System.Array.IndexOf(args, "-pixMmNoTrans") >= 0) MotionMatcher.NoTransitions = true;
             if (System.Array.IndexOf(args, "-pixNoTurnRun") >= 0) NoTurnRun = true;
+            if (System.Array.IndexOf(args, "-pixGaitOff") >= 0) GaitLean.Enabled = false;      // v0.12.0 GAIT: the v0.11 start / stop / cut (no lean difference, no hip sink)
+            if (System.Array.IndexOf(args, "-pixGaitNoSink") >= 0) GaitLean.NoSink = true;
+            { int gj = System.Array.IndexOf(args, "-pixFpHeelBias"); float gw; if (gj >= 0 && gj + 1 < args.Length && float.TryParse(args[gj + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out gw)) FootPlant.HeelBias = gw; }
+            { int gi = System.Array.IndexOf(args, "-pixGaitHoldMax"); float gv; if (gi >= 0 && gi + 1 < args.Length && float.TryParse(args[gi + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out gv)) FootPlant.CutHoldMax = gv; }
+            if (System.Array.IndexOf(args, "-pixGaitHold") >= 0) FootPlant.CutHoldOn = true;      // v0.12.0 GAIT: measured worse (cut audit 73 -> 68 %), off
             { int ti = System.Array.IndexOf(args, "-pixTurnRate"); float tv; if (ti >= 0 && ti + 1 < args.Length && float.TryParse(args[ti + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out tv)) LocoTurnRate = tv; }
             { int li = System.Array.IndexOf(args, "-pixHipsLeash"); float lv; if (li >= 0 && li + 1 < args.Length && float.TryParse(args[li + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out lv)) HipsLeash = lv; }
             if (System.Array.IndexOf(args, "-pixMmNoPlan") >= 0) MmNoPlan = true;
@@ -157,6 +162,7 @@ namespace PixFootball.Gameplay
         {
             var plant = Motion != null ? Motion.Plant : null;
             if (plant != null) plant.GroundY = transform.position.y;
+            _natCarry = carrying;      // v0.12.0 NATURAL
             if (Motion != null) Motion.ArmSwingEnabled = false;       // the matched takes bring their own arms (and the ball carrier's come from the animator tree under the lower-body mask)
             if (_legScale < 0f) _legScale = MeasureLegScale();
             if (_inert == null && Avatar != null && Avatar.Animator != null) { _inert = new Inertializer(Avatar.Animator, transform); }
@@ -164,7 +170,9 @@ namespace PixFootball.Gameplay
             Vector3 fwd = new Vector3(facing.x, 0f, facing.z); fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : Vector3.forward;
             Vector3 right = Vector3.Cross(Vector3.up, fwd);
             var local = new Vector2(Vector3.Dot(velocity, right), Vector3.Dot(velocity, fwd));
-            bool owned = !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig.Weight < 0.9f && GaitAction(action) && !_locoHold;
+            bool engLoco = ChoreoLocoLegs(action, velocity);
+            bool owned = !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && (Rig.Weight < 0.9f || engLoco) && (GaitAction(action) || engLoco) && !_locoHold;      // v0.12.0 CONTACT: ChoreoLocoLegs = an engaged body that moves on (SimAgentView.Choreo.cs)
+            if (Motion != null) Motion.GaitScale = owned && Role != PlayerRole.QB ? 1f : 0f;      // v0.12.0 GAIT: start / stop lean for everyone the matcher runs, not the quarterback (authored carriage)
             if (!owned) { if (!m.Suspended) m.Suspend(); }
             else if (m.Suspended) m.Resume();
             m.SizeKey = (int)Size;
@@ -182,6 +190,7 @@ namespace PixFootball.Gameplay
                 q.Yaw1 = Mathf.Clamp(a1, -90f, 90f); q.Yaw2 = Mathf.Clamp(a2, -120f, 120f); q.Yaw3 = Mathf.Clamp(a3, -150f, 150f);
             }
             if (m.Suspended == false && owned && m.Row < 0) q.LiveFeet = LiveFeet(fwd);
+            m.StyleRate = NaturalTempo();      // v0.12.0 NATURAL
             bool on = m.Update(dt, q);
             if (Motion != null) { bool legs = on && Rig != null && Rig.Weight > 0.01f && Rig.Weight < 0.98f; if (legs && !LegsToLocoOff && Rig.LegsToLoco()) m.SourceChanged(); Motion.ForceLoco = legs && !LegsToLocoOff; }
             if (plant != null) m.Learn(plant, new Vector2(velocity.x, velocity.z).magnitude, dt);

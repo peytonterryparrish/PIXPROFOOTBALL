@@ -5,73 +5,21 @@ using PixFootball.Core;
 namespace PixFootball.Sim
 {
     /// <summary>
-    /// v0.9.0 pre-snap behaviour of the computer side and the visible fouls:
-    /// E-323 / E-366 / E-374: with <see cref="PlaySimOptions.Cadence"/> an automatic snap follows a cadence: the offense may send a man in motion, the defense may show a blitz, and the ball is snapped 1.4-2.2 s
-    /// after the formation settles (a snap count). E-332: a false start, an offside or an encroachment is a man who actually jumps (0.2 s of movement toward the line) before the whistle.
+    /// v0.9.0 pre-snap behaviour of the computer side: E-323 / E-366 / E-374: with <see cref="PlaySimOptions.Cadence"/> an automatic snap follows a cadence: the offense may send a man in motion, the defense may show a blitz,
+    /// and the ball is snapped 1.4-2.2 s after the formation settles (a snap count).
+    /// v0.12.0 (RULES): the count itself and everything the pre-snap fouls hang on (who jumps it, the shift, the slow snap) moved to <c>Sim/Rules/PreSnapFouls.cs</c>; this file keeps the headless cadence entry and the
+    /// seconds-to-snap property. The old E-332 "visible jump" is now a real early mover (see <see cref="PlaySimulation.EarlyMoverId"/>).
     /// </summary>
     public sealed partial class PlaySimulation
     {
-        private bool _cadencePlanned;
-        private float _cadenceSnapAt;
+        /// <summary>Seconds from the first live pre-snap step until the cadence snaps the ball (the options' fixed delay when no count was planned).</summary>
+        public float PlannedSnapSeconds { get { return _countPlanned ? _snapAt : (Options != null ? Options.AutoSnapDelay : 0.6f); } }
 
-        /// <summary>Seconds from the first live pre-snap step until the cadence snaps the ball (the options' fixed delay when the cadence is off).</summary>
-        public float PlannedSnapSeconds { get { return Options != null && Options.Cadence && _cadencePlanned ? _cadenceSnapAt : (Options != null ? Options.AutoSnapDelay : 0.6f); } }
-
+        /// <summary>The automatic snap's count: the cadence (1.4-2.2 s) with its motion / shift / disguise when <see cref="PlaySimOptions.Cadence"/> is on, the fixed delay otherwise.</summary>
         private void PlanCadence()
         {
-            _cadencePlanned = true;
-            _cadenceSnapAt = Options.AutoSnapDelay;
-            if (Kind != PlayKind.Scrimmage) return;
-            float snapAt = 1.4f + 0.8f * Rng.NextFloat();
-            // a man in motion: a third of the passes and a fifth of the runs with an eligible back or receiver who starts off the line
-            if (MotionSlot < 0 && Rng.NextFloat() < (OffPlay.IsPass ? 0.30f : 0.20f))
-            {
-                var cands = new List<int>();
-                for (int s = 1; s < 11; s++) if (CanMotion(s) && !_hotRoutes.ContainsKey(s)) cands.Add(s);
-                if (cands.Count > 0)
-                {
-                    int slot = cands[Rng.Range(0, cands.Count)];
-                    int dir = Agents[slot].Pos.X >= BallX0 ? -1 : 1;   // across the formation
-                    SetMotion(slot, dir);
-                    snapAt = Math.Max(snapAt, 1.9f + 0.4f * Rng.NextFloat());
-                }
-            }
-            // the defense disguises: a blitz call shows the blitz about a third of the time
-            bool blitz = false;
-            for (int i = 0; i < 11; i++) if (DefPlay.Assignments[i] is BlitzAssignment) blitz = true;
-            if (blitz && Rng.NextFloat() < 0.35f)
-            {
-                DefenseAdjust adj = DefAdjust != null ? DefAdjust.Clone() : new DefenseAdjust();
-                adj.Blitz = BlitzShow.Show;
-                SetDefenseAdjust(adj);
-            }
-            _cadenceSnapAt = snapAt;
-        }
-
-        // ---------------------------------------------------------------- the visible jump
-
-        private sealed class FlinchState { public int Idx; public float Dir; public float T; public PlayResult Result; }
-        private FlinchState _flinch;
-
-        private void BeginFlinch(int agentIdx, float dirY, PlayResult result)
-        {
-            _flinch = new FlinchState { Idx = agentIdx, Dir = dirY, T = 0f, Result = result };
-        }
-
-        /// <summary>The culprit's desired velocity while he jumps (0.2 s toward the line), or zero.</summary>
-        private Vec2 FlinchWant(int agentIdx)
-        {
-            if (_flinch == null || _flinch.Idx != agentIdx) return Vec2.Zero;
-            return new Vec2(0f, _flinch.Dir * 3.4f);
-        }
-
-        private void StepFlinch()
-        {
-            _flinch.T += Dt;
-            if (_flinch.T < 0.22f) return;
-            PlayResult r = _flinch.Result;
-            _flinch = null;
-            FinishPreSnap(r);
+            float len = Options.Cadence && Kind == PlayKind.Scrimmage ? 1.4f + 0.8f * PreRng.NextFloat() : Options.AutoSnapDelay;
+            PlanCount(len, -1f, true, Options.Cadence && Kind == PlayKind.Scrimmage);
         }
     }
 }

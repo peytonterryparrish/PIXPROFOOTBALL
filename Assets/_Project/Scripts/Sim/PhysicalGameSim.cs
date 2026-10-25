@@ -172,6 +172,7 @@ namespace PixFootball.Sim
             bool attacksPositiveZ = (State.Possession == CoreTeam.Home) == (State.Quarter % 2 == 1);
             var simOptions = new PlaySimOptions { Playbook = Book, Fatigue = Fatigue, PlayerModifiers = PlayerModifiers };
             if (State.Conditions != null) simOptions.SetWind(State.Conditions.ForQuarter(State.Quarter), attacksPositiveZ);
+            if (OptionsHook != null) OptionsHook(simOptions);      // v0.12.0 (RULES): the hook was declared but never called
             if (rec.Quarter != _lastQuarter) { if (_lastQuarter > 0 && Fatigue != null) Fatigue.Rest(_lastQuarter == 2 ? 600f : 90f); _lastQuarter = rec.Quarter; }
             sim.Setup(State, off, def, ro, rd, Rules, Rng.Fork(), simOptions);
             PlayResult result = sim.RunToCompletion();

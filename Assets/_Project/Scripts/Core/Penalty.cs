@@ -11,7 +11,9 @@ namespace PixFootball.Core
         IllegalBlockInBack, FaceMask, RoughingThePasser, UnnecessaryRoughness,
         IllegalFormation, IntentionalGrounding, IllegalContact, TooManyMen,
         /// <summary>v0.9.0 (E-345): special-teams fouls. Appended at the end: the numbers of the existing types do not change.</summary>
-        RoughingTheKicker, RunningIntoKicker, KickCatchInterference
+        RoughingTheKicker, RunningIntoKicker, KickCatchInterference,
+        /// <summary>v0.12.0 (RULES): the pre-snap fouls that come out of the computed alignment and movement (see <c>PreSnapRules</c>). Appended: the numbers of the existing types do not change.</summary>
+        IllegalShift, IllegalMotion, NeutralZoneInfraction
     }
 
     public enum PenaltySide { Offense, Defense, Either }
@@ -66,6 +68,9 @@ namespace PixFootball.Core
             Add(PenaltyType.RoughingTheKicker, "Roughing the Kicker", PenaltySide.Defense, 15, 15, true, false, false, false);
             Add(PenaltyType.RunningIntoKicker, "Running Into the Kicker", PenaltySide.Defense, 5, 5, false, false, false, false);
             Add(PenaltyType.KickCatchInterference, "Kick Catch Interference", PenaltySide.Offense, 15, 15, false, false, false, false);
+            Add(PenaltyType.IllegalShift, "Illegal Shift", PenaltySide.Offense, 5, 5, false, false, false, true);
+            Add(PenaltyType.IllegalMotion, "Illegal Motion", PenaltySide.Offense, 5, 5, false, false, false, true);
+            Add(PenaltyType.NeutralZoneInfraction, "Neutral Zone Infraction", PenaltySide.Defense, 5, 5, false, false, false, true);
         }
 
         private static void Add(PenaltyType t, string name, PenaltySide side, int pro, int col,

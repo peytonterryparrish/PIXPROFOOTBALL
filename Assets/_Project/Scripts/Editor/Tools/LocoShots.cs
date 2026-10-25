@@ -190,6 +190,7 @@ namespace PixFootball.EditorTools
             var modes = LocoShots.Arg("-pixLocoModes", "treadmill,plays,strips").Split(',');
             if (modes.Contains("learn")) yield return Learn();
             if (modes.Contains("mmlearn")) yield return MmLearn();
+            if (modes.Contains("mmtake")) yield return MmTake();
             if (modes.Contains("calibrate")) { FootPlant.Enabled = false; yield return Calibrate(); FootPlant.Enabled = !LocoShots.Off; }
             if (modes.Contains("treadmill")) yield return Treadmill();
             if (modes.Contains("legs")) yield return Legs();
@@ -478,8 +479,57 @@ namespace PixFootball.EditorTools
                 }
             var sb2 = new StringBuilder("name,size,trim,events\n");
             foreach (var kv in MotionMatcher.Trim) sb2.AppendLine(kv.Key + ",1," + kv.Value[1].ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) + "," + MotionMatcher.Trim.Count);
-            File.WriteAllText("D:/PIXFootball/anim_loco/mm_calibration.csv", sb2.ToString());
+            File.WriteAllText(MotionDbBuilder.CalibPath, sb2.ToString());
             Destroy(root.gameObject);
+        }
+
+        // ---------------------------------------------------------------------------------------- v0.12.0 MOBILITY: every take of the database alone, at its own speed and above it
+        /// <summary>Plays every looping take of the motion database alone (ForceClip, the WR body) at its ground speed times each factor of -pixLocoMul (default 1, 1.2, 1.35) and reports what the stride warp / playback rate were and how the planted foot,
+        /// the flight and the cadence came out: the per-take quality table the database is chosen from. -pixLocoOnly a,b keeps the takes whose name contains one of the words. Run: -pixLocoModes mmtake</summary>
+        IEnumerator MmTake()
+        {
+            var db = MotionDb.Load(); if (db == null) yield break;
+            var only = LocoShots.Arg("-pixLocoOnly", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            var muls = LocoShots.Arg("-pixLocoMul", "1,1.2,1.35").Split(',').Select(s => float.Parse(s, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            bool learn0 = MotionMatcher.LearnEnabled; MotionMatcher.LearnEnabled = false;      // the closed loop on the planted foot would hide the speed error of the database this table measures
+            var root = new GameObject("MmTake").transform; const float dt = 1f / 60f;
+            var sb = new StringBuilder("## per-take treadmill (every looping take alone, WR body; speed = ground speed of the take times the factor)\n\n| take | travel angle | speed m/s (x take) | stride warp / rate | planted mean | inner 60% | QB-metric slide mean / p50 (n) | flight (both toes > 10 cm) | contacts/s | hips bob | foot drift along travel (inner stance, + = forward) |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
+            var calib = new StringBuilder("name,size,trim,events\n");
+            for (int ci = 0; ci < db.clips.Count; ci++)
+            {
+                var c = db.clips[ci]; if (!c.loop) continue;
+                if (c.name.EndsWith("_M") && LocoShots.Arg("-pixLocoMirror", "0") != "1") continue;      // the mirrored twin differs by a few hundredths only
+                if (only.Length > 0 && !only.Any(w => c.name.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0)) continue;
+                foreach (float mul in muls)
+                {
+                    var view = SimAgentView.CreateForMatch(root, PlayerSize.Medium, "Mt");
+                    view.Role = PlayerRole.WR; view.AgentId = 3; view.Avatar.Animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                    view.ResetForPlay(Vector3.zero, 0f);
+                    yield return null; yield return null;
+                    var mm = view.Mm; if (mm == null) { Destroy(view.gameObject); break; }
+                    mm.ForceClip = ci;
+                    var h = new AnimHints { Seed = 5, Side = 'C' };
+                    Vector3 dir = Quaternion.Euler(0f, c.angle, 0f) * Vector3.forward; float target = Mathf.Max(2.0f, c.speed * view.GaitLegScale * mul), sp = 0f; Vector3 pos = Vector3.zero;
+                    var frames = new List<Frm>(); var wl = new List<float>(); var rl = new List<float>(); float t = 0f;
+                    for (int f = 0; f < 600; f++)
+                    {
+                        sp = Mathf.MoveTowards(sp, target, 7f * dt); Vector3 vel = dir * sp; pos += vel * dt; t += dt;
+                        view.SetMotionPlan(vel * 0.33f, vel * 0.66f, vel);
+                        view.ApplyMatch(pos, vel, Vector3.forward, AgentAction.Run, h, 0f, false, false, dt);
+                        yield return null;
+                        if (f >= 150) { frames.Add(Capture(view, t, sp, false)); wl.Add(mm.Warp); rl.Add(mm.Rate); }
+                    }
+                    var st = Measure(frames, dt, dir);
+                    int fl = 0; foreach (var fr in frames) if (fr.ToeHL > 0.10f && fr.ToeHR > 0.10f) fl++;
+                    sb.AppendLine("| " + c.name + " | " + c.angle.ToString("0") + " | " + target.ToString("0.0") + " (x" + mul.ToString("0.00") + ") | " + Mean(wl).ToString("0.00") + " / " + Mean(rl).ToString("0.00") + " | " + Mean(st.WinSpeed).ToString("0.00") + " | " + Mean(st.InnerSpeed).ToString("0.00") + " | " + Mean(st.QbSlide).ToString("0.00") + " / " + Pct(st.QbSlide, 0.5f).ToString("0.00") + " (" + st.QbSlide.Count + ") | " + (frames.Count > 0 ? (fl / (float)frames.Count).ToString("0.00") : "-") + " | " + Mean(st.Cadence).ToString("0.0") + " | " + Mean(st.Bob).ToString("0.000") + " | " + Mean(st.Fwd).ToString("+0.00;-0.00") + " |");
+                    if (Mathf.Approximately(mul, 1f) && st.Fwd.Count >= 4 && target > 1.5f) { float drift = Mean(st.Fwd); calib.AppendLine(c.name + ",1," + Mathf.Clamp(target / Mathf.Max(0.5f * target, target - drift), 0.6f, 1.6f).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) + ",0"); }
+                    Destroy(view.gameObject); yield return null;
+                }
+            }
+            if (LocoShots.Arg("-pixLocoCalibOut", "0") == "1") File.WriteAllText(MotionDbBuilder.CalibPath, calib.ToString());      // trim = the ground speed the database believes / the one the planted foot shows (the builder divides the take speed by it)
+            MotionMatcher.LearnEnabled = learn0;
+            Destroy(root.gameObject);
+            _posText += sb.ToString() + "\n";
         }
 
         // ---------------------------------------------------------------------------------------- treadmill
@@ -645,7 +695,7 @@ namespace PixFootball.EditorTools
             };
             string onlyG = LocoShots.Arg("-pixLocoOnly", ""); bool film = LocoShots.Arg("-pixLocoFilm", "1") == "1";
             var legRows = new SortedDictionary<string, LegProbe.Acc>(); var formRows = new SortedDictionary<string, FormProbe.Acc>();
-            var sb = new StringBuilder("## positions (scripted; every position with its own body size and role; flight = both toes more than 10 cm up)\n\n| case | position | stance windows | planted speed mean (m/s) | inner 60% | toe slide QB metric mean / p50 (n) | flight fraction | contacts/s | hips bob (m) | arm swing (m) | body yaw off travel (deg mean / max) |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
+            var sb = new StringBuilder("## positions (scripted; every position with its own body size and role; flight = both toes more than 10 cm up)\n\n| case | position | stance windows | planted speed mean (m/s) | inner 60% | toe slide QB metric mean / p50 (n) | flight fraction | contacts/s | hips bob (m) | arm swing (m) | body yaw off travel (deg mean / max) | matcher stride warp / rate (mean) | matcher takes (share of frames) |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
             var root = new GameObject("Pos").transform;
             foreach (var cs in cases)
             {
@@ -684,6 +734,7 @@ namespace PixFootball.EditorTools
                         }
                     }
                     var frames = new List<Frm>(); float t = 0f; int shot = 0; float nextShot = 0f; var yawErr = new List<float>();
+                    var mmWarp = new List<float>(); var mmRate = new List<float>(); var mmTakes = new Dictionary<string, int>();
                     int capFrom = cs.Mode == "steady" ? 150 : cs.Mode == "start" ? idle - 6 : idle + steadyFrames - 12;
                     int filmFrom = cs.Mode == "steady" ? 300 : cs.Mode == "start" ? idle : idle + steadyFrames;
                     for (int f = 0; f < total; f++)
@@ -697,6 +748,7 @@ namespace PixFootball.EditorTools
                         {
                             frames.Add(Capture(view, t, sp, false));
                             if (sp > 1.5f) yawErr.Add(Vector3.Angle(view.Forward, vel));
+                            { var mm = view.Mm; if (mm != null && mm.Ready && mm.Layer > 0.5f && sp > 1.5f) { mmWarp.Add(mm.Warp); mmRate.Add(mm.Rate); int tc; mmTakes.TryGetValue(mm.ClipName, out tc); mmTakes[mm.ClipName] = tc + 1; } }
                             if (sp > 1.5f) { probe.Sample(lacc, view.Forward, vel, sp, view.transform.position.y); fprobe.Sample(facc, view.Forward, vel, sp, view.transform.position.y, dt); }
                             if (film && f >= filmFrom && shot < cols && (f - filmFrom) >= nextShot)
                             {
@@ -711,7 +763,7 @@ namespace PixFootball.EditorTools
                     }
                     var stt = Measure(frames, dt);
                     int fl = 0; foreach (var fr in frames) if (fr.ToeHL > 0.10f && fr.ToeHR > 0.10f) fl++;
-                    sb.AppendLine("| " + cs.Name + " | " + pos + " | " + stt.Windows + " | " + Mean(stt.WinSpeed).ToString("0.00") + " | " + Mean(stt.InnerSpeed).ToString("0.00") + " | " + Mean(stt.QbSlide).ToString("0.00") + " / " + Pct(stt.QbSlide, 0.5f).ToString("0.00") + " (" + stt.QbSlide.Count + ") | " + (frames.Count > 0 ? (fl / (float)frames.Count).ToString("0.00") : "-") + " | " + Mean(stt.Cadence).ToString("0.0") + " | " + Mean(stt.Bob).ToString("0.000") + " | " + Mean(stt.Swing).ToString("0.00") + " | " + (yawErr.Count > 0 ? yawErr.Average().ToString("0") + " / " + yawErr.Max().ToString("0") : "-") + " |");
+                    sb.AppendLine("| " + cs.Name + " | " + pos + " | " + stt.Windows + " | " + Mean(stt.WinSpeed).ToString("0.00") + " | " + Mean(stt.InnerSpeed).ToString("0.00") + " | " + Mean(stt.QbSlide).ToString("0.00") + " / " + Pct(stt.QbSlide, 0.5f).ToString("0.00") + " (" + stt.QbSlide.Count + ") | " + (frames.Count > 0 ? (fl / (float)frames.Count).ToString("0.00") : "-") + " | " + Mean(stt.Cadence).ToString("0.0") + " | " + Mean(stt.Bob).ToString("0.000") + " | " + Mean(stt.Swing).ToString("0.00") + " | " + (yawErr.Count > 0 ? yawErr.Average().ToString("0") + " / " + yawErr.Max().ToString("0") : "-") + " | " + (mmWarp.Count > 0 ? Mean(mmWarp).ToString("0.00") + " / " + Mean(mmRate).ToString("0.00") : "-") + " | " + string.Join(", ", mmTakes.OrderByDescending(kv => kv.Value).Take(4).Select(kv => kv.Key + " " + (100 * kv.Value / Mathf.Max(1, mmWarp.Count)) + "%")) + " |");
                     Destroy(view.gameObject); yield return null;
                 }
                 if (film) { string n = cs.Name.Replace(" ", "_"); Sheet(sideTiles, cols, _out + "/pos_" + n + "_side.png"); Sheet(bcastTiles, cols, _out + "/pos_" + n + "_bcast.png"); }

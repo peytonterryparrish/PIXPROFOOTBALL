@@ -104,6 +104,19 @@ namespace PixFootball.Gameplay
             set { SetI("photoplayers", value ? 1 : 0); }
         }
 
+        /// <summary>
+        /// v0.12.0 (RULES): seconds from the whistle to the next snap in a watched game (the dead-ball time). Default 25 (it was about 16; the real game is 35 to 40). The huddle, the break, the walk-in and the set stretch to fill it;
+        /// the game clock and the number of snaps do not change (the quarter clock is compressed separately). 12 = a quick game, 40 = like the real thing.
+        /// </summary>
+        public static int DeadBallSeconds { get { return Mathf.Clamp(GetI("deadball", 25), 12, 45); } set { SetI("deadball", Mathf.Clamp(value, 12, 45)); } }
+        public static readonly int[] DeadBallChoices = { 14, 20, 25, 30, 40 };
+        public static readonly string[] DeadBallNames = { "Quick (14 s)", "Brisk (20 s)", "Standard (25 s)", "Relaxed (30 s)", "Like the real game (40 s)" };
+        public static int DeadBallIndex
+        {
+            get { int best = 0, d = int.MaxValue; for (int i = 0; i < DeadBallChoices.Length; i++) { int x = Mathf.Abs(DeadBallChoices[i] - DeadBallSeconds); if (x < d) { d = x; best = i; } } return best; }
+            set { DeadBallSeconds = DeadBallChoices[Mathf.Clamp(value, 0, DeadBallChoices.Length - 1)]; }
+        }
+
         // ---- broadcast
         /// <summary>v0.5 broadcast cinematics: 0 Full (establishing shots, post-play cuts, auto replays, shows), 1 Minimal (big plays only), 2 Off (live camera only).</summary>
         public static int Cinematics { get { return GetI("cine", 0); } set { SetI("cine", Mathf.Clamp(value, 0, 2)); } }
@@ -143,7 +156,7 @@ namespace PixFootball.Gameplay
         public static void ResetToDefaults()
         {
             foreach (string key in new[] { "invert", "cam2", "camstyle", "camh", "camd", "camf", "camz", "sbstyle", "stars", "light", "rumble", "shake", "look", "fpmask", "photoplayers", "cine", "autoreplay", "tvov",
-                                           "vol_master", "vol_music", "vol_crowd", "vol_sfx", "vsync", "fpscap", "scale", "upscaler", "quality" })
+                                           "deadball", "vol_master", "vol_music", "vol_crowd", "vol_sfx", "vsync", "fpscap", "scale", "upscaler", "quality" })
                 PlayerPrefs.DeleteKey(K + key);
             Dirty();
             Apply();

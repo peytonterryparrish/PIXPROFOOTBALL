@@ -37,7 +37,7 @@ namespace PixFootball.Sim
 
         void LayoutOffense()
         {
-            MotionSlot = -1; MotionDir = 0;
+            MotionSlot = -1; MotionDir = 0; ResetPreSnapMoves();      // v0.12.0 (RULES)
             for (int i = 0; i < 11; i++)
             {
                 SlotSpec so = OffForm.Slots[i];

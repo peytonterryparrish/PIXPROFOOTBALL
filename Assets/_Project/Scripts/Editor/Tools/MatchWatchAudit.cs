@@ -260,7 +260,7 @@ namespace PixFootball.EditorTools
 
         void Flush()
         {
-            File.AppendAllText(_out + "/events.log", _events.ToString()); _events.Length = 0;
+            File.AppendAllText(_out + "/events.log", _events.ToString()); _events.Length = 0; ProbeFlush();
             File.WriteAllText(_out + "/plays.txt", _plays.ToString());
             WriteIssues(_out + "/issues_partial.txt");
         }

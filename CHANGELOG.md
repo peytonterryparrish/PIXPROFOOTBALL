@@ -6,6 +6,42 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 Next: **College Network** returns (paused in 0.9.0): a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools. Its logic is in main (`League/Career/College*`); its screens live on the local branch `wip/v0.9-college-ui`.
 
+## [0.12.0] - 2026-10-24 - "Realism I"
+
+The first slice of the owner's realism brief (`Docs/QA/v0120/MASTER_PROMPT_GAPS.md`, candidates 1, 2, 3 and 5 with the owner's decisions) plus three owner notes added during the round (`Docs/QA/v0120/OWNER_NOTES_v0120.md`: robotic movement, bodies and pads, heads/hips/helmets). Six tracks (CONTACT, GAIT, MOBILITY, RULES, BODIES, NATURAL); status of every item in `Docs/QA/v0120/STATUS.md`, logs next to it. Built player, 80 s of live play, 2560 x 1440 High: 144.6 fps average, 110.7 1 %-low (v0.11.0: 144.7 / 116.1), 0 errors. 1,373 EditMode tests green on the merged tree.
+
+### Added
+- **Contact feet and hands** (`EngageStepper`, `PlayStage.Hands`, `SimAgentView.EngageLegsRestore`): engaged blockers, rushers and tacklers keep their feet planted and move by stepping (one foot at a time, from the support area); feet are pressed to the drawn boot sole of each body; hands go to the other man's pads through Final IK (`PixIk.Hand`) while our solver keeps the legs (order tested). Switches for A/B: `-pixV011Contact`, `-pixNoPress`, `-pixNoPadHands`.
+- **Acceleration lean** (`BodyMotion`, `SimAgentView.Loco`): a body leans 25-35 degrees into a hard start and back on a hard stop, on top of whatever clip plays; a hip drop into cuts.
+- **MoCap Online Mobility Pro** locomotion in the motion matcher (`MobilityImport`, `PixMotionDb`): walk, jog, run, side and back takes and stand-to-jog starts (806 walk and 193 start selections a short game). The pack stays local (`Assets/_Licensed/MocapOnline`).
+- **Natural movement** (`Natural*`, NATURAL track; `-pixNatOff` for A/B): each player has his own seeded cadence, stride and arm swing, nearby players no longer step in sync, more shoulder counter-rotation and arm follow-through; looking is shared by neck, chest and pelvis with limits (head over chest about 70 degrees, chest over pelvis about 35 degrees while running) and rate limits.
+- **Pre-snap rules from the alignment** (`Sim/Rules/*`, `PlaySimulation.PreSnap`): line count, eligibility by number and position on the line, covered receivers, backfield count, a 1 s set after a shift, one man in motion and never toward the line. False starts, offside, neutral-zone infractions, encroachment, illegal formation / shift / motion and delay of game come from what the players do (the early mover lurches before the flag). `PreSnapRulesTests` (18).
+- **Time between plays setting** (Settings > Gameplay, default 25 s whistle to snap).
+- `MatchWatchAudit`: float probe with baked-mesh soles, side-view stance pictures, still-body guards on the SYNC / FACE / OVERLAP detectors (old rules kept as `_V011_RULE`); `ChoreoAudit` planted-interval drift.
+
+### Changed
+- Pre-snap penalty dice (`TryPreSnapPenalty`) removed: 2.30 pre-snap fouls per team-game over 21.7 k simulated plays (false start 1.25).
+- Whistle to snap 15.6 -> 25.0 s (median); a game keeps 164-166 plays.
+- Sprint plays without stride warp (warp 1.12-1.17 -> 1.00).
+- Walk to the line uses the time left before the snap: glide speed p95 5.4 -> 3.8 m/s.
+- Bodies: shoulder pads 9-15 % narrower and 13 % smaller in volume, bigger OL/DL build (+4.5 % trunk, +5 % legs), more helmet detail, satin helmet shell instead of mirror gloss, a smaller matte chin cup.
+
+### Fixed
+- Planted feet sliding in blocks and tackles: 1.90 -> 0.28 m/s per frame on average (block median 0.46 -> 0.00); planted-interval toe drift median 13.9 -> 4.7 cm.
+- Shards at the shoulder and sleeve edge of every body (the jersey mask's sleeve bands); pad vertices through the jersey 92 -> 36 per pose.
+- Heads and hips over-twisting when players look around: head over chest p99 88 -> 69 degrees; chest over pelvis beyond 35 degrees while running 1,185 -> 34 frames.
+- 175 `CinemachineBrain.ManualUpdate` errors per game.
+- Players still walking in, turned sideways, when the ball was snapped on tries, kickoffs and hurry-up plays (found in the integration game): the snap waits until the team has been set for 0.8 s; a shift or motion settles before the snap.
+- The Mobility clips carried an Animator "Speed" curve that took over the locomotion Speed parameter and logged a warning every frame (`MobilityCurveStrip`).
+
+### Known Issues
+- Feet bone below the turf in blocks counts up (FEET_BELOW_TURF 35 -> 312 per 40 plays) while the mesh-sole check reads 21 frames: cause not found.
+- Planted drift p95 30 cm in engagements (goal 8); wrap tackles still drift.
+- Jog planted slide 0.18 m/s (goal 0.10); sprint flight 0.24 (goal 0.20); the pack has no true sprint; stop and turn takes slid and are not used; the walk-in slides 0.28 m/s on the new takes.
+- Cuts: a planted foot before 74 % of direction changes over 45 degrees (goal 80).
+- Bodies still short of the R1 model's realism: smooth jersey with no cloth folds, broad shoulders, skin showing at the Large body's shoulder.
+- The early mover's lurch before a false start is not seen on camera yet; covered tight ends are still targeted; roughing the passer (0.86) and offensive holding (1.80 per team-game) run high.
+
 ## [0.11.0] - 2026-10-23 - "Broadcast"
 
 Answers the v0.10.0 playtest notes (`Docs/QA/v0110/PLAYTEST_v0100.md`) with eleven tracks (AUDIT, CRITICAL, WATCH+HUD, QB, RB, MOTION, ANIMLIB, SIM-FLOW, AUDIO+CROWD and three menu tracks). Status of every note in `Docs/QA/v0110/STATUS.md`, the 120-row bug list and its tally in `Docs/QA/v0110/BUGS.md`, track logs next to them. Built player, 80 s of live play, 2560 x 1440 High: 144.7 fps average, 116.1 1 %-low (v0.10.0: 148.5 / 114.5), 0 exceptions. 1,324 EditMode tests green (5 fixed at integration).
@@ -448,6 +484,7 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 
 
 [Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.11.0...HEAD
+[0.12.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.0...v0.9.1

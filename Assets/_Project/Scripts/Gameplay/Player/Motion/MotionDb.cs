@@ -41,6 +41,8 @@ namespace PixFootball.Gameplay
             /// <summary>Travel direction in the root frame, degrees (+ = right), and root yaw rate (deg/s).</summary>
             public float angle, turnRate;
             public float stepsPerSec;
+            /// <summary>v0.12.0: how a speed difference is shared between playback rate (cadence) and stride warp: rate = ratio^k, warp = the rest. 0.5 = both equally (the v0.11 split); a take with a long stride and a slow cadence (the MoCap Online runs: 1.6 m at 3.5 steps/s) takes the difference as cadence, up to the 4.5 steps/s of a sprinter, so its feet are not stretched.</summary>
+            public float cadenceK = 0.5f;
             public int mirrorOf = -1;
             /// <summary>Height of the lowest sole above the ground the retargeted take stands on (m, reference body): the whole pose is lowered by it so a planted foot is on the turf.</summary>
             public float floorY;

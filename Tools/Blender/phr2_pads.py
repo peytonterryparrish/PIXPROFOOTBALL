@@ -15,7 +15,8 @@ MATS = ["PHR_PadShell", "PHR_PadTrim", "PHR_PadMetal"]
 SRC_MAP = {"plastic": (0, 0), "strap": (1, 0), "fabric": (1, 1), "hrome": (2, 0)}
 
 # fit parameters (pad frame -> R1 frame)
-FIT = dict(taper_x=0.78, taper_y=0.80, sx=1.03, sy=0.86, sz=0.88, dy=0.055, dz=1.05, cap_scale=0.45, cap_anchor=(0.30, 0.0, 0.58))
+# v0.12.0 BODIES: pads a little smaller (owner note 2): width sx 1.03 -> 0.93 (-10 %), depth sy 0.86 -> 0.82 (-5 %), height sz 0.88 -> 0.865 (-2 %), epaulet caps 0.45 -> 0.40 (volume about -20 %)
+FIT = dict(taper_x=0.78, taper_y=0.80, sx=0.93, sy=0.82, sz=0.865, dy=0.055, dz=1.055, cap_scale=0.40, cap_anchor=(0.30, 0.0, 0.58))
 CLEAR = 0.007           # jersey clearance over the pad surface (m)
 
 
@@ -627,3 +628,42 @@ def tuck_pads(pads, jersey, depth=0.008):
     me.vertices.foreach_set('co', co.astype(np.float32).ravel())
     me.update()
     return moved
+
+
+def pads_follow_jersey(pads, jersey, radius=0.05, k=4):
+    """v0.12.0 BODIES (owner note 2, "a lot of bugs on the pads"): the pads are an under-layer that must never show, but their own rigid-ish skin weights differ from the jersey's
+    (the jersey conform blends weights only where it was pushed), so with the arms raised or the trunk twisted pad vertices came out of the cloth (60-130 per pose, 174-271 worst) and the sleeve
+    skin left the pad dome.  Every pad vertex within `radius` of the jersey now takes the inverse-distance skin weights of its k nearest jersey vertices (the pad moves exactly like the cloth over it);
+    pad vertices farther away (the neck roll) keep their own weights."""
+    from mathutils.kdtree import KDTree
+    jco = _co(jersey.data)
+    kd = KDTree(len(jco))
+    for i, p in enumerate(jco):
+        kd.insert(Vector(p), i)
+    kd.balance()
+    gname = {g.index: g.name for g in jersey.vertex_groups}
+    jw = [{gname[g.group]: g.weight for g in v.groups} for v in jersey.data.vertices]
+    pco = _co(pads.data)
+    changed = 0
+    for i, p in enumerate(pco):
+        res = kd.find_n(Vector(p), k)
+        if not res or res[0][2] > radius:
+            continue
+        d = np.array([r[2] for r in res])
+        w = 1.0 / (d + 0.004) ** 2
+        w /= w.sum()
+        acc = {}
+        for wi, r in zip(w, res):
+            for name, x in jw[r[1]].items():
+                acc[name] = acc.get(name, 0.0) + wi * x
+        top = sorted(acc.items(), key=lambda kv: -kv[1])[:4]
+        s = sum(x for _, x in top)
+        if s <= 0:
+            continue
+        for g in list(pads.vertex_groups):
+            g.remove([i])
+        for name, x in top:
+            vg = pads.vertex_groups.get(name) or pads.vertex_groups.new(name=name)
+            vg.add([i], x / s, 'REPLACE')
+        changed += 1
+    return changed
