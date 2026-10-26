@@ -117,8 +117,9 @@ namespace PixFootball.Sim
             score -= Math.Abs(p.ClosingB - closingM) * 0.12f;
             if (wantLow > 0f) score -= Math.Abs(p.LowB - wantLow) * 1.2f;
             if (distM > 0f && p.Distance > 0f) score -= Math.Abs(p.Distance - distM) * 0.8f;
-            for (int i = 0; i < _recent.Count; i++) if (_recent[i] == p.A.Name) { score -= 0.9f; break; }
-            score += ChoreoMath.Hash01(seed, p.A.Name.Length, ChoreoMath.HashString(p.A.Name)) * 0.45f;
+            int used = 0; for (int i = 0; i < _recent.Count; i++) if (_recent[i] == p.A.Name) used++;      // v0.13 (ANIMLIB-BULK): a take is worth less for every time it was booked lately (no-repeat bag; was a flat 0.9 for the last 6)
+            score -= Math.Min(used, 3) * 0.7f;
+            score += ChoreoMath.Hash01(seed, p.A.Name.Length, ChoreoMath.HashString(p.A.Name)) * 0.9f;      // v0.13 wave 2 (BULK-2): 0.45 -> 0.9, more of the booked pool is drawn (24 of 70 tackle pairs in the wave-2 game)
             return score;
         }
 

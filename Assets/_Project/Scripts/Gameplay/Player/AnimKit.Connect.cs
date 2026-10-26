@@ -21,18 +21,20 @@ namespace PixFootball.Gameplay
         {
             var l = Lib; if (l == null) return null;
             int n = l.ClipVariantCount(key); if (n == 0) return null;
-            AnimationClip best = null; int bs = -1;
+            var ties = new List<AnimationClip>(); int bs = -1;      // v0.13 (ANIMLIB-BULK): every take with the best score is a candidate, the no-repeat bag walks them
             for (int k = 0; k < n; k++)
             {
-                var c = l.ClipVariant(key, (seed + k) % n);
+                var c = l.ClipVariant(key, k);
                 int s = 0; bool all = true;
                 foreach (string t in tokens) { if (c.name.Contains(t)) s += 2; else all = false; }
                 if (!all) continue;
                 bool isM = c.name.EndsWith("_M");
                 if (isM == mirror) s += 1;
-                if (s > bs) { bs = s; best = c; }
+                if (s > bs) { bs = s; ties.Clear(); }
+                if (s == bs) ties.Add(c);
             }
-            return best;
+            if (ties.Count == 0) return null;
+            return ClipBag.Skip(key, seed) ? ties[0] : ClipBag.Draw("pt:" + key + (mirror ? "M" : "") + string.Join("|", tokens), seed, ties);
         }
 
         // =========================================================================================================== blocks
@@ -86,7 +88,7 @@ namespace PixFootball.Gameplay
             a = b = null;
             var l = Lib; if (l == null) return false;
             int n = l.ClipVariantCount(key); if (n == 0) return false;
-            int start = ((pairSeed % n) + n) % n;
+            int start = ClipBag.Skip(key, pairSeed) ? ((pairSeed % n) + n) % n : ClipBag.Index(key, pairSeed, n);      // v0.13 (ANIMLIB-BULK): the no-repeat bag's index
             for (int k = 0; k < n; k++)
             {
                 var ca = l.ClipVariant(key, (start + k) % n);
@@ -179,7 +181,11 @@ namespace PixFootball.Gameplay
                     break;
                 case PlayerRole.DB: case PlayerRole.LB: case PlayerRole.WR: case PlayerRole.RB:
                     if (first == AgentAction.Backpedal) c = ah > 35f ? PickTokens(ArtKeys.CbBreak, seed, left, "BackRight") : PickTokens(ArtKeys.CbBreak, seed, false, "IdleToSprint_Back");
-                    else if (first == AgentAction.Shuffle || ah > 60f) c = PickTokens(ArtKeys.CbBreak, seed, left, "Right");
+                    else if (first == AgentAction.Shuffle || ah > 60f)
+                    {
+                        if ((seed & 1) == 1) c = PickTokens(ArtKeys.CbShuffle, seed, !left, ah > 60f ? "Shuffle_Left" : "ShuffleFoLeft");      // v0.13 (ANIMLIB-BULK): cb_shuffle was never asked for (the left take, its mirror for a right heading)
+                        if (c == null) c = PickTokens(ArtKeys.CbBreak, seed, left, "Right");
+                    }
                     else c = PickTokens(ArtKeys.CbBreak, seed, false, "Forward_Transition");
                     if (c == null) c = PickTokens(ArtKeys.CbBreak, seed, false, "Forward");
                     break;
@@ -218,6 +224,11 @@ namespace PixFootball.Gameplay
                     float tm = ClipTimingTable.Moment(c, 0.4f);
                     return Floor(Up(P(c, Mathf.Max(0f, tm - Lead(h.EventEta, 0.2f)), Mathf.Min(c.length, tm + 0.8f), 1f, 0.12f, 0.3f)), ImpactFloor);
                 }
+            }
+            if (h.Dropped && (h.Defender || (h.Seed & 3) < 3))      // v0.13 (ANIMLIB-BULK): a receiver who drops it plays one of the failed-catch takes (catch_fail was never asked for); wave 2: 3 of 4 drops, and the defender who drops the interception plays the B takes
+            {
+                var cf = h.Defender ? ClipSelect.Pick("catch_fail_b", null, h.Seed, '?', 3.2f) : PickEither("catch_fail", h.Seed, 3.2f);
+                if (cf != null) { float tf = ClipTimingTable.Moment(cf, 0.4f); return Floor(Up(P(cf, Mathf.Max(0f, tf - Lead(h.EventEta, 0.2f)), Mathf.Min(cf.length, tf + 0.8f), 1f, 0.12f, 0.3f)), ImpactFloor); }
             }
             var plan = Catch(h);
             if (!plan.Valid) return plan;
@@ -283,7 +294,7 @@ namespace PixFootball.Gameplay
             MoveTakeTable.Take pick = null; int n = _spinTakes2.Count;
             for (int k = 0; k < n; k++)
             {
-                var take = _spinTakes2[(((seed % n) + n) + k) % n];
+                var take = _spinTakes2[((ClipBag.Skip("spin", seed) ? ((seed % n) + n) : ClipBag.Index("spin", seed, n)) + k) % n];      // v0.13 (ANIMLIB-BULK): the no-repeat bag's index
                 if (Mathf.Abs(take.turnDegrees) < 90f || Mathf.Sign(take.turnDegrees) == (lateral >= 0f ? 1f : -1f)) { pick = take; break; }
             }
             if (pick == null) pick = _spinTakes2[((seed % n) + n) % n];
@@ -351,7 +362,7 @@ namespace PixFootball.Gameplay
             }
             if (best.Count == 0) { WarnMissing(key); return default(ClipPlan); }
             int seed = h.PairSeed != 0 ? h.PairSeed : h.Seed;
-            var a = best[((seed % best.Count) + best.Count) % best.Count];
+            var a = ClipBag.Draw("tk:" + key + approach, seed, best);      // v0.13 (ANIMLIB-BULK): least used first; the shared pair seed gives both actors the same A take
             var c = carrier ? TwinOf(key + "_b", a) : a;
             if (c == null) c = a;
             float start;

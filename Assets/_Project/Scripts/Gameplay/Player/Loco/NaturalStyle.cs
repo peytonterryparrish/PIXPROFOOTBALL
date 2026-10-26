@@ -20,6 +20,12 @@ namespace PixFootball.Gameplay
         public float BreathHz, BreathAmp, ShiftPeriod, ShiftAmp, ShiftPhase, GlanceGap;
         /// <summary>0..1 personal offset (used to start his own breath and glance clocks apart).</summary>
         public float Phase0;
+        /// <summary>v0.13.0 NATURAL-2: the seed the style was drawn from (the player's id): the motion matcher draws his personal choice of takes from it (<see cref="MotionStyle"/>).</summary>
+        public int Seed;
+
+        /// <summary>v0.13.0 NATURAL-2: width of the tempo draw (v0.12: 0.14, now 0.22; the cadence sd across players is the gate). QA: -pixTempoSpread to reproduce the v0.12 draw.</summary>
+        public static float TempoSpread = TempoArg();
+        static float TempoArg() { var a = System.Environment.GetCommandLineArgs(); int i = System.Array.IndexOf(a, "-pixTempoSpread"); float v; return i >= 0 && i + 1 < a.Length && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : 0.22f; }
 
         public static NaturalStyle Neutral { get { return new NaturalStyle { Tempo = 1f, ArmSwing = 1f, Counter = 1f, HeadStab = 0f, BreathHz = 0.25f, ShiftPeriod = 8f, GlanceGap = 4f }; } }
 
@@ -39,7 +45,8 @@ namespace PixFootball.Gameplay
         {
             float sz = size == PlayerSize.Large ? -1f : size == PlayerSize.Small ? 1f : 0f;
             var s = new NaturalStyle();
-            s.Tempo = 1f + (U(seed, 1) - 0.5f) * 0.14f + sz * 0.015f;                       // 0.93 .. 1.07 (+- 1.5 percent by body)
+            s.Seed = seed;
+            s.Tempo = 1f + (U(seed, 1) - 0.5f) * TempoSpread + sz * 0.015f;                       // 0.875 .. 1.125 (+- 1.5 percent by body); v0.13.0: was 0.14 wide (cadence sd 0.054, now more: the new takes desync further but the sd is the gate)
             s.WanderAmp = 0.012f + U(seed, 2) * 0.018f;
             s.WanderHz = 0.07f + U(seed, 3) * 0.11f;
             s.WanderPhase = U(seed, 4);

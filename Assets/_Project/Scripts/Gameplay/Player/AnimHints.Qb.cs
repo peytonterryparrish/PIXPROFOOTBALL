@@ -29,3 +29,25 @@ namespace PixFootball.Gameplay
         public bool QbTakeoff; public float QbTakeoffSince;
     }
 }
+
+namespace PixFootball.Gameplay
+{
+    /// <summary>v0.13.0 QB-MOCAP: what the mocap sequence needs from the play (filled by <c>PlayStage.QbMocapHints</c>, see PlayStage.QbSeq.cs).</summary>
+    public partial struct AnimHints
+    {
+        /// <summary>Counter of the scrimmage play (changes with every snap sequence): the mocap sequence resets and draws its clips per play.</summary>
+        public int QbPlay;
+        /// <summary>The cadence: its length and the time into it (seconds, -1 = no count is on).</summary>
+        public float QbCadenceLen, QbCadenceT;
+        /// <summary>Seconds until the snap is in his hands (the count that is left plus the flight of the ball; the ball in flight: its remaining time); -1 = unknown / none.</summary>
+        public float QbSnapEta;
+        /// <summary>Seconds left of the simulated wind-up (the ball leaves when it is 0 and the body is aligned); -1 = no throw.</summary>
+        public float QbWindupLeft;
+        /// <summary>Distance (m) from the passer to the throw target and the sim's pending style (0 auto, 1 bullet, 2 touch, 3 lob).</summary>
+        public float QbTargetDist; public int QbStyle;
+        /// <summary>v0.13.0 QB-2: seconds until the drop clock starts (the secure is over; <= 0 = running; -1 = no drop) and until the planned arrival at the drop point (-1 = none), the drop point (world) and the planned QB action (QbAction, -1 = none).</summary>
+        public float QbDropWait, QbDropLeft; public Vector3 QbDropPt; public int QbAct;
+        /// <summary>v0.13.0 QB-2: the hand-off runner: seconds to the planned exchange and the world position of the runner (zero vector = none).</summary>
+        public Vector3 QbRunnerPos; public float QbRunnerGap;
+    }
+}

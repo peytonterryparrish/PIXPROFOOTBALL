@@ -53,9 +53,9 @@ namespace PixFootball.EditorTools
 
         static string P(float x) { return float.IsNaN(x) ? "" : x.ToString("0.000", CI); }
 
-        void ProbeRow(string tag, int i, SimAgentView v, VT t, SimAgent a, PlaySimulation sim, float gy, float speedMs, float hipsY)
+        void ProbeRow(string tag, int i, SimAgentView v, VT t, SimAgent a, PlaySimulation sim, float gy, float speedMs, float hipsY, string extra = "")
         {
-            if (!_probeHeader) { _probeCsv.AppendLine("tag,play,frame,agent,pos,body,act,stance,clip,speed,viewSpeed,hipsY,lankleY,rankleY,ltoeY,rtoeY,ltoeEndY,rtoeEndY,lsoleY,rsoleY,lfootPitch,rfootPitch,lToeAnkleDist,groundY"); _probeHeader = true; }
+            if (!_probeHeader) { _probeCsv.AppendLine("tag,play,frame,agent,pos,body,act,stance,clip,speed,viewSpeed,hipsY,lankleY,rankleY,ltoeY,rtoeY,ltoeEndY,rtoeEndY,lsoleY,rsoleY,lfootPitch,rfootPitch,lToeAnkleDist,groundY,extra"); _probeHeader = true; }
             float la = t.LF.position.y - gy, ra = t.RF.position.y - gy;
             float lt = t.LT != null ? t.LT.position.y - gy : float.NaN, rt = t.RT != null ? t.RT.position.y - gy : float.NaN;
             float lte = t.LTE != null ? t.LTE.position.y - gy : float.NaN, rte = t.RTE != null ? t.RTE.position.y - gy : float.NaN;
@@ -64,7 +64,7 @@ namespace PixFootball.EditorTools
             string body = t.An.avatar != null ? t.An.avatar.name : t.An.gameObject.name;
             _probeCsv.Append(tag).Append(',').Append(_dir.PlayNumber).Append(',').Append(_frame).Append(',').Append(i).Append(',').Append(a.PlayPos).Append(',').Append(body.Replace(',', '_')).Append(',').Append(a.Action).Append(',').Append(v.Stance.Kind).Append(',')
                     .Append(v.Rig != null ? v.Rig.CurrentClipName : "").Append(',').Append(P(speedMs)).Append(',').Append(P(t.ViewSpeed)).Append(',').Append(P(hipsY)).Append(',').Append(P(la)).Append(',').Append(P(ra)).Append(',').Append(P(lt)).Append(',').Append(P(rt)).Append(',')
-                    .Append(P(lte)).Append(',').Append(P(rte)).Append(',').Append(P(ls)).Append(',').Append(P(rs)).Append(',').Append(P(Pitch(t.LF, t.LT))).Append(',').Append(P(Pitch(t.RF, t.RT))).Append(',').Append(P(dist)).Append(',').Append(P(gy)).AppendLine();
+                    .Append(P(lte)).Append(',').Append(P(rte)).Append(',').Append(P(ls)).Append(',').Append(P(rs)).Append(',').Append(P(Pitch(t.LF, t.LT))).Append(',').Append(P(Pitch(t.RF, t.RT))).Append(',').Append(P(dist)).Append(',').Append(P(gy)).Append(',').Append(extra).AppendLine();
             // distributions of the metric gap, per body
             float soleLow = Mathf.Min(float.IsNaN(ls) ? 9f : ls, float.IsNaN(rs) ? 9f : rs), toeLow = Mathf.Min(float.IsNaN(lt) ? 9f : lt, float.IsNaN(rt) ? 9f : rt);
             if (soleLow < 8f) { S("probe " + tag + ": lowest visible sole above turf m " + Grp(a.PlayPos), soleLow); if (toeLow < 8f) S("probe " + tag + ": toe bone minus sole m " + body, toeLow - soleLow); }
@@ -72,7 +72,7 @@ namespace PixFootball.EditorTools
 
         void ProbeFlush()
         {
-            if (_probeCsv.Length == 0) return;
+            FaceFlush(); if (_probeCsv.Length == 0) return;
             File.AppendAllText(_out + "/float_probe.csv", _probeCsv.ToString()); _probeCsv.Length = 0;
         }
 

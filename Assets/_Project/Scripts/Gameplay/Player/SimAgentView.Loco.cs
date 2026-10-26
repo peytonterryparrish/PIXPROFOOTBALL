@@ -191,6 +191,7 @@ namespace PixFootball.Gameplay
             }
             if (m.Suspended == false && owned && m.Row < 0) q.LiveFeet = LiveFeet(fwd);
             m.StyleRate = NaturalTempo();      // v0.12.0 NATURAL
+            m.StyleSeed = NatStyle.Seed; m.StyleRole = Role;      // v0.13.0 NATURAL-2: his own choice among the takes
             bool on = m.Update(dt, q);
             if (Motion != null) { bool legs = on && Rig != null && Rig.Weight > 0.01f && Rig.Weight < 0.98f; if (legs && !LegsToLocoOff && Rig.LegsToLoco()) m.SourceChanged(); Motion.ForceLoco = legs && !LegsToLocoOff; }
             if (plant != null) m.Learn(plant, new Vector2(velocity.x, velocity.z).magnitude, dt);

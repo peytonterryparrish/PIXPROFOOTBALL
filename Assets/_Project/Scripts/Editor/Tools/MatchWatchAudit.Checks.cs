@@ -49,12 +49,14 @@ namespace PixFootball.EditorTools
             public Renderer[] Rs; public SkinnedMeshRenderer[] Smrs; public PhotoPlayer Pp; public int RsPlay = -1; public int RsChildCount;
             public Vector3 PrevLT, PrevRT, PrevLF, PrevRF, PrevHipsLocal; public Quaternion PrevHipsRot, PrevChestRot; public bool Have;
             public bool PlantL, PlantR;
+            public float PrevHoc, PrevViewYaw; public bool HocHave;      // v0.13.0 STANCE-HEAD: head over chest of the last frame (turn rate)
             public int FloatRun, AirRun, SunkRun, LagRun, FaceRun, TravelRun, BackRun, NoDrawRun, BoundsRun, OffHandRun, LvlChanges, PrevLvl = -1, LvlPrevChangeFrame = -99, MissRun;
             public string PrevClip = ""; public int ClipSwitches; public float Alive; public int LastClipSwitchFrame;
             public int LoopHips; public bool WasStale; public int StaleFrames; public int BuriedRun;
-            public Vector3 PrevRoot; public bool HaveRoot; public float ViewSpeed; public int FloatRunOld, LagRunOld, FaceRunOld;   // v0.12: horizontal speed of the body on the stage (the pre-snap glide moves bodies that the simulation still lists as Stance at 0 m/s)
+            public Vector3 PrevRoot; public bool HaveRoot; public float ViewSpeed; public int FloatRunOld, LagRunOld, FaceRunOld, FaceRunV012, HudRun;   // v0.12: horizontal speed of the body on the stage (the pre-snap glide moves bodies that the simulation still lists as Stance at 0 m/s)
         }
         readonly Dictionary<SimAgentView, VT> _vt = new Dictionary<SimAgentView, VT>();
+        readonly Vector3[] _hudC = new Vector3[2]; readonly int[] _hudN = new int[2];
 
         VT GetVT(SimAgentView v)
         {
@@ -75,7 +77,7 @@ namespace PixFootball.EditorTools
             return t;
         }
 
-        void ResetVTs() { foreach (var t in _vt.Values) { t.Have = false; t.FloatRun = t.AirRun = t.SunkRun = t.LagRun = t.LagRunOld = t.FaceRun = t.FaceRunOld = t.TravelRun = t.BackRun = t.NoDrawRun = t.BoundsRun = t.OffHandRun = t.MissRun = 0; t.RsPlay = -1; t.ClipSwitches = 0; t.Alive = 0f; t.PlantL = t.PlantR = false; } Array.Clear(_overlapRun, 0, _overlapRun.Length); Array.Clear(_overlapRunOld, 0, _overlapRunOld.Length); }
+        void ResetVTs() { foreach (var t in _vt.Values) { t.Have = false; t.HocHave = false; t.FaceRunV012 = t.HudRun = 0; t.FloatRun = t.AirRun = t.SunkRun = t.LagRun = t.LagRunOld = t.FaceRun = t.FaceRunOld = t.TravelRun = t.BackRun = t.NoDrawRun = t.BoundsRun = t.OffHandRun = t.MissRun = 0; t.RsPlay = -1; t.ClipSwitches = 0; t.Alive = 0f; t.PlantL = t.PlantR = false; } Array.Clear(_overlapRun, 0, _overlapRun.Length); Array.Clear(_overlapRunOld, 0, _overlapRunOld.Length); }
 
         static bool Drawn(Renderer r, bool allowShadowOnly = false)
         {
@@ -109,10 +111,11 @@ namespace PixFootball.EditorTools
         void OnPhaseChanged(MatchPhase p) { RequestStripsOnPhase(p); }
 
         // ---------------------------------------------------------------------------------------------------------- stance sampling
-        struct StanceRow { public bool Ok; public string Pos, Kind; public float HipsY, HeadY, HandL, HandR, LowToe, Lean, YawErr, Stagger, Width, HeadBelowHips; public bool Mirror; public float SimX, SimY; public string Group; public string Stance; }
+        struct StanceRow { public bool Ok; public string Pos, Kind; public float HipsY, HeadY, HandL, HandR, LowToe, Lean, YawErr, Stagger, Width, HeadBelowHips, PoseW, SecSet; public bool Mirror; public float SimX, SimY; public string Group; public string Stance; }
         readonly StanceRow[] _stanceNow = new StanceRow[22];
+        readonly int[] _stSince = Enumerable.Repeat(-1, 22).ToArray();
         bool _stanceFresh;
-        readonly StringBuilder _stanceCsv = new StringBuilder("play,kind,agent,pos,group,stance,hipsY,headY,handL_y,handR_y,lowToeY,trunkLeanDeg,yawErrDeg,staggerM,widthM,headMinusHips,simRelX,simRelY\n");
+        readonly StringBuilder _stanceCsv = new StringBuilder("play,kind,agent,pos,group,stance,hipsY,headY,handL_y,handR_y,lowToeY,trunkLeanDeg,yawErrDeg,staggerM,widthM,headMinusHips,simRelX,simRelY,poseW,secSet\n");
         int _stanceFrameMod;
 
         void SampleStance(PlaySimulation sim, PlayStage st)
@@ -137,6 +140,7 @@ namespace PixFootball.EditorTools
                 Vector3 lp = (t.LT != null ? t.LT.position : t.LF.position), rp = (t.RT != null ? t.RT.position : t.RF.position);
                 r.Stagger = Vector3.Dot(rp - lp, fwd); r.Width = Mathf.Abs(Vector3.Dot(rp - lp, Vector3.Cross(Vector3.up, fwd)));
                 r.SimX = a.StartPos.X - sim.BallX0; r.SimY = a.StartPos.Y - sim.LosY;
+                { bool inSt = a.Action == AgentAction.Stance; if (!inSt) _stSince[i] = -1; else if (_stSince[i] < 0) _stSince[i] = _frame; r.SecSet = inSt ? (_frame - _stSince[i]) / 60f : 0f; r.PoseW = v.StanceLayer != null ? v.StanceLayer.Weight : -1f; }      // v0.13.0: how long the body has been in his stance, and the weight of the stance pose layer
                 _stanceNow[i] = r;
             }
             _stanceFresh = true;
@@ -148,7 +152,7 @@ namespace PixFootball.EditorTools
             for (int i = 0; i < 22; i++)
             {
                 var r = _stanceNow[i]; if (!r.Ok) continue;
-                _stanceCsv.AppendLine(string.Join(",", new[] { _dir.PlayNumber.ToString(), sim.Kind.ToString(), i.ToString(), r.Pos, r.Group, r.Stance, F(r.HipsY), F(r.HeadY), F(r.HandL), F(r.HandR), F(r.LowToe), F(r.Lean), F(r.YawErr), F(r.Stagger), F(r.Width), F(r.HeadBelowHips), F(r.SimX), F(r.SimY) }));
+                _stanceCsv.AppendLine(string.Join(",", new[] { _dir.PlayNumber.ToString(), sim.Kind.ToString(), i.ToString(), r.Pos, r.Group, r.Stance, F(r.HipsY), F(r.HeadY), F(r.HandL), F(r.HandR), F(r.LowToe), F(r.Lean), F(r.YawErr), F(r.Stagger), F(r.Width), F(r.HeadBelowHips), F(r.SimX), F(r.SimY), F(r.PoseW), F(r.SecSet) }));
                 string k = r.Group + "/" + r.Stance;
                 S("stance hipsY " + k, r.HipsY); S("stance headY " + k, r.HeadY); S("stance trunkLean " + k, r.Lean); S("stance lowToe " + k, r.LowToe); S("stance yawErr " + k, r.YawErr);
                 S("stance minHand " + k, Mathf.Min(r.HandL, r.HandR));
@@ -172,6 +176,7 @@ namespace PixFootball.EditorTools
                 if (r.LowToe < -0.06f) Issue("STANCE_FEET_IN_TURF_" + r.Group, ctx, r.LowToe, i);
                 if (r.YawErr > 40f) Issue("STANCE_FACING_OFF_SIM_" + r.Group, ctx, r.YawErr, i, true);
             }
+            for (int i = 0; i < 22; i++) _stSince[i] = -1;      // v0.13.0: the next pre-snap starts counting again
             _stanceFresh = false;
         }
         static string F(float x) { return x.ToString("0.00", CI); }
@@ -214,6 +219,10 @@ namespace PixFootball.EditorTools
             int[] teamNoBody = new int[2], teamInactive = new int[2], teamMissingParts = new int[2], teamOutOfFrustum = new int[2], teamOnField = new int[2], teamOffField = new int[2];
             Vector3[] hipP = new Vector3[22]; bool[] hipOk = new bool[22]; float[] hipSpd = new float[22];
             Vector3 ballU = st.Ball != null ? st.Ball.Position : Vector3.zero;
+            // v0.13.0 STANCE-HEAD: where each team's huddle ring is (the mean of the bodies the view has in the huddle)
+            _hudC[0] = _hudC[1] = Vector3.zero; _hudN[0] = _hudN[1] = 0;
+            for (int hi = 0; hi < 22; hi++) { var hv = st.Views[hi]; if (hv != null && hv.Huddle && hv.gameObject.activeInHierarchy) { int ht = sim.Agents[hi].Side == SimSide.Offense ? 0 : 1; _hudC[ht] += hv.transform.position; _hudN[ht]++; } }
+            for (int ht = 0; ht < 2; ht++) if (_hudN[ht] > 0) _hudC[ht] /= _hudN[ht];
             for (int i = 0; i < 22; i++)
             {
                 var v = st.Views[i]; var a = sim.Agents[i]; int team = a.Side == SimSide.Offense ? 0 : 1;
@@ -360,6 +369,7 @@ namespace PixFootball.EditorTools
                 else { t.FloatRun = 0; t.AirRun = 0; t.SunkRun = 0; }
                 if (groundAct && !contact && lowest > 0.25f && hipsY > 0.7f) Issue("FLOAT_GROUND_ACTION_STANDING_HEIGHT_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " hips " + hipsY.ToString("0.00", CI), hipsY, i);
                 if (lowest < -0.07f) { H("frames with a foot more than 7 cm below the turf " + g); if (_frame % 20 == 0) Issue("FEET_BELOW_TURF_7CM_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " lowest " + lowest.ToString("0.00", CI) + " rootY " + gy.ToString("0.00", CI) + " hipsWorldY " + hp.y.ToString("0.00", CI) + " contact=" + contact + " ragdoll=" + (v.Ragdoll != null) + " clip " + (v.Rig != null ? v.Rig.CurrentClipName : "") + " animEnabled=" + t.An.enabled + " rootMotion=" + t.An.applyRootMotion + " localY " + v.transform.InverseTransformPoint(hp).y.ToString("0.00", CI), lowest, i, true); }
+                FeetProbe(i, v, t, a, sim, gy, speedMs, hipsY, lowest, contact);      // v0.13.0 STANCE-HEAD: bone vs drawn sole at every sunk-foot sample and at a control sample of the blocking bodies
                 foreach (var bn in new[] { t.LH, t.RH, t.Head })
                 { if (bn != null && bn.position.y - gy < -0.08f && !a.IsDown) { H("frames with hand/head below turf " + g); if (_frame % 20 == 0) Issue("HAND_OR_HEAD_BELOW_TURF_" + g, "agent " + i + " " + a.PlayPos + " bone " + bn.name + " " + (bn.position.y - gy).ToString("0.00", CI) + " act " + act, bn.position.y - gy, i); } }
                 // ---- foot slide / cadence
@@ -391,7 +401,23 @@ namespace PixFootball.EditorTools
                     // v0.12.0 CONTACT: the same view-speed guard as FLOAT_STANDING (a body that walks to his place turns toward where he walks); the v0.11 rule stays as _V011_RULE
                     bool faceStill = t.ViewSpeed < 0.35f;
                     if (speedMs < 1.0f && errF > 70f && act != AgentAction.Block && act != AgentAction.Engaged) { t.FaceRunOld++; if (t.FaceRunOld == 20) Issue("FACE_BODY_70DEG_OFF_SIM_FACING_STANDING_V011_RULE_" + g + (faceStill ? "_STILL" : "_MOVING"), "agent " + i + " " + a.PlayPos + " act " + act + " err " + errF.ToString("0") + " view speed " + t.ViewSpeed.ToString("0.00", CI), errF, i, false); } else t.FaceRunOld = 0;
-                    if (speedMs < 1.0f && errF > 70f && act != AgentAction.Block && act != AgentAction.Engaged && faceStill) { t.FaceRun++; if (t.FaceRun == 20) Issue("FACE_BODY_70DEG_OFF_SIM_FACING_STANDING_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " err " + errF.ToString("0"), errF, i); } else t.FaceRun = 0;
+                    // v0.13.0 STANCE-HEAD: the FACE rule counted the huddle: a body in the ring stands (the simulation already has him in Stance at 0 m/s, the view does not move him) facing the middle of the ring, 70 to 180 degrees off the line he will face at the snap (168 of the 172 counted runs of a 40-play game, 9 s each).
+                    // The rule now needs a body that is not in the huddle; the v0.12 rule stays as _V012_RULE (split _HUDDLE / _SET) and the ring itself is checked on its own (HUDDLE_FACING_OFF_RING_CENTRE_60DEG).
+                    bool faceCond = speedMs < 1.0f && errF > 70f && act != AgentAction.Block && act != AgentAction.Engaged && faceStill, hud = v.Huddle;
+                    if (faceCond) { t.FaceRunV012++; if (t.FaceRunV012 == 20) Issue("FACE_BODY_70DEG_OFF_SIM_FACING_STANDING_V012_RULE_" + g + (hud ? "_HUDDLE" : "_SET"), "agent " + i + " " + a.PlayPos + " act " + act + " err " + errF.ToString("0"), errF, i, false); } else t.FaceRunV012 = 0;
+                    if (faceCond && !hud) { t.FaceRun++; if (t.FaceRun == 20) { Issue("FACE_BODY_70DEG_OFF_SIM_FACING_STANDING_" + g, "agent " + i + " " + a.PlayPos + " act " + act + " err " + errF.ToString("0"), errF, i); FaceProbe(v, t, a, sim, pose, simYaw, speedMs, errF, 20, false); } } else { if (t.FaceRun >= 20) FaceProbe(v, t, a, sim, pose, simYaw, speedMs, errF, t.FaceRun, true); t.FaceRun = 0; }
+                    if (hud && _hudN[team] > 3)
+                    {
+                        Vector3 toC = _hudC[team] - vp; toC.y = 0f;
+                        if (toC.magnitude > 0.7f)
+                        {
+                            float eRing = Mathf.Abs(StanceRules.YawDelta(pose.Yaw, Mathf.Atan2(toC.x, toC.z) * Mathf.Rad2Deg));
+                            if (eRing > 60f) { t.HudRun++; if (t.HudRun == 20) { Issue("HUDDLE_FACING_OFF_RING_CENTRE_60DEG_" + g, "agent " + i + " " + a.PlayPos + " err " + eRing.ToString("0") + " ring of " + _hudN[team], eRing, i, false); FaceProbe(v, t, a, sim, pose, simYaw, speedMs, eRing, 20, false); } } else t.HudRun = 0;
+                        }
+                        else t.HudRun = 0;
+                    }
+                    else t.HudRun = 0;
+
                     if (speedMs > 3.0f && (act == AgentAction.Run || act == AgentAction.Sprint || act == AgentAction.Carry || act == AgentAction.Route))
                     {
                         Vector3 vd = frame.DirToUnity(a.Vel); float vy = Mathf.Atan2(vd.x, vd.z) * Mathf.Rad2Deg; float errV = Mathf.Abs(StanceRules.YawDelta(pose.Yaw, vy));
@@ -401,6 +427,7 @@ namespace PixFootball.EditorTools
                     }
                     else { t.TravelRun = 0; t.BackRun = 0; }
                 }
+                HeadSample(v, t, a, contact);      // v0.13.0 STANCE-HEAD
                 // ---- clip switching
                 string clip = v.Rig != null ? v.Rig.CurrentClipName : "";
                 if (t.Have && clip != t.PrevClip) { t.ClipSwitches++; if (_frame - t.LastClipSwitchFrame < 8) H("clip switches <0.13 s apart " + g); t.LastClipSwitchFrame = _frame; }

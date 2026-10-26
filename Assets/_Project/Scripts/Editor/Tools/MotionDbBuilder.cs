@@ -37,12 +37,17 @@ namespace PixFootball.EditorTools
             public string Name; public int Kind; public bool ForceOneShot; public float SpeedScale = 0f; public bool Lib; public float CadenceK = 0.5f;
             /// <summary>v0.12.0: folder of the FBX (null = the Mixamo set). The MoCap Online takes (<see cref="MobilityImport"/>) keep their cleaned and mirrored copies inside their own package folder.</summary>
             public string Dir;
+            /// <summary>v0.13.0 NATURAL-2: asset path of a ready Humanoid .anim (the 100STYLE slices, CC BY 4.0, Ian Mason); null = an FBX take. Pseudo = a take that is not a closed loop (seam over 6 cm) but plays like one: the matcher searches again when it ends and the inertializer hides the seam.</summary>
+            public string Anim; public bool Pseudo;
             public string Src { get { return Dir ?? MixamoImport.Folder; } }
             /// <summary>Where the cleaned and mirrored copies go: inside the MoCap Online package folder for its takes; a staging build (-pixMmDb) keeps the Mixamo copies next to it, never in the shared Mixamo folder.</summary>
-            public string OutDir { get { return Dir != null ? MobilityImport.OutDir : (Suffix.Length > 0 ? MobilityImport.StageRoot + "/Mixamo" : null); } }
+            public string OutDir { get { return Anim != null ? StyleOut : Dir != null ? MobilityImport.OutDir : (Suffix.Length > 0 ? MobilityImport.StageRoot + "/Mixamo" : null); } }
             /// <summary>Muscle statistics of one source (the offsets of the Mixamo export are not those of the MotusMan export).</summary>
-            public string Group { get { return Dir == null ? "mixamo" : "mobility"; } }
+            public string Group { get { return Anim != null ? "style100" : Dir == null ? "mixamo" : "mobility"; } }
         }
+
+        /// <summary>v0.13.0 NATURAL-2: the 100STYLE slices (.anim, root normalised, heading +Z) and the cleaned / mirrored copies the builder writes.</summary>
+        public const string StyleDir = "Assets/_Licensed/Style100/Clips", StyleOut = "Assets/_Licensed/Style100";
 
         public static List<Spec> Specs()
         {
@@ -68,6 +73,11 @@ namespace PixFootball.EditorTools
             // mix: the pack carries jog, run, the strafes and the walks; Mixamo stays where the pack has no take (the 2.4-2.7 m/s jog, the 4.4 m/s run, the back-runs). Measured per take in the plays (Docs/QA/v0120/mobility.md): the Mixamo strafes and jogs slide 0.17-0.29 m/s per stance, the pack's 0.03-0.08.
             if (src == "mix") L.RemoveAll(s => !MixamoKept.Contains(s.Name));
             if (src != "mixamo") AddMobility(L);
+            // v0.13.0 NATURAL-2: takes the per-take QA dropped (-pixMmDrop a,b or @file with one name per line) and the extra takes of the grown database (-pixMmList file)
+            string drop = LocoCycleScan.CmdArg("-pixMmDrop", "");
+            if (drop.Length > 0) { var dn = new HashSet<string>(drop[0] == '@' ? File.ReadAllLines(drop.Substring(1)).Select(x => x.Trim()).Where(x => x.Length > 0 && x[0] != '#') : drop.Split(',')); L.RemoveAll(s => dn.Contains(s.Name) || dn.Contains(s.Name.Replace("MOB1_", ""))); }
+            string listFile = LocoCycleScan.CmdArg("-pixMmList", "");
+            if (listFile.Length > 0 && File.Exists(listFile)) AddList(L, listFile);
             return L;
         }
 
@@ -111,6 +121,66 @@ namespace PixFootball.EditorTools
             }
         }
 
+        /// <summary>
+        /// v0.13.0 NATURAL-2: the extra takes of the grown database from a list file (-pixMmList), one per line: <c>name[,kind[,cadenceK]]</c> with kind loop | strafe | back | start | stop | cut | turn; # starts a comment.
+        /// <c>MOB1_*</c> = a MoCap Online FBX take (Root_Motion folder), <c>S100_*</c> = a 100STYLE slice (Assets/_Licensed/Style100/Clips), anything else = a Mixamo take. A name that is already in the set is skipped.
+        /// </summary>
+        static void AddList(List<Spec> L, string file)
+        {
+            var have = new HashSet<string>(L.Select(s => s.Name));
+            const int S = (int)MotionDb.Kind.Strafe, B = (int)MotionDb.Kind.Back, T = (int)MotionDb.Kind.Turn, St = (int)MotionDb.Kind.Start, Sp = (int)MotionDb.Kind.Stop, C = (int)MotionDb.Kind.Cut;
+            foreach (var raw in File.ReadAllLines(file))
+            {
+                string ln = raw.Trim(); if (ln.Length == 0 || ln[0] == '#') continue;
+                var p = ln.Split(','); string n = p[0].Trim(); if (n.Length == 0 || have.Contains(n)) continue;
+                string kn = p.Length > 1 ? p[1].Trim().ToLowerInvariant() : "loop";
+                int kind = kn == "strafe" ? S : kn == "back" ? B : kn == "start" ? St : kn == "stop" ? Sp : kn == "cut" ? C : kn == "turn" ? T : 0;
+                float ckv = 0.5f; bool haveCk = p.Length > 2 && float.TryParse(p[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ckv);
+                if (!haveCk) ckv = 0.5f;
+                var sp = new Spec { Name = n, Kind = kind, CadenceK = ckv };
+                if (n.StartsWith("MOB1_")) { sp.Dir = MobilityImport.Dir; if (!haveCk) sp.CadenceK = n.StartsWith("MOB1_Run_") ? CmdFloat("-pixMmRunK", 0.85f) : n.StartsWith("MOB1_Jog_") ? CmdFloat("-pixMmJogK", 0.6f) : 0.5f; }
+                else if (n.StartsWith("S100_")) { sp.Anim = StyleDir + "/" + n + ".anim"; sp.Pseudo = (kind & MotionDb.TransitionKinds) == 0; }
+                L.Add(sp); have.Add(n);
+            }
+        }
+
+        /// <summary>
+        /// v0.13.0 NATURAL-2: the 100STYLE slices carry their root translation (RootT) in the units of the avatar they were converted on: on the match body the root runs 16 times too fast (27 m/s for a 1.9 m/s stride) and
+        /// the hips are 15 m up. All three axes share one factor; it is read from the clip itself: the hips must sit as high above the lowest planted sole as the legs are long (so the sole of the planted foot is on the turf).
+        /// Returns the clip unchanged when it is already in match units, else an in-memory copy with RootT.x / y / z scaled (values and tangents). <paramref name="k"/> is the factor.
+        /// </summary>
+        static AnimationClip StyleRootFix(AvRig rig, FootPlant plant, AnimationClip src, out float k)
+        {
+            var fr = MixamoScan.Sample(rig, src, null, MotionDb.Fps, 0f);
+            float hy = 0f; var lows = new List<float>();
+            for (int i = 0; i < fr.Count; i++)
+            {
+                hy += fr[i].Hips.y;
+                lows.Add(Mathf.Min(Mathf.Min(fr[i].LT.y - plant.RestToeL, fr[i].LA.y - plant.RestAnkleL), Mathf.Min(fr[i].RT.y - plant.RestToeR, fr[i].RA.y - plant.RestAnkleR)));
+            }
+            hy /= Mathf.Max(1, fr.Count); lows.Sort(); float floor = lows[Mathf.Clamp((int)(0.03f * lows.Count), 0, lows.Count - 1)];
+            k = Mathf.Clamp((hy - floor) / Mathf.Max(0.1f, hy), 0.02f, 1f);
+            if (Mathf.Abs(k - 1f) < 0.03f) { k = 1f; return src; }
+            var c = UnityEngine.Object.Instantiate(src); c.name = src.name;
+            foreach (var b in AnimationUtility.GetCurveBindings(c))
+            {
+                if (b.type != typeof(Animator) || !string.IsNullOrEmpty(b.path) || (b.propertyName != "RootT.x" && b.propertyName != "RootT.y" && b.propertyName != "RootT.z")) continue;
+                var cv = AnimationUtility.GetEditorCurve(c, b); var keys = cv.keys;
+                for (int i = 0; i < keys.Length; i++) { keys[i].value *= k; keys[i].inTangent *= k; keys[i].outTangent *= k; }
+                cv.keys = keys; AnimationUtility.SetEditorCurve(c, b, cv);
+            }
+            return c;
+        }
+
+        static AnimationClip LoadSpecClip(Spec sp)
+        {
+            if (sp.Anim != null) return AssetDatabase.LoadAssetAtPath<AnimationClip>(sp.Anim);
+            return MixamoImport.LoadClip(sp.Src + "/" + sp.Name + ".fbx");
+        }
+
+        static readonly Dictionary<string, float> Prior = new Dictionary<string, float>();
+        static readonly List<string> ClipCsv = new List<string>();
+
         /// <summary>Steady loops (runs, jogs, strafes, back-pedals) bake the body's yaw sway into the pose; starts, stops and turns keep their turning in the root transform.</summary>
         public static bool BakesRotation(string name)
         {
@@ -132,6 +202,17 @@ namespace PixFootball.EditorTools
 
         static Vector2 Rot(Vector2 v, float deg) { float r = deg * Mathf.Deg2Rad, c = Mathf.Cos(r), s = Mathf.Sin(r); return new Vector2(v.x * c + v.y * s, -v.x * s + v.y * c); }       // world xz -> local (x right, y forward) for a root with yaw deg
 
+
+        /// <summary>v0.13.0 NATURAL-2: writes the normalisation (mean, scale) of an existing database (-pixMmDb path, default the shipped one) to Logs/motion/db_norm.csv, to be passed to the next build with -pixMmNormFile. Run: -executeMethod PixFootball.EditorTools.MotionDbBuilder.DumpNorm</summary>
+        public static void DumpNorm()
+        {
+            Directory.CreateDirectory("Logs/motion");
+            var db = AssetDatabase.LoadAssetAtPath<MotionDb>(MotionDb.AssetPath);
+            if (db == null) { Debug.LogError("[MotionDb] no database at " + MotionDb.AssetPath); return; }
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            File.WriteAllText("Logs/motion/db_norm.csv", string.Join(",", db.mean.Select(x => x.ToString("R", ic))) + "\n" + string.Join(",", db.scale.Select(x => x.ToString("R", ic))) + "\n");
+            Debug.Log("[MotionDb] norm of " + MotionDb.AssetPath + ": " + db.clips.Count + " clips, " + db.Rows + " rows");
+        }
         public static void Build()
         {
             BatchWatchdog.Arm(25);
@@ -144,14 +225,15 @@ namespace PixFootball.EditorTools
             var rows = new List<float[]>(); var vel = new List<float>(); var yawr = new List<float>(); var contact = new List<byte>(); var clipOf = new List<int>();
             var report = new StringBuilder();
             string only = LocoCycleScan.CmdArg("-pixMmOnly", ""), skip = LocoCycleScan.CmdArg("-pixMmSkip", "");
-            Calib.Clear();
+            Calib.Clear(); Prior.Clear(); ClipCsv.Clear();
+            { string pf = LocoCycleScan.CmdArg("-pixMmPriorFile", ""); if (pf.Length > 0 && File.Exists(pf)) foreach (var ln in File.ReadAllLines(pf)) { var p = ln.Split(','); float t; if (p.Length >= 2 && p[0].Trim().Length > 0 && p[0][0] != '#' && float.TryParse(p[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out t)) Prior[p[0].Trim()] = t; } }      // v0.13.0 NATURAL-2: per-take quality prior (name,prior)
             if (LocoCycleScan.CmdArg("-pixMmCalib", "0") == "1" && File.Exists(CalibPath)) foreach (var ln in File.ReadAllLines(CalibPath).Skip(1)) { var p = ln.Split(','); float t; if (p.Length >= 3 && float.TryParse(p[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out t)) Calib[p[0]] = t; }
             // humanoid muscles inside human range: re-zero the left arm chain, soft-limit the rest (MotionClean)
             bool noClean = LocoCycleScan.CmdArg("-pixMmNoClean", "0") == "1"; int cleanBefore = 0, cleanAfter = 0;
             var specs = Specs(); var deltaOf = new Dictionary<string, Dictionary<string, float>>();
             foreach (var grp in specs.Where(s => !s.Lib).GroupBy(s => s.Group))
             {
-                var allClips = new List<AnimationClip>(); foreach (var sp in grp) { var cc = MixamoImport.LoadClip(sp.Src + "/" + sp.Name + ".fbx"); if (cc != null) allClips.Add(cc); }
+                var allClips = new List<AnimationClip>(); foreach (var sp in grp) { var cc = LoadSpecClip(sp); if (cc != null) allClips.Add(cc); }
                 var dl = MotionClean.Deltas(MuscleReport.Collect(allClips)); deltaOf[grp.Key] = dl; report.AppendLine("muscle re-zero (" + grp.Key + "): " + string.Join(", ", dl.Select(kv => kv.Key + " " + kv.Value.ToString("+0.00;-0.00"))));
             }
             foreach (var spec in specs)
@@ -159,14 +241,15 @@ namespace PixFootball.EditorTools
                 if (only.Length > 0 && !only.Split(',').Contains(spec.Name)) continue;
                 if (skip.Length > 0 && skip.Split(',').Contains(spec.Name)) continue;      // QA: leave takes out (-pixMmSkip a,b)
                 string path = spec.Src + "/" + spec.Name + ".fbx";
-                var clip = spec.Lib ? LocoCycleBuilder.FindExact(spec.Name) : MixamoImport.LoadClip(path);
+                var clip = spec.Lib ? LocoCycleBuilder.FindExact(spec.Name) : LoadSpecClip(spec);
                 if (clip == null) { Debug.LogWarning("[MotionDb] missing " + path); continue; }
+                if (spec.Anim != null) { float sk; clip = StyleRootFix(rig, plant, clip, out sk); report.AppendLine("root fix " + spec.Name + " k " + sk.ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture)); }      // v0.13.0 NATURAL-2: 100STYLE root units
                 if (!spec.Lib && !noClean) { int cb, ca; clip = MotionClean.Clean(clip, spec.Name, deltaOf[spec.Group], out cb, out ca, spec.OutDir == null ? null : spec.OutDir + "/Clean"); cleanBefore += cb; cleanAfter += ca; }
                 AddClip(db, rig, plant, clip, spec, rows, vel, yawr, contact, clipOf, report);
                 if (!spec.Lib && LocoCycleScan.CmdArg("-pixMmNoMirror", "0") != "1")
                 {
                     int orig = db.clips.Count - 1; var tw = MakeMirror(clip, spec.Name, spec.OutDir);
-                    AddClip(db, rig, plant, tw, new Spec { Name = spec.Name + "_M", Kind = spec.Kind, Dir = spec.Dir, SpeedScale = spec.SpeedScale, CadenceK = spec.CadenceK }, rows, vel, yawr, contact, clipOf, report);
+                    AddClip(db, rig, plant, tw, new Spec { Name = spec.Name + "_M", Kind = spec.Kind, Dir = spec.Dir, Anim = spec.Anim, Pseudo = spec.Pseudo, SpeedScale = spec.SpeedScale, CadenceK = spec.CadenceK }, rows, vel, yawr, contact, clipOf, report);
                     db.clips[db.clips.Count - 1].mirrorOf = orig; db.clips[orig].mirrorOf = db.clips.Count - 1;
                 }
             }
@@ -181,6 +264,9 @@ namespace PixFootball.EditorTools
             }
             db.mean = mean; db.scale = new float[D];
             for (int i = 0; i < D; i++) db.scale[i] = Weights[i] / std[i];
+            // v0.13.0 NATURAL-2: -pixMmNormFile keeps the normalisation of the database the other takes were tuned on (a hundred slow 100STYLE takes would otherwise shrink the spread of the velocity features and with it the cost scale of every old take)
+            File.WriteAllText("Logs/motion/db_norm.csv", string.Join(",", mean.Select(x => x.ToString("R", System.Globalization.CultureInfo.InvariantCulture))) + "\n" + string.Join(",", db.scale.Select(x => x.ToString("R", System.Globalization.CultureInfo.InvariantCulture))) + "\n");
+            { string nf = LocoCycleScan.CmdArg("-pixMmNormFile", ""); if (nf.Length > 0 && File.Exists(nf)) { var nl = File.ReadAllLines(nf); if (nl.Length >= 2) { var nm = nl[0].Split(','); var ns = nl[1].Split(','); if (nm.Length == D && ns.Length == D) for (int i = 0; i < D; i++) { mean[i] = float.Parse(nm[i], System.Globalization.CultureInfo.InvariantCulture); db.scale[i] = float.Parse(ns[i], System.Globalization.CultureInfo.InvariantCulture); } } } }
             db.feat = new float[n * D];
             for (int r = 0; r < n; r++) for (int i = 0; i < D; i++) db.feat[r * D + i] = (rows[r][i] - mean[i]) * db.scale[i];
             db.vel = vel.ToArray(); db.yawRate = yawr.ToArray(); db.contact = contact.ToArray(); db.clipOf = clipOf.ToArray();
@@ -192,6 +278,7 @@ namespace PixFootball.EditorTools
             report.AppendLine("muscle samples beyond the limit: " + cleanBefore + " before, " + cleanAfter + " after cleaning");
             report.AppendLine("rows " + n + " clips " + db.clips.Count + " std " + string.Join(" ", std.Select(x => x.ToString("0.00"))));
             File.WriteAllText("Logs/motion/db_report.txt", report.ToString());
+            File.WriteAllText("Logs/motion/db_clips.csv", "name,kind,loop,pseudo,frames,speed,angle,native,rootMean,scale,stepsPerSec,floorY,seam,flightRel,slideAtRoot,hipsYawMean,hipsYawSd,contactL,contactR,turnRate,len\n" + string.Join("\n", ClipCsv) + "\n");      // v0.13.0 NATURAL-2: one row per database clip, for the per-take QA
             rig.Dispose();
             Debug.Log("[MotionDb] built " + db.clips.Count + " clips, " + n + " rows");
         }
@@ -266,6 +353,7 @@ namespace PixFootball.EditorTools
             int N = fr.Count - 1; const float dt = 1f / MotionDb.Fps;
             var sc = MixamoScan.Analyze(rig, plant, clip, false, null, by);
             bool seam = sc.Seam < 0.06f && !spec.ForceOneShot && (spec.Kind & ((int)MotionDb.Kind.Start | (int)MotionDb.Kind.Stop | (int)MotionDb.Kind.Turn | (int)MotionDb.Kind.Cut)) == 0;
+            bool cyc = seam || spec.Pseudo;      // v0.13.0 NATURAL-2: a slice that does not close (100STYLE) is measured and calibrated like a loop
             int count = seam ? N : N + 1;       // a loop drops the closing duplicate frame
             // world root track
             var pos = new Vector2[N + 1]; var yaw = new float[N + 1];
@@ -306,7 +394,7 @@ namespace PixFootball.EditorTools
                     if (pass == 1) { cl[i] = sl; cr[i] = sr; }
                 }
             // a foot that skims the turf while it swings forward is not in contact: during a stance the foot moves BACKWARD relative to the body (along the travel direction) at a good share of the ground speed
-            if (seam && vMean.magnitude > 1.5f)
+            if (cyc && vMean.magnitude > 1.5f)
             {
                 Vector2 dl = Rot(vMean, at(0).Yaw).normalized; float thr = -0.28f * vMean.magnitude;
                 for (int i = 0; i <= N; i++)
@@ -324,8 +412,8 @@ namespace PixFootball.EditorTools
             int planted = cl.Count(x => x) + cr.Count(x => x);
             Vector2 nat; int natRuns = 0; bool haveNat = NativeVelocity(rig, plant, clip, Rot(vMean, at(0).Yaw), vMean.magnitude, by, out nat, out natRuns);
             float rootMean = vMean.magnitude;
-            if (spec.SpeedScale <= 0f && seam && haveNat && natRuns >= 2 && nat.magnitude > 0.8f && rootMean > 0.8f) scale = Mathf.Clamp(nat.magnitude / rootMean, 0.5f, 1.3f);      // the take moves at the speed its planted feet say (stride warp and playback rate are measured against it), not at the root motion speed
-            { float tr; if (seam && Calib.TryGetValue(spec.Name, out tr)) scale = Mathf.Clamp(scale / tr, 0.4f, 1.6f); }      // learned on the treadmill (LocoShots mmlearn)
+            if (spec.SpeedScale <= 0f && cyc && haveNat && natRuns >= 2 && nat.magnitude > 0.8f && rootMean > 0.8f) scale = Mathf.Clamp(nat.magnitude / rootMean, 0.5f, 1.3f);      // the take moves at the speed its planted feet say (stride warp and playback rate are measured against it), not at the root motion speed
+            { float tr; if (cyc && Calib.TryGetValue(spec.Name, out tr)) scale = Mathf.Clamp(scale / tr, 0.4f, 1.6f); }      // learned on the treadmill (LocoShots mmlearn)
             _ = planted;
             var ci = new MotionDb.Clip { name = spec.Name, clip = clip, first = rows.Count, count = count, loop = seam, kind = spec.Kind | (seam ? (int)MotionDb.Kind.Loop : 0) };
             int clipIndex = db.clips.Count;
@@ -368,6 +456,13 @@ namespace PixFootball.EditorTools
             ci.turnRate = dth / (N * dt);
             ci.cadenceK = spec.CadenceK; ci.speedScale = scale; ci.floorY = Mathf.Clamp(floor, -0.05f, 0.16f);
             ci.stepsPerSec = sc.SteppsPerSec;
+            { float pr; if (Prior.TryGetValue(spec.Name.EndsWith("_M") ? spec.Name.Substring(0, spec.Name.Length - 2) : spec.Name, out pr)) ci.prior = pr; }      // v0.13.0 NATURAL-2: the per-take QA verdict as a cost
+            // facing of the pelvis in the root frame (mean and spread, degrees): the per-take QA drops takes whose pelvis does not face the way the root does (a 100STYLE swagger twists 20 degrees)
+            float hyM = 0f, hyS = 0f;
+            { var hy = new float[N + 1]; for (int i = 0; i <= N; i++) { hy[i] = Mathf.DeltaAngle(0f, fr[i].HipsRot.eulerAngles.y); hyM += hy[i]; } hyM /= N + 1; for (int i = 0; i <= N; i++) hyS += (hy[i] - hyM) * (hy[i] - hyM); hyS = Mathf.Sqrt(hyS / (N + 1)); }
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ClipCsv.Add(string.Join(",", new[] { spec.Name, ci.kind.ToString(), (seam ? 1 : 0).ToString(), (spec.Pseudo ? 1 : 0).ToString(), count.ToString(), ci.speed.ToString("0.00", ic), ci.angle.ToString("0", ic), (haveNat ? nat.magnitude : 0f).ToString("0.00", ic), rootMean.ToString("0.00", ic), scale.ToString("0.000", ic),
+                sc.SteppsPerSec.ToString("0.00", ic), ci.floorY.ToString("0.000", ic), sc.Seam.ToString("0.000", ic), sc.FlightRel.ToString("0.00", ic), sc.SlideMean.ToString("0.00", ic), hyM.ToString("0.0", ic), hyS.ToString("0.0", ic), cl.Count(x => x).ToString(), cr.Count(x => x).ToString(), ci.turnRate.ToString("0", ic), (clip.length).ToString("0.00", ic) }));
             db.clips.Add(ci);
             report.AppendLine(spec.Name.PadRight(40) + " rootMean " + rootMean.ToString("0.00") + " native " + (haveNat ? nat.magnitude.ToString("0.00") : "-") + " runs " + natRuns + " scale " + scale.ToString("0.00") + " frames " + count + (seam ? " loop" : " once") + " speed " + ci.speed.ToString("0.00") + " angle " + ci.angle.ToString("0") + " turn " + ci.turnRate.ToString("0") + " floor " + floor.ToString("0.000") + " contactL " + cl.Count(x => x) + " contactR " + cr.Count(x => x));
         }

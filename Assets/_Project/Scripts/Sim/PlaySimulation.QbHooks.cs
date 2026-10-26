@@ -15,5 +15,11 @@ namespace PixFootball.Sim
         public float QbTakeoffAt { get { return OffAI != null ? OffAI.QbTakeoffAt : -1f; } }
         /// <summary>QA: the quarterback has decided to run (the audit measures against it in the v0.10.0 A/B mode too).</summary>
         public bool QbTakeoffIntent { get { return OffAI != null && OffAI.QbTakeoffIntentNow; } }
+        /// <summary>v0.13.0 QB-2: simulation time the drop clock starts / the planned arrival at the drop point (-1 = no drop planned or not begun), and the id of the planned QB action (QbAction).</summary>
+        public float QbDropStartAt { get { return OffAI != null ? OffAI.DropStartAt : -1f; } }
+        public float QbDropEndAt { get { return OffAI != null ? OffAI.DropEndAt : -1f; } }
+        public int QbPlanActionId { get { return OffAI != null ? (int)OffAI.QbPlanAction : -1; } }
+        public float QbDropDuration { get { return OffAI != null ? OffAI.DropDuration : 0f; } }
+        public void QbRefitDrop(float distScale, float dur) { if (OffAI != null) OffAI.RefitDrop(distScale, dur); }
     }
 }

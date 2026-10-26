@@ -18,6 +18,7 @@ rest = argv[3:]
 only = skip = None
 objre = re.compile('^root', re.I)
 fps_override = 0
+split_ab = False
 force = False                      # QA-929: --force re-bakes and overwrites outputs that already exist
 files = []
 i = 0
@@ -26,7 +27,8 @@ while i < len(rest):
     elif rest[i] == '--skip': skip = re.compile(rest[i + 1], re.I); i += 2
     elif rest[i] == '--fps': fps_override = int(rest[i + 1]); i += 2
     elif rest[i] == '--obj': objre = re.compile(rest[i + 1], re.I); i += 2
-    elif rest[i] == '--force': force = True; i += 1
+    elif rest[i] == "--force": force = True; i += 1
+    elif rest[i] == "--split": split_ab = True; i += 1
     else: files.append(rest[i]); i += 1
 os.makedirs(out_dir, exist_ok=True)
 
@@ -109,7 +111,7 @@ for a in list(bpy.data.actions): bpy.data.actions.remove(a)
 
 def sname(o):
     """map of un-prefixed bone name -> actual bone name (Maya-style imports prefix every bone with "1:")"""
-    return {re.sub(r"^[0-9]+:", "", b.name): b.name for b in o.data.bones}
+    return {re.sub(r"^[^:]+:", "", b.name): b.name for b in o.data.bones}
 
 
 def ground_z(o):
@@ -118,7 +120,13 @@ def ground_z(o):
 
 
 total = 0
-for src in files:
+# v0.13 (BULK-2): "--split" - a two-actor studio take (<name>_AB.fbx: two armatures, the "Krzysztof:" prefixed one is actor A, the plain one actor B) is baked twice and
+# written as <name>_A and <name>_B (same frame range, so the pair stays in sync). Files that do not end in _AB are baked as before.
+jobs = []
+for f in files:
+    if split_ab and re.search(r"_AB.fbx$", f, re.I): jobs += [(f, "A"), (f, "B")]
+    else: jobs.append((f, None))
+for src, role in jobs:
     t_src = time.time()
     try:
         before_actions = set(bpy.data.actions)
@@ -129,9 +137,16 @@ for src in files:
             arms = [o for o in arms if "root.x" in sname(o)]
         if not arms or "root.x" not in sname(arms[0]):
             print("SKIP (not ARP)", src); purge(objs); continue
-        A = max(arms, key=lambda o: len(o.data.bones))
+        if role:
+            cand = [o for o in arms if (not (o.name.startswith("2:") or ":" not in o.name)) == (role == "A")]      # A = "1:" / "Krzysztof:" prefix, B = "2:" or no prefix
+            if not cand: print("SKIP (no actor %s)" % role, src); purge(objs); continue
+            A = cand[0]
+        else:
+            A = max(arms, key=lambda o: len(o.data.bones))
         fps = bpy.context.scene.render.fps
         new_actions = [a for a in bpy.data.actions if a not in before_actions]
+        if role:
+            new_actions = [A.animation_data.action] if A.animation_data and A.animation_data.action else []
         purge([o for o in objs if o.type != 'ARMATURE' or o is not A])
         SA = sname(A)
         if is_blend:
@@ -168,6 +183,7 @@ for src in files:
             nm = clean_name(act.name)
             if single:
                 nm = clean_name(os.path.splitext(os.path.basename(src))[0])
+                if role: nm = re.sub(r"_AB$", "_" + role, nm)
             if nm in seen: continue
             seen.add(nm)
             if only and not only.search(nm): continue

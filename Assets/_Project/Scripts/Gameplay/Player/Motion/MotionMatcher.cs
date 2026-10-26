@@ -17,9 +17,20 @@ namespace PixFootball.Gameplay
     public sealed class MotionMatcher
     {
         public static bool Wanted = true;
-        public const float SearchInterval = 0.10f, MinDwell = 0.16f, StayFactor = 0.78f;
+        public const float SearchInterval = 0.10f;
+        /// <summary>A take is only left when the best row costs less than <see cref="StayFactor"/> of the playing one, and not within <see cref="MinDwell"/> s of the last switch unless it is far better (v0.13.0: static for the QA switches -pixMmStay, -pixMmDwell; defaults are the v0.10 values).</summary>
+        public static float MinDwell = ArgF2("-pixMmDwell", 0.16f), StayFactor = ArgF2("-pixMmStay", 0.78f);
         /// <summary>Search weights beyond the feature weights: the stride warp must stay within +-15 percent of the speed of the matched frame.</summary>
-        public const float WarpLimit = 0.15f, WarpPenalty = 6f;
+        public const float WarpLimit = 0.15f;
+        /// <summary>Weight of the stride-warp penalty beyond +-<see cref="WarpLimit"/> of a take's own speed (v0.10: 6). v0.13.0 NATURAL-2: the personal choice among many takes (MotionStyle) must never carry a take further from the wanted speed than the warp can stretch it, so the penalty is steeper (QA: -pixMmWarpPen).</summary>
+        public static float WarpPenalty = ArgF2("-pixMmWarpPen", 20f);
+        /// <summary>v0.13.0 NATURAL-3: cost (per foot) of a candidate row from another take whose planted / airborne feet differ from the playing row (QA: -pixMmContactPen; 0 = off).</summary>
+        public static float ContactPen = ArgF2("-pixMmContactPen", 4f);
+        /// <summary>QA: -pixMmNoPlanGuard switches the plan-speed guard of the speed penalty off.</summary>
+        public static bool PlanGuard = Array.IndexOf(Environment.GetCommandLineArgs(), "-pixMmNoPlanGuard") < 0;
+        /// <summary>v0.13.0 NATURAL-2: time constants (s) of the speed the warp is computed from and of the warp itself once the take has played 0.25 s (the stride follows an accelerating body: at 7 m/s2 a lag of 0.08 s is a planted foot that slides 0.5 m/s). QA: -pixMmSpeedTau, -pixMmWarpTau.</summary>
+        public static float SpeedTau = ArgF2("-pixMmSpeedTau", 0.015f), WarpTau = ArgF2("-pixMmWarpTau", 0.020f);
+        static float ArgF2(string name, float def) { var a = Environment.GetCommandLineArgs(); int i = Array.IndexOf(a, name); float v; return i >= 0 && i + 1 < a.Length && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : def; }
 
         /// <summary>Foot state at the moment control leaves the matcher (or is asked for): the action picks its entry frame from it.</summary>
         public struct FootPhase
@@ -54,6 +65,9 @@ namespace PixFootball.Gameplay
         public float Rate { get; private set; } = 1f;
         /// <summary>v0.12.0 NATURAL: this player's own cadence factor for the loops (set by the view each frame, 1 = the database's).</summary>
         public float StyleRate = 1f;
+        /// <summary>v0.13.0 NATURAL-2: who this matcher plays for (his id and position group): the personal choice among the takes of the database (<see cref="MotionStyle"/>), set by the view each frame.</summary>
+        public int StyleSeed; public PlayerRole StyleRole;
+        float[] _personal, _tot; int _persSeed = int.MinValue; PlayerRole _persRole = (PlayerRole)(-1);
         public bool LeftContact { get; private set; }
         public bool RightContact { get; private set; }
         /// <summary>Orientation warp: degrees the legs are turned toward the travel direction (the upper body keeps the facing).</summary>
@@ -209,7 +223,7 @@ namespace PixFootball.Gameplay
             if (!Ready || dt <= 1e-5f) return false;
             float speed = qy.Vel.magnitude;
             if (!_vHave) { _vSmooth = speed; _vHave = true; }
-            _vSmooth = Mathf.Lerp(_vSmooth, speed, 1f - Mathf.Exp(-dt / 0.035f));
+            _vSmooth = Mathf.Lerp(_vSmooth, speed, 1f - Mathf.Exp(-dt / SpeedTau));
             float planSpeed = (qy.P3 - qy.P1).magnitude / 0.67f;
             bool stopHold = _row >= 0 && (_db.clips[_clip].kind & (int)MotionDb.Kind.Stop) != 0 && !_ended;
             // the matched takes start at a jog: below that the animator tree walks (pre-snap shifts, walking after the whistle); a standing start towards a run has a fast planned path and takes the start take
@@ -248,6 +262,7 @@ namespace PixFootball.Gameplay
             // ---- play the frame
             var cur = _db.clips[_clip];
             if (SelLog != null) { float sc; _selSeconds.TryGetValue(cur.name, out sc); _selSeconds[cur.name] = sc + dt; }
+            ClipUsage.Hold(cur.clip, "MotionMatcher", dt);      // v0.13.0 COVERAGE
             SetActive(_clip);
             var pl = _cp[_clip];
             pl.SetTime(Mathf.Clamp(_t, 0f, cur.clip.length));
@@ -260,7 +275,7 @@ namespace PixFootball.Gameplay
             if (!shot && Mathf.Abs(StyleRate - 1f) > 1e-4f) rate = Mathf.Clamp(rate * StyleRate, 0.85f, RateMax * 1.08f);      // v0.12.0 NATURAL: his own cadence (the warp below takes the difference back: same ground speed, his own step rate and stride)
             Rate = Mathf.Lerp(Rate, rate, 1f - Mathf.Exp(-dt / 0.06f));
             float warpT = Mathf.Clamp(r / Mathf.Max(0.5f, Rate) * TrimOf(_clip), 0.5f, 1.6f);
-            Warp = fresh ? warpT : Mathf.Lerp(Warp, warpT, 1f - Mathf.Exp(-dt / 0.045f));      // a jump to another take must not jerk the planted feet
+            Warp = fresh ? warpT : Mathf.Lerp(Warp, warpT, 1f - Mathf.Exp(-dt / (_sinceSwitch > 0.25f ? WarpTau : 0.045f)));      // a jump to another take must not jerk the planted feet (v0.13.0: a steady take tracks the speed with WarpTau)
             // ---- orientation warp: turn the legs from the travel direction of the clip to the simulated travel direction
             float ow = 0f;
             if (gv > 1.2f && _vSmooth > 1.2f)
@@ -309,6 +324,15 @@ namespace PixFootball.Gameplay
             else if (qy.LiveFeet != null) for (int i = 0; i < 10; i++) _q[i] = qy.LiveFeet[i];
         }
 
+        /// <summary>v0.13.0 NATURAL-2: the personal part of the cost per take (his spread, his two favourite 100STYLE families, the take's quality prior) is built once per player; the recent-use part is added for every search.</summary>
+        void PrepareBias()
+        {
+            int n = _db.clips.Count;
+            if (_personal == null || _personal.Length != n) { _personal = new float[n]; _tot = new float[n]; _persSeed = int.MinValue; }
+            if (_persSeed != StyleSeed || _persRole != StyleRole) { MotionStyle.Personal(_db, StyleSeed, StyleRole, _personal); _persSeed = StyleSeed; _persRole = StyleRole; }
+            MotionStyle.Total(_db, _personal, _tot);
+        }
+
         void Search(in Query qy, float ls, bool fresh)
         {
             BuildQuery(qy, ls, fresh);
@@ -324,14 +348,17 @@ namespace PixFootball.Gameplay
             }
             float best; int bi;
             float speedNow = qy.Vel.magnitude / ls;
+            float wantMax = PlanGuard ? Mathf.Max(speedNow, 0.9f * qy.P3.magnitude / ls) : 0f;      // v0.13.0 NATURAL-2: the average speed of the planned second
             int cont = _row >= 0 && !_ended ? _db.Next(_row) : -1;
             float turnPen = Mathf.Abs(qy.Yaw3) < 15f && Mathf.Abs(qy.Yaw2) < 15f ? 2.5f : 0f;
-            bi = _db.Search(_q, speedNow, WarpLimit, WarpPenalty, masked ? 10 : 0, forbid, out best, ForceClip, turnPen);
+            PrepareBias();
+            bi = _db.Search(_q, speedNow, WarpLimit, WarpPenalty, masked ? 10 : 0, forbid, out best, ForceClip, turnPen, _tot, masked && MotionStyle.Enabled ? StyleSeed * 31 + 7 : 0, wantMax, !fresh && !_ended && _row >= 0 ? (_db.contact[_row] & 3) : -1, ContactPen, _clip);
             if (bi < 0) return;
             LastCost = best;
             if (cont >= 0)
             {
-                float cc = _db.Distance(_q, cont) + _db.SpeedPenalty(cont, speedNow, WarpLimit, WarpPenalty);
+                float cc = _db.Distance(_q, cont) + _db.SpeedPenalty(cont, speedNow, WarpLimit, WarpPenalty, wantMax);
+                cc += _personal[_db.clipOf[cont]];      // v0.13.0 NATURAL-2: the playing take keeps his personal cost but not the recent-use cost (nobody is pushed off a take for being in it)
                 if (turnPen > 0f && (_db.clips[_db.clipOf[cont]].kind & (int)MotionDb.Kind.Turn) != 0) cc += turnPen;
                 bool sameClip = _db.clipOf[bi] == _clip && Mathf.Abs(bi - cont) <= 1;
                 if (sameClip || best >= cc * StayFactor || _sinceSwitch < MinDwell && best >= cc * 0.45f) return;     // keep playing
@@ -345,7 +372,9 @@ namespace PixFootball.Gameplay
             bool newClip = c != _clip;
             _clip = c; _row = row; _t = (row - _db.clips[c].first) / MotionDb.Fps; _ended = false;
             _sinceSwitch = 0f; Switches++; _switched = true;
-            if (newClip && SelLog != null) Selected(_db.clips[c].name);
+            ClipUsage.Note(_db.clips[c].clip, "MotionMatcher");      // v0.13.0 COVERAGE: one count per selection
+            if (newClip) MotionStyle.NoteUse(_db, c);      // v0.13.0 NATURAL-2
+            if (newClip && SelLog != null) Selected(_db.clips[c].name, LastCost);
         }
 
         // ------------------------------------------------------------------------------------------ QA: which takes the matcher chooses
@@ -354,11 +383,13 @@ namespace PixFootball.Gameplay
         static string ArgOf(string name) { var a = Environment.GetCommandLineArgs(); int i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
         static readonly System.Collections.Generic.Dictionary<string, int> _selEnter = new System.Collections.Generic.Dictionary<string, int>();
         static readonly System.Collections.Generic.Dictionary<string, float> _selSeconds = new System.Collections.Generic.Dictionary<string, float>();
+        static readonly System.Collections.Generic.Dictionary<string, float> _selCost = new System.Collections.Generic.Dictionary<string, float>();
         static int _selTotal; static bool _selHooked;
 
-        static void Selected(string name)
+        static void Selected(string name, float cost)
         {
             int n; _selEnter.TryGetValue(name, out n); _selEnter[name] = n + 1;
+            float cs; _selCost.TryGetValue(name, out cs); _selCost[name] = cs + cost;
             if (!_selHooked) { _selHooked = true; Application.quitting += FlushSelections; }
             if (++_selTotal % 400 == 0) FlushSelections();
         }
@@ -368,8 +399,8 @@ namespace PixFootball.Gameplay
             if (SelLog == null) return;
             try
             {
-                var sb = new System.Text.StringBuilder("clip,entered,seconds\n");
-                foreach (var kv in _selEnter) { float s; _selSeconds.TryGetValue(kv.Key, out s); sb.Append(kv.Key).Append(',').Append(kv.Value).Append(',').Append(s.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)).Append('\n'); }
+                var sb = new System.Text.StringBuilder("clip,entered,seconds,meanCost\n");
+                foreach (var kv in _selEnter) { float s, cs; _selSeconds.TryGetValue(kv.Key, out s); _selCost.TryGetValue(kv.Key, out cs); sb.Append(kv.Key).Append(',').Append(kv.Value).Append(',').Append(s.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append((cs / Mathf.Max(1, kv.Value)).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append('\n'); }
                 System.IO.File.WriteAllText(SelLog, sb.ToString());
             }
             catch (System.Exception) { }

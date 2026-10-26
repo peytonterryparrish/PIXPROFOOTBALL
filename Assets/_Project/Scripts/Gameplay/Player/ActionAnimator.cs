@@ -29,6 +29,7 @@ namespace PixFootball.Gameplay
             public float MaskSpeed;
             // v0.10.0 CHOREO: seconds since the mask last changed (a mask flip is a pose pop: a slot keeps its mask for at least 0.4 s)
             public float MaskT;
+            public string Sys;      // v0.13.0 COVERAGE: calling class.method (ClipUsage; null while not recording)
             public float Eff { get { return Smooth(W); } }
         }
 
@@ -163,10 +164,12 @@ namespace PixFootball.Gameplay
         public void Play(in ClipPlan p) { NextMaskSpeed = p.MaskSpeed; Play(p.Clip, p.Start, p.End, p.Speed, p.FadeIn, p.FadeOut, p.Loop, p.Hold, p.UpperBody, p.Phase, p.FadeFloor); NextMaskSpeed = 0f; }
 
         // v0.9.0 CONNECT E-266: a third request while the hidden slot is still visibly fading out is deferred (the older clip finishes a short fade first) instead of recycling the slot with a pop
-        struct PendingPlay { public AnimationClip Clip; public float Start, End, Speed, FadeIn, FadeOut, Phase, Floor, ScrubT, MaskSpeed; public bool Loop, Hold, Upper, Scrub; }
-        PendingPlay _pend; bool _hasPend;
+        struct PendingPlay { public float Yaw; public string Sys; public AnimationClip Clip; public float Start, End, Speed, FadeIn, FadeOut, Phase, Floor, ScrubT, MaskSpeed; public bool Loop, Hold, Upper, Scrub; }
+        PendingPlay _pend; bool _hasPend; string _sysOverride;
         /// <summary>v0.10.0 CHOREO: mask speed of the next Play call (set by <see cref="Play(in ClipPlan)"/>, consumed by the slot it creates).</summary>
         public float NextMaskSpeed;
+        /// <summary>v0.13.0 QB-MOCAP: the facing offset (degrees) of the next clip started with <see cref="Play(AnimationClip,float,float,float,float,float,bool,bool,bool,float,float)"/>, instead of the one of the facing table (NaN = the table); consumed by the call.</summary>
+        public float YawOverride = float.NaN;
         /// <summary>Counts every clip start and stop (the pop filter and the audit read it: a new value means the pose source changed this frame).</summary>
         public int Transitions { get; private set; }
         /// <summary>Speed (m/s) used to decide whether an upper-body plan keeps the legs of the locomotion layer: set by the view (the animator's smoothed speed otherwise).</summary>
@@ -194,7 +197,7 @@ namespace PixFootball.Gameplay
                 if (n.Active && n.Eff > 0.12f)
                 {
                     // defer: finish the hidden clip's fade quickly, start the new one when the slot is free
-                    _pend = new PendingPlay { Clip = clip, Start = start, End = end, Speed = speed, FadeIn = fadeIn, FadeOut = fadeOut, Phase = phase, Floor = floor, Loop = loop, Hold = hold, Upper = upperBody, MaskSpeed = NextMaskSpeed }; NextMaskSpeed = 0f;
+                    _pend = new PendingPlay { Yaw = YawOverride, Clip = clip, Start = start, End = end, Speed = speed, FadeIn = fadeIn, FadeOut = fadeOut, Phase = phase, Floor = floor, Loop = loop, Hold = hold, Upper = upperBody, MaskSpeed = NextMaskSpeed, Sys = ClipUsage.Enabled ? ClipUsage.Caller() : null }; NextMaskSpeed = 0f;
                     _hasPend = true;
                     if (!n.Ending) { n.Ending = true; n.EndingT = 0f; n.EndingFade = 0.1f; n.EndW = n.W; }
                     else if (n.EndingFade - n.EndingT > 0.1f) n.EndingFade = n.EndingT + 0.1f;
@@ -238,7 +241,8 @@ namespace PixFootball.Gameplay
             var m = mask ? UpperMask() : FullMask();
             _mixer.SetLayerMaskFromAvatarMask((uint)n.Input, m);
             n.Mask = m; n.MaskUpper = mask;
-            n.Yaw = ClipFacingOffset(clip);
+            n.Yaw = float.IsNaN(YawOverride) ? ClipFacingOffset(clip) : YawOverride; YawOverride = float.NaN;      // v0.13.0 QB-MOCAP: a window of a long take plays with its own facing
+            if (ClipUsage.Enabled) { n.Sys = _sysOverride ?? ClipUsage.Caller(); ClipUsage.Note(clip, n.Sys); }      // v0.13.0 COVERAGE
             Transitions++;
             _mixer.SetInputWeight(n.Input, n.Eff);
         }
@@ -308,12 +312,14 @@ namespace PixFootball.Gameplay
             if (!Valid) return;
             float dt = UnityEngine.Time.deltaTime;
             if (dt <= 0f) return;
+            if (ClipUsage.Enabled) NoteStateClips(dt);      // v0.13.0 COVERAGE
             bool any = false;
             for (int i = 0; i < 2; i++)
             {
                 var s = _s[i];
                 if (!s.Active) continue;
                 any = true;
+                if (ClipUsage.Enabled && s.Clip != null && s.Eff > 0.3f) ClipUsage.Hold(s.Clip, s.Sys ?? "ActionAnimator", dt);      // v0.13.0 COVERAGE
                 bool newest = i == _cur;
                 if (!s.Ending)
                 {
@@ -358,9 +364,9 @@ namespace PixFootball.Gameplay
                 if (hid == null || !hid.Active || hid.Eff <= 0.12f)
                 {
                     var p = _pend; _hasPend = false;
-                    NextMaskSpeed = p.MaskSpeed;
+                    NextMaskSpeed = p.MaskSpeed; _sysOverride = p.Sys; YawOverride = p.Yaw;
                     Play(p.Clip, p.Start, p.End, p.Speed, p.FadeIn, p.FadeOut, p.Loop, p.Hold, p.Upper, p.Phase, p.Floor);
-                    NextMaskSpeed = 0f;
+                    NextMaskSpeed = 0f; _sysOverride = null;
                     if (p.Scrub) { var ns = Cur; if (ns != null) { ns.Scrub = true; ns.T = Mathf.Clamp(p.ScrubT, ns.Start, ns.End); } }
                 }
             }
@@ -371,6 +377,31 @@ namespace PixFootball.Gameplay
                 if (o.Active) DropSlot(o);
             }
             if (!any) _cur = -1;
+        }
+
+        // v0.13.0 COVERAGE: the clips the animator controller (idle / walk / stance states, blend trees) shows; a clip counts as one play when it crosses 25 percent weight
+        readonly System.Collections.Generic.List<AnimatorClipInfo> _infos = new System.Collections.Generic.List<AnimatorClipInfo>();
+        readonly System.Collections.Generic.HashSet<AnimationClip> _stateOn = new System.Collections.Generic.HashSet<AnimationClip>(), _stateNow = new System.Collections.Generic.HashSet<AnimationClip>();
+        void NoteStateClips(float dt)
+        {
+            if (!_created || !_loco.IsValid()) return;
+            _stateNow.Clear();
+            for (int l = 0, n = _loco.GetLayerCount(); l < n; l++)
+            {
+                float lw = l == 0 ? 1f : _loco.GetLayerWeight(l);
+                if (lw < 0.01f) continue;
+                _loco.GetCurrentAnimatorClipInfo(l, _infos);
+                for (int k = 0; k < _infos.Count; k++)
+                {
+                    var c = _infos[k].clip; float w = _infos[k].weight * lw;
+                    if (c == null || w < 0.1f) continue;
+                    _stateNow.Add(c);      // stays "on" until it drops under 10 percent (no play count per wobble around 25 percent)
+                    if (w < 0.25f && !_stateOn.Contains(c)) continue;
+                    if (_stateOn.Add(c)) ClipUsage.Note(c, "AnimatorState");
+                    ClipUsage.Hold(c, "AnimatorState", dt * w);
+                }
+            }
+            _stateOn.IntersectWith(_stateNow);
         }
 
         // a pooled player is deactivated between plays: Unity drops the animator binding, so the graph is rebuilt when he is switched back on

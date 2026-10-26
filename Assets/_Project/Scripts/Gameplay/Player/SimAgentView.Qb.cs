@@ -23,6 +23,7 @@ namespace PixFootball.Gameplay
             }
             _qbSecure = false; _qbScrStart = false;
             if (h.IsQb) QbSeqTrack(h);
+            if (QbMocapFlow(action, h, shotgunQb, dt)) return true;      // v0.13.0 QB-MOCAP: the quarterback's mocap windows (stance, count, snap, pocket, throw); false = the pose layer / the old flow
             if (QbThrowFlow(h, dt)) { _qbPoseOn = false; _qbStanceHold = false; if (Motion != null) { Motion.SetCarriage(BodyMotion.Carriage.None); Motion.CarriageFloor = 0f; } if (_ownsClip && Rig != null) { Rig.Stop(0.15f); _ownsClip = false; } return true; }      // v0.11.0 QB: the throw is the pose layer's
             if (DebugNoFlow || DebugNoStancePose || (!h.IsQb && h.QbSpecial == 0) || Rig == null || !Rig.Valid || StanceLayer == null || !StanceLayer.Ok) return false;
             if (h.QbSpecial != 0 && Role == PlayerRole.QB && !DebugNoFlow && !DebugNoStancePose && Rig != null && Rig.Valid && StanceLayer != null && StanceLayer.Ok && action != AgentAction.Stance)

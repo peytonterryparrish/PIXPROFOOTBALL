@@ -51,7 +51,7 @@ namespace PixFootball.Gameplay
         /// <summary>A short conversation idle for two players.</summary>
         public static ClipPlan ConversationIdle(int seed)
         {
-            var c = ClipSelect.Pick("idle_conversation", null, seed);
+            var c = PickEither("idle_conversation", seed, 0f);      // v0.13 wave 2: + the second speakers
             return c == null ? default(ClipPlan) : P(c, 0f, 0f, 1f, 0.3f, 0.3f, true);
         }
     }

@@ -7,8 +7,55 @@ BONES_QB_shovel_pass_001_s03	56	waist-twist torso-twist pops
 BONES_backpedal_to_shuffle_315_002_s03	80	slide arms-out
 BONES_backpedal_to_shuffle_315_002_s03_M	80	slide arms-out
 CelebrationTouchdownFreestyleOne_12	76	pops dead-time
+RAW__BC_StripTackle_CriticalSuccess_004_s03_A	45	slide waist-twist torso-twist pops
+RAW__BC_StripTackle_CriticalSuccess_004_s03_B	48	slide waist-twist torso-twist
+RAW__BC_StripTackle_CriticalSuccess_005_s02_B	30	slide waist-twist torso-twist pops
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_004_s02_A	43	slide waist-twist torso-twist pops
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_004_s02_M_A	43	slide waist-twist torso-twist pops
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_005_s02_A	56	waist-twist torso-twist pops
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_005_s02_M_A	56	waist-twist torso-twist pops
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_006_s02_A	46	slide penetrates torso-twist wrist-limit
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_006_s02_M_A	46	slide penetrates torso-twist wrist-limit
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_007_s01_A	57	waist-twist torso-twist pops arms-out
+RAW__Ball_Carrier_Juke_China_Route_Finishing_with_sprint_007_s01_M_A	57	waist-twist torso-twist pops arms-out
+RAW__Ball_Carrier_Juke_Tempo_Change_finishing_with_sprint_burst_CriticalSuccess_003_s02_A	44	slide penetrates waist-twist torso-twist
+RAW__Ball_Carrier_Juke_Tempo_Change_finishing_with_sprint_burst_CriticalSuccess_003_s02_M_A	44	slide penetrates waist-twist torso-twist
+RAW__BigHit1_Failure_007_s01_A	22	slide penetrates waist-twist torso-twist pops wrist-limit
+RAW__BigHit1_Failure_007_s02_A	48	slide waist-twist torso-twist
+RAW__BigHit1_Failure_007_s02_B	41	slide waist-twist torso-twist pops
+RAW__BigHit1_Success_004_s01_B	46	slide waist-twist torso-twist pops
+RAW__DLINE_ReachBlockShedR_CritFailure_003_A	0	empty
+RAW__DLINE_ReachBlockShedR_CritFailure_003_B	0	empty
+RAW__DLINE_ReachBlockShedR_CritSuccess_001_s01_B	49	slide penetrates pops
+RAW__DLINE_ReachBlockShedR_CritSuccess_001_s02_A	48	slide waist-twist torso-twist
+RAW__DLINE_ReachBlockShedR_CritSuccess_001_s02_B	39	slide penetrates waist-twist torso-twist
+RAW__Juke_BoxStepRight_CriticalSuccess_001_s02_A	49	slide waist-twist torso-twist
+RAW__Juke_BoxStepRight_CriticalSuccess_001_s02_M_A	49	slide waist-twist torso-twist
+RAW__Juke_BoxStepRight_CriticalSuccess_001_s03_A	33	slide waist-twist torso-twist pops
+RAW__Juke_BoxStepRight_CriticalSuccess_001_s03_M_A	33	slide waist-twist torso-twist pops
+RAW__Juke_RockerStepRight_CriticalSuccess_001_s02_A	44	slide waist-twist torso-twist pops
+RAW__Juke_RockerStepRight_CriticalSuccess_001_s02_M_A	44	slide waist-twist torso-twist pops
+RAW__LB_ContestedCatchBack_CritFailure_001_s03_B	30	slide waist-twist torso-twist pops
+RAW__LB_ContestedCatchBack_CritFailure_002_s03_B	32	slide waist-twist torso-twist pops dead-time
+RAW__LB_ContestedCatchFront_CritFailure_001_s01_B	36	slide penetrates waist-twist torso-twist pops dead-time
+RAW__LB_ContestedCatchFront_CritFailure_001_s02_B	48	slide waist-twist torso-twist
+RAW__LB_ContestedCatchFront_CritFailure_002_s01_B	41	slide penetrates waist-twist pops dead-time
+RAW__LB_ContestedCatchFront_CritFailure_002_s02_B	31	slide penetrates waist-twist torso-twist pops
+RAW__LB_ContestedCatchFront_Failure_001_s02_A	94	arms-out
+RAW__LB_ContestedCatchFront_Failure_002_s02_A	90	arms-out dead-time
+RAW__LB_ContestedCatchFront_Failure_006_s02_A	90	arms-out dead-time
+RAW__RockerStepRight_Failure_001_s02_A	49	slide waist-twist torso-twist pops
+RAW__Touchdown_celebrations_001_s04_A	66	slide t-pose
+RAW__Touchdown_celebrations_003_s01_A	54	slide pops
 TackleBrokenRightCHighOmo_2_B	47	slide penetrates pops
-BONES_QB_frustration_001_s04	live-key	pops/twist, another variant is clean
-BONES_QB_offbalance_pass_003_s04	live-key	pops/twist, another variant is clean
-QB_pass_bullet_001_s04	live-key	pops/twist, another variant is clean
-BONES_QB_run_forward_pass_001_s03	live-key	pops/twist, another variant is clean
+YAN__kickoff_catch_idle_00	32	slide penetrates pops wrist-limit
+YAN__kickoff_jog_00	44	slide pops wrist-limit dead-time
+YAN__kickoff_jog_01	44	slide pops wrist-limit dead-time
+RAW__Juke_BoxStepRight_Failure_001_s03_A	live-key	pops/twist, another variant is clean
+RAW__Juke_BoxStepRight_Failure_001_s03_M_A	live-key	pops/twist, another variant is clean
+RAW__Ball_Carrier_Juke_SpinDodge_Finishing_with_sprint_008_s02_A	live-key	pops/twist, another variant is clean
+RAW__BigHit1_Success_001_s01_A	live-key	pops/twist, another variant is clean
+RAW__Touchdown_celebrations_003_s03_A	live-key	pops/twist, another variant is clean
+RAW__Touchdown_celebrations_003_s04_A	live-key	pops/twist, another variant is clean
+RAW__LB_ContestedCatchBack_CritSuccess_003_s01_A	live-key	pops/twist, another variant is clean
+RAW__LB_ContestedCatchFront_Success_004_s02_A	live-key	pops/twist, another variant is clean

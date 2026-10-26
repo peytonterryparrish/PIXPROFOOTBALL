@@ -71,9 +71,9 @@ namespace PixFootball.Gameplay
             string n = p.clipA ?? "";
             switch (kind)
             {
-                case ContactKind.Wrap: return p.key == ArtKeys.ContactTackle && Has(n, "TackleWrap") && Has(n, "High");
+                case ContactKind.Wrap: return (p.key == ArtKeys.ContactTackle && Has(n, "TackleWrap") && Has(n, "High"));
                 case ContactKind.Dive: return p.key == ArtKeys.ContactTackle && Has(n, "TackleWrap") && Has(n, "Low");
-                case ContactKind.Broken: return p.key == ArtKeys.ContactTackle && Has(n, "TackleBroken") && Has(n, "Dmo");
+                case ContactKind.Broken: return p.key == ArtKeys.ContactTackle && Has(n, "TackleBroken") && Has(n, "Dmo") || (p.key == ArtKeys.TackleStrip && Has(n, "Success"));      // v0.13 wave 2 (BULK-2): the BoNES strip tackles end with both bodies standing (no take-down in any of the 12 measured pairs): the tackler rakes at the ball, the carrier runs on = a broken tackle (as wraps they were the FLOAT_GROUND_ACTION: Fallen at standing height)
                 case ContactKind.Truck: return p.key == ArtKeys.ContactTackle && Has(n, "TackleBroken") && Has(n, "Omo");
                 case ContactKind.BigHit: return p.key == ArtKeys.ContactBigHit && Has(n, "Success");
                 case ContactKind.BigHitShrug: return p.key == ArtKeys.ContactBigHit && Has(n, "Failure");
@@ -103,10 +103,10 @@ namespace PixFootball.Gameplay
             // E-217: a dive wants a low tackler, a wrap a high one; the bodies' size wants its own gap; the same take is not used again and again
             if (s.WantLow > 0f) score -= Mathf.Abs(p.lowB - s.WantLow) * 1.2f;
             if (s.Distance > 0f && p.distance > 0f) score -= Mathf.Abs(p.distance - s.Distance) * 0.8f;
-            if (s.Avoid != null) for (int i = 0; i < s.Avoid.Count; i++) if (s.Avoid[i] == p.clipA) { score -= 0.9f; break; }
+            if (s.Avoid != null) { int used = 0; for (int i = 0; i < s.Avoid.Count; i++) if (s.Avoid[i] == p.clipA) used++; score -= System.Math.Min(used, 3) * 0.7f; }      // v0.13 (ANIMLIB-BULK): every recent use counts (no-repeat bag; was a flat 0.9)
             // variety among near-equal takes, stable per seed
             int h = (s.Seed * 73856093) ^ (StableHash(p.clipA) * 19349663);
-            score += ((h & 0xFFFF) / 65535f) * 0.45f;
+            score += ((h & 0xFFFF) / 65535f) * 0.9f;      // v0.13 wave 2 (BULK-2): 0.45 -> 0.9, see Choreographer.ScorePair
             return score;
         }
 

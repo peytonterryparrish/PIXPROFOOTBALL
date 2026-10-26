@@ -46,6 +46,7 @@ namespace PixFootball.Gameplay
             int next = _cur < 0 ? 0 : 1 - _cur;
             if (_p[next].IsValid()) { _g.Disconnect(_mix, next); _g.DestroyPlayable(_p[next]); }
             _p[next] = AnimationClipPlayable.Create(_g, clip);
+            ClipUsage.Note(clip, "MatchOfficials");      // v0.13.0 COVERAGE
             _p[next].SetApplyFootIK(false); _p[next].SetSpeed(0.0);
             _g.Connect(_p[next], 0, _mix, next);
             _clip[next] = clip; _t[next] = startAt; _loop[next] = loop;
@@ -89,6 +90,7 @@ namespace PixFootball.Gameplay
                 float len = _clip[i].length;
                 if (_loop[i]) _t[i] = Mathf.Repeat(_t[i], len); else _t[i] = Mathf.Min(_t[i], len);
                 _p[i].SetTime(_t[i]);
+                if (ClipUsage.Enabled && i == _cur) ClipUsage.Hold(_clip[i], "MatchOfficials", dt);      // v0.13.0 COVERAGE
             }
             int other = 1 - _cur;
             _w = Mathf.MoveTowards(_w, 1f, dt / _fade);

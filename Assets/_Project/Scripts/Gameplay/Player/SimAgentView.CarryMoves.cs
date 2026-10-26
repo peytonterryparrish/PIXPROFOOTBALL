@@ -74,7 +74,7 @@ namespace PixFootball.Gameplay
                 }
             }
             if (pool.Count == 0) return ClipSelect.Pick(dir < 0 ? "juke_left" : "juke_right", PlayerRole.RB, AgentId + seq);
-            return pool[((AgentId * 7 + seq * 3) % pool.Count + pool.Count) % pool.Count];
+            return ClipBag.Draw("juke" + dir, AgentId * 7 + seq * 3, pool);      // v0.13 (ANIMLIB-BULK): one-line hook, the no-repeat bag instead of seed modulo
         }
     }
 }

@@ -30,6 +30,8 @@ namespace PixFootball.Gameplay
         /// <summary>Called once per play from <see cref="ConnectBegin"/> after the huddle was placed.</summary>
         void QbSeqBegin(PlaySimulation sim, PlayFrame frame, bool huddle)
         {
+            _qbPlayNo++;
+            QbDropRefit(sim, frame);      // v0.13.0 QB-2: the drop take for this play, and the simulated drop fitted to it
             _qpStage = QbPreStage.None; _qpT = 0f; _qpSpeed = 0f; _qpHurry = false;
             for (int k = 0; k < 22; k++) if (_views[k] != null) _views[k].SetQbPre(SimAgentView.QbPre.None, 0f, Vector3.zero, false, -1f);
             var v = _views[0];
@@ -155,6 +157,36 @@ namespace PixFootball.Gameplay
             if (a.Side != SimSide.Offense || a.Slot != 0 || Sim.Kind != PlayKind.Scrimmage) return;
             h.QbTakeoff = Sim.QbTakeoff;
             h.QbTakeoffSince = Sim.QbTakeoff ? Mathf.Max(0f, Sim.Time - Sim.QbTakeoffAt) : 0f;
+            QbMocapHints(ref h, a);      // v0.13.0 QB-MOCAP
+        }
+
+        int _qbPlayNo;
+
+        /// <summary>v0.13.0 QB-MOCAP: the facts of the quarterback mocap sequence: the play counter, the count, the time to the snap in his hands, the wind-up that is left, the target.</summary>
+        void QbMocapHints(ref AnimHints h, SimAgent a)
+        {
+            h.QbPlay = _qbPlayNo; h.QbCadenceLen = -1f; h.QbCadenceT = 0f; h.QbSnapEta = -1f; h.QbWindupLeft = -1f; h.QbTargetDist = 0f; h.QbStyle = 0;
+            h.QbDropWait = -1f; h.QbDropLeft = -1f; h.QbAct = Sim.QbPlanActionId; h.QbDropPt = Frame.ToUnity(Sim.QbDropPoint); h.QbRunnerPos = Vector3.zero; h.QbRunnerGap = -1f;      // v0.13.0 QB-2
+            { float ds = Sim.QbDropStartAt, de = Sim.QbDropEndAt; if (ds >= 0f && de >= 0f) { h.QbDropWait = ds - Sim.Time; h.QbDropLeft = Mathf.Max(0f, de - Sim.Time); } }
+            { int rid = Sim.QbPlanIsHandoff ? Sim.QbHandoffTargetId : Sim.QbFakeTargetId; if (rid > 0 && rid < 22) { h.QbRunnerPos = Frame.ToUnity(Sim.Agents[rid].Pos); h.QbRunnerGap = (Sim.Agents[rid].Pos - a.Pos).Length * PlayFrame.YardsToMeters; } }
+            var b = Sim.Ball;
+            if (_cadenceLen > 0f) { h.QbCadenceLen = _cadenceLen; h.QbCadenceT = _cadenceT; }
+            if (b.State == BallState.Snap)
+            {
+                float d = (a.Pos - b.Pos.XY).Length, sp = Mathf.Max(3f, b.Vel.XY.Length);
+                h.QbSnapEta = Mathf.Max(0f, (d - 1.0f) / sp);
+            }
+            else if (a.QbState == QbPhase.PreSnap && _cadenceLen > 0f && b.State == BallState.Held)
+            {
+                // the count that is left plus the flight of the snap (shotgun: about 17 yd/s over the gap; under centre: the yard in 0.13 s)
+                var ball = Sim.Ball; float gap = Mathf.Max(0.5f, (a.Pos - ball.Pos.XY).Length - 1.0f);
+                h.QbSnapEta = Mathf.Max(0f, _cadenceLen - _cadenceT) + (_shotgun ? gap / 17f : 0.13f);
+            }
+            if (a.QbState == QbPhase.Windup)
+            {
+                h.QbWindupLeft = Mathf.Max(0f, a.WindupLeft); h.QbStyle = (int)a.PendingStyle;
+                if (a.ThrowTarget >= 0 && a.ThrowTarget < 22) h.QbTargetDist = (Sim.Agents[a.ThrowTarget].Pos - a.Pos).Length * PlayFrame.YardsToMeters;
+            }
         }
     }
 }

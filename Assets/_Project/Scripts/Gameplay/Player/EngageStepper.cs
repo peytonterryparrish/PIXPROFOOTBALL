@@ -31,6 +31,9 @@ namespace PixFootball.Gameplay
         /// <summary>v0.11.0: the ankle never goes lower than this over the turf (sole height of the foot model): blocks and hand fights showed the soles 5 to 10 cm into the grass (CRITICAL log).</summary>
         public const float AnkleFloor = 0.085f;
         public static bool FloorClamp = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoAnkleFloor") < 0;
+        /// <summary>v0.13.0: the toe bone stays this high (m) over the turf; a foot never points further than MaxToeDown degrees below the horizon (the clip pitches a toe-off foot to 75 and more); <c>-pixNoPitchFloor</c> (and <c>-pixV012Stance</c>) restore the v0.12 flat floor.</summary>
+        public const float ToeFloor = 0.03f, MaxToeDown = 62f, MaxLift = 0.24f;
+        public static readonly bool NoPitchFloor = StanceRules.V012 || System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixNoPitchFloor") >= 0;
         Vector3 _outL, _outR, _pole; Quaternion _rotL, _rotR; bool _haveOut; float _speed;
         /// <summary>The feet are never held further apart (m, on the turf) than the animation has them plus this slack, nor more than <see cref="MinSpread"/> where the animation is narrower; and a foot never reaches past this share of the leg.</summary>
         public const float AirHeight = 0.22f;
@@ -179,9 +182,44 @@ namespace PixFootball.Gameplay
             if (HasDrawnSole && !float.IsNaN(groundY)) _lowLeft = DrawnSole(_l, true) <= DrawnSole(_r, false);      // v0.12.0: the lower foot is always put on the turf
             Step(_l, al, dir, pole, dt, _haveOut ? _outR : ar, limit, out _outL); Step(_r, ar, dir, pole, dt, _outL, limit, out _outR); _haveOut = true;
             if (!Old && !NoPelvisDrop && _hips != null) PelvisToFeet(pole);
+            if (!V011 && !NoPitchFloor && !float.IsNaN(groundY)) { FootGuard(_l, ref _outL, pole); FootGuard(_r, ref _outR, pole); }      // v0.13.0 STANCE-HEAD
             _pole = pole; _rotL = _l.E.rotation; _rotR = _r.E.rotation;
         }
 
+
+        /// <summary>
+        /// v0.13.0 STANCE-HEAD: the root cause of the bone-based FEET_BELOW_TURF count (v0.11 252, v0.12 1,229 a game). Of 332 sampled sunk-foot frames of the v0.12 baseline 331 had the DRAWN sole 7 to 16 cm under the turf (the count is real sinking, not a bone-versus-sole artefact),
+        /// 317 with this stepper at full weight, 255 with the ankle at the flat 8.5 cm floor, and the foot pitched 45 to 84 degrees toes-down: the clip's toe-off foot (the ankle high, the heel up) keeps its world rotation (LimbIK) while the stepper puts the ankle on a pinned, lower point,
+        /// so the ball of the foot goes into the grass. Here, on the solved pose: a foot never points further than <see cref="MaxToeDown"/> below the horizon (a ballet-point foot is not a stance), and the ankle is raised until the toe bone is <see cref="ToeFloor"/> over the turf (the foot keeps its world rotation).
+        /// </summary>
+        void FootGuard(F f, ref Vector3 placed, Vector3 pole)
+        {
+            if (f.Toe == null || _w < 0.01f) return;
+            Vector3 v = f.Toe.position - f.E.position; float len = v.magnitude;
+            if (len > 0.03f)
+            {
+                float pitch = Mathf.Asin(Mathf.Clamp(v.y / len, -1f, 1f)) * Mathf.Rad2Deg;      // negative: toes down
+                if (pitch < -MaxToeDown)
+                {
+                    Vector3 flat = Flat(v); flat = flat.sqrMagnitude > 1e-6f ? flat.normalized : Flat(f.E.forward).normalized;
+                    float pr = -MaxToeDown * Mathf.Deg2Rad;
+                    f.E.rotation = Quaternion.FromToRotation(v, (flat * Mathf.Cos(pr) + Vector3.up * Mathf.Sin(pr)) * len) * f.E.rotation;
+                }
+            }
+            float def = _groundY + ToeFloor - f.Toe.position.y;
+            if (def > 0.002f)
+            {
+                placed.y += Mathf.Min(def, MaxLift);
+                LimbIK.Apply(f.U, f.L, f.E, placed, pole, 1f);      // the foot keeps its world rotation
+                Quiet(f);
+            }
+        }
+        void Quiet(F f)
+        {
+            if (Old || f.Swing || f.Toe == null) return;
+            float d = Mathf.DeltaAngle(YawOf(f), f.Yaw) * _w;
+            if (Mathf.Abs(d) > 0.01f) f.E.rotation = Quaternion.AngleAxis(d, Vector3.up) * f.E.rotation;
+        }
 
         /// <summary>
         /// v0.12.0: a leg that cannot reach its pinned foot leaves the sole in the air (both soles 4 cm and more up in 17-21 % of the standing hand-fight frames once the feet were pinned): the pelvis moves toward the pinned ankles

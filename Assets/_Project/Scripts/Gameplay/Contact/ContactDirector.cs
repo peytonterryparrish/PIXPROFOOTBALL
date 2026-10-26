@@ -475,7 +475,7 @@ namespace PixFootball.Gameplay
             // E-362 / E-376: the takes play at the pace of the game, and the contact take is fully in at the contact frame (the lead is long enough for a short fade)
             vc.Rig.Play(clipA, s.Start, s.EndA, rate, 0.14f, 0.35f, false, false, false, 0f, AnimKit.ImpactFloor);
             vt.Rig.Play(clipB, s.Start, s.EndB, rate, 0.14f, 0.35f, false, false, false, 0f, AnimKit.ImpactFloor);
-            _recent.Add(pair.clipA); if (_recent.Count > 6) _recent.RemoveAt(0);
+            _recent.Add(pair.clipA); if (_recent.Count > 40) _recent.RemoveAt(0);      // v0.13 (ANIMLIB-BULK): 40 (was 6), TackleVariants.Score counts the uses
             LastTake = kind + " " + pair.clipA + " bearing=" + sit.Bearing.ToString("0") + " speed=" + sit.CarrierSpeed.ToString("0.0");
             return s;
         }

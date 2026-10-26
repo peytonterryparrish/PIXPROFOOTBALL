@@ -210,7 +210,7 @@ namespace PixFootball.EditorTools
                 f[1] = h.SoleGap < 8f && h.SoleGap < -0.03f && standing;
                 f[2] = h.TPose; f[3] = h.Twisted; f[4] = h.MissingPart; f[8] = h.BadScale; f[9] = h.OffPlace;
                 f[5] = standing && Mathf.Abs(yawErr) > StanceRules.FacingToleranceDeg && kind != StanceKind.Kicker && kind != StanceKind.Punter && kind != StanceKind.Holder && kind != StanceKind.LongSnapper;
-                int wantDown = kind == StanceKind.ThreePoint && (v.Role == PlayerRole.DL || v.Role == PlayerRole.TE || v.Role == PlayerRole.RB) ? 1 : (kind == StanceKind.FourPoint ? 2 : -1);      // the tackles and guards (StanceSpec.Ol 1 / 2) rest their forearms on the thighs by design (BODIES v0.10)
+                int wantDown = kind == StanceKind.ThreePoint && (v.Role == PlayerRole.DL || v.Role == PlayerRole.TE || v.Role == PlayerRole.RB || v.Role == PlayerRole.OL) ? 1 : (kind == StanceKind.FourPoint ? 2 : -1);      // the tackles and guards (StanceSpec.Ol 1 / 2) rest their forearms on the thighs by design (BODIES v0.10)
                 f[6] = standing && wantDown >= 0 && down < wantDown;
                 bool twoPoint = kind == StanceKind.ReceiverSplit || kind == StanceKind.ReceiverSlot || kind == StanceKind.CornerPress || kind == StanceKind.CornerOff || kind == StanceKind.LinebackerTwoPoint || kind == StanceKind.SafetyDeep || kind == StanceKind.BackTwoPoint || kind == StanceKind.Gunner;
                 f[7] = standing && twoPoint && kneeFlexMin < 12f;

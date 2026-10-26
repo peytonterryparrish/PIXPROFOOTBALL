@@ -66,6 +66,9 @@ namespace PixFootball.Gameplay
         /// <summary>v0.11.0 CRITICAL: set by PlayStage.Begin for a goal-line / short-yardage down: the tackles and guards then stand in the true low three-point (hand on the turf) instead of the upright per-position stance of v0.10 (StanceSpec.Ol).</summary>
         public static bool ShortYardage;
 
+        /// <summary>v0.13.0 STANCE-HEAD: <c>-pixV012Stance</c> restores the v0.12 behaviour of everything this track changed, for like-for-like A/B counts on one build: the OL stances (hands on the thighs), the head limit (70 degrees, 650 deg/s, yaw measure, no limit on the hand-offs / jukes / contact takes) and the flat ankle floor.</summary>
+        public static readonly bool V012 = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixV012Stance") >= 0;
+
         /// <summary>Simulation-frame direction (x lateral, y downfield) a player must face before the snap.</summary>
         public static Vec2 ExpectedPreSnapFacing(SimSide side) { return side == SimSide.Offense ? new Vec2(0f, 1f) : new Vec2(0f, -1f); }
 

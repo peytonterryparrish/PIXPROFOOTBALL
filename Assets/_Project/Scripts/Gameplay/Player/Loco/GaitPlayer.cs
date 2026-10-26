@@ -164,6 +164,7 @@ namespace PixFootball.Gameplay
             s.Cp = AnimationClipPlayable.Create(_graph, c.clip);
             s.Cp.SetApplyFootIK(false); s.Cp.SetSpeed(0.0); s.Cp.SetTime(c.tStart);
             _graph.Connect(s.Cp, 0, _mix, s.Input);
+            ClipUsage.Note(c.clip, "GaitPlayer");      // v0.13.0 COVERAGE
             _mix.SetInputWeight(s.Input, 0f);
             s.Lift = c.lLift; s.RPlant = c.rPlant; s.RLift = c.rLift;
             _slots[c] = s; _list.Add(s);
@@ -179,6 +180,7 @@ namespace PixFootball.Gameplay
             s.Cp = AnimationClipPlayable.Create(_graph, c.clip);
             s.Cp.SetApplyFootIK(false); s.Cp.SetSpeed(0.0); s.Cp.SetTime(c.tStart);
             _graph.Connect(s.Cp, 0, _mixUp, s.Input);
+            ClipUsage.Note(c.clip, "GaitPlayer.Arms");      // v0.13.0 COVERAGE
             _mixUp.SetInputWeight(s.Input, 0f);
             s.Lift = c.lLift; s.RPlant = c.rPlant; s.RLift = c.rLift;
             _upSlots[c] = s; _upList.Add(s);
@@ -327,6 +329,7 @@ namespace PixFootball.Gameplay
                 float t = Mathf.Repeat(s.C.tStart + local01 * s.C.length, len);
                 s.Cp.SetTime(t);
                 _mix.SetInputWeight(s.Input, s.W * inv);
+                if (ClipUsage.Enabled) ClipUsage.Hold(s.C.clip, "GaitPlayer", dt * s.W * inv * Layer);      // v0.13.0 COVERAGE
                 if (sb != null) sb.Append(s.C.name).Append('=').Append((s.W * inv).ToString("0.00")).Append(' ');
             }
             UpdateDonors(dt, ph, k1, k2, k3, up, sb);

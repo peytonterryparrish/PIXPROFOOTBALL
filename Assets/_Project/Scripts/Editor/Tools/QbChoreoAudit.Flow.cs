@@ -25,6 +25,7 @@ namespace PixFootball.EditorTools
         struct FFr
         {
             public float T, SimT, Speed, ChestYaw, HipsYaw, ReadErr, BallChestH, BallChestD, BallHeadD, OffHandD, ThrowHandD, CrossGap, SlideL, SlideR, YawRFoot, YawLFoot, TgtFaceErr, HandToOppHip, TorsoLean, ReadRel;
+            public string Mc; public float McT, McSync;      // v0.13.0 QB-MOCAP: the mocap window on screen, its clip time and the clip time of its key moment
             public bool UcDrop; public Vector3 HipsPos, RootPos, HandPos; public int Frame; public QbPhase State; public AgentAction Act; public bool Takeoff, HasBall, PassOut, PlantL, PlantR; public string Seq; public Vector3 ToeL, ToeR;
         }
 
@@ -132,6 +133,7 @@ namespace PixFootball.EditorTools
                 var tv = _stage.Views[sim.Ball.Intended]; if (tv != null) { Vector3 toB = bp - tv.transform.position; toB.y = 0f; if (toB.sqrMagnitude > 0.04f) f.TgtFaceErr = Vector3.Angle(tv.Forward, toB); }
             }
             f.Seq = v.QbSeqName;
+            f.Mc = v.QbMocapName; f.McT = v.QbMocapClipTime; f.McSync = v.QbMocapSyncTime;
             return f;
         }
 
@@ -224,8 +226,9 @@ namespace PixFootball.EditorTools
         void WriteFlowSummary(List<FRes> rs)
         {
             var sb = new StringBuilder("# QB flow audit v0.11.0 (60 Hz, real PlayStage, CPU vs CPU, huddle off)\n\n");
+            var faceErr = new List<float>(); var mcSync = new List<float>(); int mcThrows = 0, poseThrows = 0; var mcClips = new HashSet<string>(); var mcFrames = 0; var allFrames = 0;      // v0.13.0 QB-MOCAP
             var all = new List<FFr>(); var pocket = new List<FFr>(); var move = new List<FFr>();
-            int hipJumps = 0, crossEvents = 0, releases = 0; var relGaps = new List<float>(); var relGaps2 = new List<float>(); var strideOk = 0; var strideN = 0; var frontToe = new List<float>(); var backToe = new List<float>(); var handSync = new List<float>(); var frontYaw = new List<float>(); var sepList = new List<float>(); var followList = new List<float>(); var postStance = new List<float>(); var slides = new List<float>();
+            int hipJumps = 0, hipJumpsEarly = 0, crossEvents = 0, releases = 0; var relGaps = new List<float>(); var relGaps2 = new List<float>(); var strideOk = 0; var strideN = 0; var frontToe = new List<float>(); var backToe = new List<float>(); var handSync = new List<float>(); var frontYaw = new List<float>(); var sepList = new List<float>(); var followList = new List<float>(); var postStance = new List<float>(); var slides = new List<float>(); var dropSlides = new List<float>();
             foreach (var r in rs)
             {
                 sb.AppendLine("## " + r.S.Name + ": " + r.S.Off.Name + " (" + r.S.Off.FormationName + ") vs " + r.S.Def.Name + "  outcome " + r.Outcome);
@@ -240,10 +243,12 @@ namespace PixFootball.EditorTools
                 // phases
                 var segs = new List<string>(); string last = null; int n = 0; foreach (var x in af) { string k = x.State + "/" + x.Seq; if (k != last) { if (last != null) segs.Add(last + "(" + (n * Dt).ToString("0.00") + "s)"); last = k; n = 0; } n++; } if (last != null) segs.Add(last + "(" + (n * Dt).ToString("0.00") + "s)");
                 sb.AppendLine("SEGMENTS: " + string.Join(" > ", segs.ToArray()));
-                { int hj = 0; var hjs = new List<string>(); for (int i = 1; i < r.F.Count; i++) { Vector3 dh = (r.F[i].HipsPos - r.F[i - 1].HipsPos) - (r.F[i].RootPos - r.F[i - 1].RootPos); if (dh.magnitude > 0.10f) { hj++; if (hjs.Count < 4) hjs.Add("f" + r.F[i].Frame + " " + r.F[i].State + "/" + r.F[i].Seq + " " + dh.magnitude.ToString("0.00") + " m"); } } hipJumps += hj; sb.AppendLine("HIPS JUMPS over 10 cm in one frame (the root motion removed): " + hj + (hjs.Count > 0 ? "  [" + string.Join("; ", hjs.ToArray()) + "]" : "")); }
+                { var mseg = new List<string>(); string lm = null; foreach (var x in af) { allFrames++; string m = string.IsNullOrEmpty(x.Mc) ? "-" : x.Mc; if (m != "-") { mcFrames++; mcClips.Add(m.Substring(m.IndexOf(':') + 1)); } if (m != lm) { mseg.Add(m); lm = m; } } sb.AppendLine("MOCAP: " + string.Join(" > ", mseg.ToArray())); }
+                { int hj = 0, hjEarly = 0; var hjs = new List<string>(); for (int i = 1; i < r.F.Count; i++) { Vector3 dh = (r.F[i].HipsPos - r.F[i - 1].HipsPos) - (r.F[i].RootPos - r.F[i - 1].RootPos); if (dh.magnitude > 0.10f) { if (r.F[i].Frame < 10) { hjEarly++; continue; } hj++; if (hjs.Count < 4) hjs.Add("f" + r.F[i].Frame + " " + r.F[i].State + "/" + r.F[i].Seq + " " + dh.magnitude.ToString("0.00") + " m"); } } hipJumps += hj; hipJumpsEarly += hjEarly; sb.AppendLine("HIPS JUMPS over 10 cm in one frame (the root motion removed, frames 10 on; " + hjEarly + " more in the first 9 frames of the play, the pooled view settling): " + hj + (hjs.Count > 0 ? "  [" + string.Join("; ", hjs.ToArray()) + "]" : "")); }
                 // feet: pocket slide, crossed feet
                 var cs = ContactSlidesF(af, x => x.HasBall && (x.State == QbPhase.Set || x.State == QbPhase.Scramble || x.State == QbPhase.Dropback)); slides.AddRange(cs);
                 sb.AppendLine("PLANTED-FOOT slide m/s (6+ frame contacts, core frames, ball in hand): " + Stat(cs));
+                { var dsl = ContactSlidesF(af, x => x.HasBall && x.State == QbPhase.Dropback); dropSlides.AddRange(dsl); sb.AppendLine("DROP planted-foot slide m/s (Dropback frames, ball in hand): " + Stat(dsl)); }      // v0.13.0 QB-2
                 int cross = 0; bool inC = false; int cf = 0; foreach (var x in af) { bool cr = x.HasBall && x.CrossGap < 0.04f && x.Speed > 0.3f; if (cr) { cf++; if (!inC && cf >= 3) { cross++; inC = true; } } else { cf = 0; inC = false; } }
                 crossEvents += cross; sb.AppendLine("CROSSED-FEET events (ankles within 4 cm of crossing the hips' line for 3+ frames, moving): " + cross + "; min lateral ankle gap " + (af.Where(x => x.HasBall).Select(x => x.CrossGap).DefaultIfEmpty(9f).Min()).ToString("0.000") + " m");
                 // the release
@@ -251,6 +256,12 @@ namespace PixFootball.EditorTools
                 {
                     releases++;
                     var rf = r.F[r.RelIdx];
+                    {
+                        faceErr.Add(Mathf.Abs(Mathf.DeltaAngle(rf.ChestYaw, rf.ReadRel)));
+                        int thr0 = -1; for (int i = Math.Max(0, r.RelIdx - 120); i <= r.RelIdx; i++) if (r.F[i].Mc != null && r.F[i].Mc.StartsWith("Throw:")) { thr0 = i; break; }
+                        if (thr0 >= 0) { int pass = -1; for (int i = thr0; i < r.F.Count; i++) if (r.F[i].Mc != null && r.F[i].Mc.StartsWith("Throw:") && r.F[i].McSync > 0f && r.F[i].McT > r.F[i].McSync + 0.004f) { pass = i; break; } mcThrows++; if (pass > 0) { mcSync.Add(pass - r.RelIdx); sb.AppendLine("   MOCAP throw: " + r.F[thr0].Mc + ", clip passes its release moment " + (pass - r.RelIdx) + " frames after the sim's release"); } }
+                        else poseThrows++;
+                    }
                     float g0 = rf.ThrowHandD, g1 = r.RelIdx + 1 < r.F.Count ? r.F[r.RelIdx + 1].ThrowHandD : -1f, g3 = r.RelIdx + 3 < r.F.Count ? r.F[r.RelIdx + 3].ThrowHandD : -1f;
                     relGaps.Add(g0); relGaps2.Add(g3);
                     sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "RELEASE at {0:F2} s after the snap ({1}, target {2}): ball-to-throwing-hand gap {3:F3} m on the release frame, {4:F3} next frame, {5:F3} three frames on; speed {6:F1} m/s; state before {7}", r.F[r.RelIdx].T - r.F[r.SnapIdx].T, r.F[r.RelIdx].State, r.Target, g0, g1, g3, rf.Speed, r.F[Math.Max(0, r.RelIdx - 2)].State));
@@ -283,8 +294,11 @@ namespace PixFootball.EditorTools
             }
             var hdr = new StringBuilder("# TOTALS\n");
             hdr.AppendLine(string.Format(CultureInfo.InvariantCulture, "STANCE COMPLIANCE (all plays, QB holding the ball in Set / non-takeoff Scramble / Dropback after the secure): {0} eligible frames, compliant {1:F1}%; standing still (<=1 m/s) {2:F1}% of {3}; moving (>1 m/s) {4:F1}% of {5}", all.Count, 100.0 * all.Count(Compliant) / Math.Max(1, all.Count), 100.0 * pocket.Count(Compliant) / Math.Max(1, pocket.Count), pocket.Count, 100.0 * move.Count(Compliant) / Math.Max(1, move.Count), move.Count));
+            hdr.AppendLine("MOCAP: " + mcClips.Count + " distinct windows on screen; frames on mocap " + mcFrames + " of " + allFrames + " after the snap; throws on mocap " + mcThrows + " vs pose layer " + poseThrows);
+            hdr.AppendLine("MOCAP release sync (frames the clip passes its release moment after the sim's release; 0 / +1 = on it) " + Stat(mcSync) + "; chest to target at the release deg " + Stat(faceErr));
             hdr.AppendLine("PLANTED-FOOT slide m/s (all): " + Stat(slides));
-            hdr.AppendLine("HIPS JUMPS over 10 cm (frames, all plays): " + hipJumps);
+            hdr.AppendLine("DROP planted-foot slide m/s (Dropback only): " + Stat(dropSlides));
+            hdr.AppendLine("HIPS JUMPS over 10 cm (frames 10 on, all plays): " + hipJumps + "; first 9 frames of a play (pooled view settling): " + hipJumpsEarly);
             hdr.AppendLine("CROSSED-FEET events: " + crossEvents + " over " + rs.Count + " plays");
             hdr.AppendLine("RELEASES: " + releases + "; ball-to-hand gap on the release frame m " + Stat(relGaps) + "; three frames later " + Stat(relGaps2));
             hdr.AppendLine("RELEASE vs the arm: frames from the release to the peak throwing-hand speed " + Stat(handSync));

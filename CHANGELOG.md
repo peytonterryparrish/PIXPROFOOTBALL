@@ -6,6 +6,41 @@ All notable changes to PIX Football. Format: [Keep a Changelog](https://keepacha
 
 Next: **College Network** returns (paused in 0.9.0): a college season you can follow and watch, scouting, the big board and real draft classes from the 138 schools. Its logic is in main (`League/Career/College*`); its screens live on the local branch `wip/v0.9-college-ui`.
 
+## [0.13.0] - 2026-10-25 - "Mocap"
+
+The owner's v0.12 playtest (`Docs/QA/v0130/PLAYTEST_v0120.md`): robotic movement, "so much motion capture is missing", bodies / stances / heads, QB clips barely used, and at least 300 new mocap clips; plus, during the round, "fix or add all of this in this build" and "another 100 more mocap pieces". Step 0 inventory (`Docs/QA/v0130/MOCAP_COVERAGE.md`) and two waves of four tracks; status of every item in `Docs/QA/v0130/STATUS.md`. Final watched game against the v0.12.0 baseline (same seed): **945 distinct mocap clips played (was 364), 649 of them new, 209 of those QB clips**. Built player, 2560 x 1440 High: 145.5 fps average, 113.0 1 %-low (v0.12.0: 144.6 / 110.7), 0 errors. EditMode 1,414 / 1,414.
+
+### Added
+- **Clip usage recorder** (`ClipUsage`, `MatchWatchAudit.Clips`): every clip a game plays, per system, to `clips_played.csv`; the measure of this release. `-pixClipUsage` in the player.
+- **Quarterback on his mocap** (`SimAgentView.QbMocap`, `QbClipTable` / `QbClipCatalog`, `ArtLibraryBuilder.Qb`): pre-snap stance, cadence and snap under centre and in the gun (a different take each play), pocket / ready / reset, throws by family with the ball released on the clip's release frame, play fakes, the QB side of the hand-off, roll-out, spike. Pose layer kept as the fallback; `-pixQbDropMocap` turns on the experimental fitted mocap drops.
+- **Bigger, rotating clip pools** (`ClipBag`, `ArtLibraryBuilder` caps, `ArtLibraryBuilder.Bulk`): least-used-first draw per key and team, wider QA window, keys that were never asked for now wired (`catch_fail`, `cb_shuffle`, cheers ...).
+- **Imported mocap**: 110 MoCap Central idle takes, 201 BoNES day-2 / day-3 raw studio takes (Blender split / retarget: juke finishes, contested catches, strip tackles, DL moves, conversations, celebrations), 15 QB FBX, 5 MC Core celebrations, 63 100STYLE slices (CC BY 4.0, "The 100STYLE Dataset - Ian Mason"), more MoCap Online Mobility Pro and Mixamo takes. Licensed data stays local.
+- **Motion matcher database 44 -> 248 clips** with a per-player take preference (`MotionStyle`), contact-aware switching and foot locking; **idle life** for standing players (`IdleLife`, Mobility idles: weight shift, breathing).
+- **Contact table 113 -> 159 pairs** (contested catches, strip tackles as broken tackles).
+- **Cloth-quality uniform pass**: sculpted folds, seams, mesh panels and knit, baked AO / cavity on jersey, pants and sleeve (`PhotoBodiesStage`, `PhotoUnderCloth`, `Tools/Blender/phr2_build.py`, `phr_textures.py`).
+- Audit: huddle-ring facing check, stance snapshot checks per position, chest-pop probe, engage QA (`EngageProbe`).
+
+### Changed
+- Three-point stances put a hand on the turf (OL stance compliance 46.8 -> 99.8 %).
+- Head over chest limit 48 degrees at 380 deg/s, contact takes included (free frames p95 / p99 42 / 48 degrees).
+- Chest turn rate capped (`SpineRate`): chest pops 202 -> 43 a game.
+- Shoulders narrower (jersey at the shoulder joint vs the R1 body +12 / +17 / +26 % for S / M / L, was +20 / +24 / +38 %).
+- `FACE_BODY_70DEG_OFF_SIM_FACING_STANDING` no longer counts bodies in the huddle ring (old rule kept as `_V012_RULE_*`): 1,385 -> 55.
+
+### Fixed
+- Feet sinking into the turf (toe-down feet, `EngageStepper.FootGuard`): 1,098 -> 48 a game.
+- Hands or heads through the turf 128 -> 2, sunk hips 178 -> 22, floating still bodies 246 -> 125, floating ground actions 82 -> 9 (bad takes grounded or rejected by the engage QA).
+- Jog planted slide 0.245 -> 0.094 m/s.
+- Arm skin showing through the jersey at the shoulder 9.3 -> 1.2 % of the zone.
+- New scripts without a `.meta` in the tree gave each project copy its own GUID, so the QB clip catalog lost its script (found at integration; all metas committed).
+
+### Known Issues
+- QB drops, scrambles, kneel, slide and sneak are still keyed poses (fitted drop takes slid 0.40 m/s; the supplied kneel / slide / sneak takes are unusable); QB stance compliance 91.3 %; the hand-off take starts about 0.3 s before the exchange.
+- Hip jumps over 10 cm 490 -> 580 a game, standing / blocking body overlaps 16 -> 35, camera jumps 351 -> 397.
+- Every `ol_block_engage` / `ol_block_cut` take failed the engage QA: blocks use pass-set / push / fail pairs.
+- Bodies are closer to the R1 model but not there: the cloth detail is static, shoulders still wider, arm-up stretch 618 edges.
+- Not imported: the MC Core Motion, Running Motions Pack 2 and Movement Animset Pro Asset Store packs.
+
 ## [0.12.0] - 2026-10-24 - "Realism I"
 
 The first slice of the owner's realism brief (`Docs/QA/v0120/MASTER_PROMPT_GAPS.md`, candidates 1, 2, 3 and 5 with the owner's decisions) plus three owner notes added during the round (`Docs/QA/v0120/OWNER_NOTES_v0120.md`: robotic movement, bodies and pads, heads/hips/helmets). Six tracks (CONTACT, GAIT, MOBILITY, RULES, BODIES, NATURAL); status of every item in `Docs/QA/v0120/STATUS.md`, logs next to it. Built player, 80 s of live play, 2560 x 1440 High: 144.6 fps average, 110.7 1 %-low (v0.11.0: 144.7 / 116.1), 0 errors. 1,373 EditMode tests green on the merged tree.
@@ -484,6 +519,7 @@ The ESPN NFL 2K5 feel pass: tackles that look and feel physical, ball carriers w
 
 
 [Unreleased]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.11.0...HEAD
+[0.13.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/peytonterryparrish/PIXPROFOOTBALL/compare/v0.9.1...v0.10.0

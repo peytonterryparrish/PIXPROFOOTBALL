@@ -12,6 +12,17 @@ namespace PixFootball.Sim
     internal sealed partial class OffenseAI
     {
         private float _qbDropClock0 = -1f, _qbDoneAt = -1f;
+        /// <summary>v0.13.0 QB-2: the drop clock for the presentation (simulation seconds; -1 = not begun).</summary>
+        internal float DropStartAt { get { return _dropT0; } }
+        internal float DropEndAt { get { return _dropT0 < 0f || _dropDur <= 0f ? -1f : _dropT0 + _dropDur; } }
+        /// <summary>v0.13.0 QB-2: the presentation fits the drop to the mocap take it will play (before the snap only): the drop point moves along the line from the start by <paramref name="distScale"/>, the drop lasts <paramref name="dur"/> seconds (0 = unchanged).</summary>
+        internal void RefitDrop(float distScale, float dur)
+        {
+            if (_qa == null || _dropT0 >= 0f || _rolling) return;
+            Vec2 start = new Vec2(S.BallX0 + S.OffForm.Slots[0].X, S.LosY + S.OffForm.Slots[0].Y);
+            _dropPoint = start + (_dropPoint - start) * distScale;
+            if (dur > 0f) _dropDur = dur;
+        }
 
         private static Vec2 RotateDir(Vec2 d, float rad)
         {

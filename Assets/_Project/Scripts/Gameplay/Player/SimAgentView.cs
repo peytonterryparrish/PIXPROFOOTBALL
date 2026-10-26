@@ -388,6 +388,7 @@ namespace PixFootball.Gameplay
             PixIk.Late(this, Time.deltaTime);   // v0.11.0 MOTION: Final IK (bridge, absent in the public repo) solves the hand / foot / body effectors other systems asked for this frame
             EngageLegsRestore();                // v0.12.0 CONTACT: the legs of an engaged body stay the stepper's (Final IK moves the pelvis for the hands; the ankles go back on their anchors)
             NaturalLookLate(Time.deltaTime);    // v0.12.0 NATURAL: head over chest and chest over pelvis inside their limits and rates, on the final pose (after Final IK)
+            IdleLifeLate(Time.deltaTime);       // v0.13.0 NATURAL-2: a floor of life for bodies that stand without moving (SimAgentView.IdleLife.cs), last
             KickIkLate(Time.deltaTime);         // v0.10.0 QB: the kicking foot meets the ball on the contact frame
             if (_kickT < 0f || Avatar == null || Avatar.RightUpperLeg == null || Avatar.RightLowerLeg == null) return;
             _kickT += Time.deltaTime;

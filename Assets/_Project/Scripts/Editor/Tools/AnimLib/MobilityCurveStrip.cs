@@ -16,11 +16,19 @@ namespace PixFootball.EditorTools
     {
         static readonly HashSet<string> Params = new HashSet<string> { "Speed", "VelX", "VelZ", "Celebrating", "Protect", "LocoSpeed", "CycleOffset" };
 
+        /// <summary>v0.13.0 NATURAL-2: the 100STYLE slices (Assets/_Licensed/Style100) are checked too (a name match is the only test, as before).</summary>
+        static string[] Folders()
+        {
+            var l = new List<string>();
+            foreach (var f in new[] { "Assets/_Licensed/MocapOnline", "Assets/_Licensed/Style100" }) if (AssetDatabase.IsValidFolder(f)) l.Add(f);
+            return l.ToArray();
+        }
+
         [MenuItem("PIX Football/Animation/Strip Mobility Parameter Curves")]
         public static void Run()
         {
             int clips = 0, curves = 0;
-            foreach (string guid in AssetDatabase.FindAssets("t:AnimationClip", new[] { "Assets/_Licensed/MocapOnline" }))
+            foreach (string guid in AssetDatabase.FindAssets("t:AnimationClip", Folders()))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 if (!path.EndsWith(".anim")) continue;     // imported FBX takes are read-only; the matcher plays the cleaned .anim copies

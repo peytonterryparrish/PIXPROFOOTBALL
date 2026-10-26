@@ -121,7 +121,7 @@ namespace PixFootball.Tests
         {
             // v0.12.0: the MoCap Online takes of the database build list (no licensed file is needed to list them)
             var mob = new System.Collections.Generic.List<PixFootball.EditorTools.MotionDbBuilder.Spec>();
-            foreach (var s in PixFootball.EditorTools.MotionDbBuilder.Specs()) if (s.Dir != null) mob.Add(s);
+            foreach (var s in PixFootball.EditorTools.MotionDbBuilder.Specs()) if (s.Dir != null && s.Anim == null) mob.Add(s);
             Assert.Greater(mob.Count, 12, "loops and starts of the pack");
             var names = new System.Collections.Generic.HashSet<string>();
             foreach (var s in mob)

@@ -183,7 +183,7 @@ namespace PixFootball.Gameplay
         public static StancePose QbUcDeep(StancePose b)
         {
             if (!b.Valid || PixFootball.Sim.QbV11.Legacy) return b;
-            b.Lean = 50f; b.Hips = 0.74f; b.HipsZ = -0.07f; b.Neck = 24f; b.Bend = 8f; b.HeadPitch = -2f;
+            b.Lean = 42f; b.Hips = 0.86f; b.HipsZ = -0.05f; b.Neck = 22f; b.Bend = 8f; b.HeadPitch = -2f;      // v0.13.0 QB-MOCAP: rendered hips 0.60 m / lean 36 degrees failed the stance audit (47 of 145 snapshots under 0.62 m): 0.86 / 42 renders about 0.70 m / 31 degrees, the mocap stance (0.83 to 0.86 m) is the next step up
             return b;
         }
     }

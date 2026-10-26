@@ -147,22 +147,31 @@ namespace PixFootball.Gameplay
         /// <summary>Upper-body plan: keeps the legs of the locomotion layer while the player runs (QA-648).</summary>
         static ClipPlan Up(ClipPlan p) { p.UpperBody = true; return p; }
 
-        static AnimationClip V(string key, int seed) { var l = Lib; var c = l != null ? l.ClipVariant(key, seed) : null; if (c == null && l != null) WarnMissing(key); return c; }
+        static AnimationClip V(string key, int seed) { var l = Lib; var c = l != null ? l.ClipVariant(key, BagSeed(l, key, seed)) : null; if (c == null && l != null) WarnMissing(key); return c; }
+
+        /// <summary>v0.13 (ANIMLIB-BULK): the seed a variant list is indexed with: the no-repeat bag's index for the key (see <see cref="ClipBag"/>), the plain seed for seed 0 and the quarterback keys.</summary>
+        static int BagSeed(ArtLibrary l, string key, int seed)
+        {
+            if (ClipBag.Skip(key, seed)) return seed;
+            return ClipBag.Index(key, seed, l.ClipVariantCount(key));
+        }
 
         /// <summary>Variant of a key whose clip name contains every token (best score); falls back to the seeded variant.</summary>
         static AnimationClip Pick(string key, int seed, params string[] tokens)
         {
             var l = Lib; if (l == null) return null;
             int n = l.ClipVariantCount(key); if (n == 0) return null;
-            AnimationClip best = null; int bs = -1;
+            var ties = new System.Collections.Generic.List<AnimationClip>(); int bs = -1;      // v0.13 (ANIMLIB-BULK): every take with the best token score is a candidate; the bag walks them
             for (int i = 0; i < n; i++)
             {
                 var c = l.ClipVariant(key, i);
                 int s = 0;
                 foreach (string t in tokens) if (c.name.Contains(t)) s++;
-                if (s > bs) { bs = s; best = c; }
+                if (s > bs) { bs = s; ties.Clear(); }
+                if (s == bs) ties.Add(c);
             }
-            return bs > 0 ? best : l.ClipVariant(key, seed);
+            if (bs > 0) return ClipBag.Skip(key, seed) ? ties[0] : ClipBag.Draw("pk:" + key, seed, ties);
+            return l.ClipVariant(key, BagSeed(l, key, seed));
         }
 
         static AnimationClip Partner(string key, AnimationClip a, int seed)
@@ -276,6 +285,7 @@ namespace PixFootball.Gameplay
             AnimationClip c = null;
             string[] keys = h.Defender ? new[] { "interception" } : new[] { "catch_high", "catch_run", "catch_low", "catch_jump", "catch_side" };
             int bs = -1;
+            var ties = new System.Collections.Generic.List<AnimationClip>();      // v0.13 (ANIMLIB-BULK): the takes tied at the best score go through the no-repeat bag
             foreach (string k in keys)
             {
                 var l = Lib; if (l == null) break;
@@ -288,9 +298,12 @@ namespace PixFootball.Gameplay
                     if (cl.name.Contains(dir)) s += 3;
                     if (cl.name.EndsWith(height)) s += 2;
                     if (cl.name.Contains(dir + side)) s += 1;
-                    if (s > bs) { bs = s; c = cl; }
+                    if (s > bs) { bs = s; ties.Clear(); }
+                    if (s == bs) ties.Add(cl);
                 }
             }
+            if (bs < 2 && ties.Count > 1) ties.RemoveRange(1, ties.Count - 1);      // nothing matched the ball: the old first take, not a random one
+            c = ClipBag.Draw("catch:" + tail, h.Seed, ties);
             if (c == null) return default(ClipPlan);
             float t = ClipTimingTable.Moment(c, 0.35f);
             float rate = GamePace.AnimationRate;      // v0.9.0 CONNECT E-363
@@ -306,7 +319,7 @@ namespace PixFootball.Gameplay
             if (t == null || l == null) return default(ClipPlan);
             t.Of(ArtKeys.Spin, _spinTakes);
             if (_spinTakes.Count == 0) return default(ClipPlan);
-            var take = _spinTakes[((seed % _spinTakes.Count) + _spinTakes.Count) % _spinTakes.Count];
+            var take = _spinTakes[ClipBag.Skip("spin", seed) ? ((seed % _spinTakes.Count) + _spinTakes.Count) % _spinTakes.Count : ClipBag.Index("spin", seed, _spinTakes.Count)];      // v0.13 (ANIMLIB-BULK): the no-repeat bag
             var clip = l.ClipByName(take.clip);
             if (clip == null) return default(ClipPlan);
             float dur = Mathf.Max(0.3f, take.t1 - take.t0);
@@ -353,7 +366,7 @@ namespace PixFootball.Gameplay
                 if (s == bs) best.Add(cl);
             }
             if (best.Count == 0) { WarnMissing(key); return default(ClipPlan); }
-            var a = best[((h.Seed % best.Count) + best.Count) % best.Count];
+            var a = ClipBag.Draw("tk:" + key + approach, h.Seed, best);      // v0.13 (ANIMLIB-BULK): least used first (both actors ask with the same seed and get the same A take)
             var c = carrier ? TwinOf(key + "_b", a) : a;
             if (c == null) c = a;
             float start = key == "tackle_wrap" || key == "qb_sack" ? 0.55f : (key == "tackle_dive" ? 0.5f : 0f);

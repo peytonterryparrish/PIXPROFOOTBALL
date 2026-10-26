@@ -154,7 +154,7 @@ namespace PixFootball.Sim
             if (b.OwnsB && b.B >= 0) _byAgent[b.B] = b;
         }
 
-        void Remember(string name) { _recent.Add(name); if (_recent.Count > 6) _recent.RemoveAt(0); }
+        void Remember(string name) { _recent.Add(name); if (_recent.Count > 40) _recent.RemoveAt(0); }      // v0.13 (ANIMLIB-BULK): 40 bookings (was 6), see ScorePair
 
         static float Rating01(int r) { return SimMath.Rating01(r); }
     }

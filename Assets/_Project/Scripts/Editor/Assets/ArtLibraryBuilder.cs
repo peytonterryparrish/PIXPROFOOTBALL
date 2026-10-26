@@ -14,7 +14,7 @@ namespace PixFootball.EditorTools
     /// Populates Assets/_Licensed/ArtLibrary.asset (+ a copy in Assets/_Licensed/Resources) from the imported Draft Fever assets
     /// using name heuristics, then prints which semantic keys were found / missing (also written to Docs/ArtLibraryReport.md).
     /// </summary>
-    public static class ArtLibraryBuilder
+    public static partial class ArtLibraryBuilder
     {
         const string Root = "Assets/_Licensed/DraftFever";
         const string LibPath = ArtLibrary.EditorAssetPath;
@@ -26,6 +26,20 @@ namespace PixFootball.EditorTools
             public Rule(string k, string inc, string exc = null, int max = 6)
             { key = k; this.inc = new Regex(inc, RegexOptions.IgnoreCase); this.exc = exc == null ? null : new Regex(exc, RegexOptions.IgnoreCase); this.max = max; }
         }
+
+        /// <summary>v0.13 (ANIMLIB-BULK): the cap of a rule. 656 football takes sat behind keys that were full at 6 (the owner: "so much motion capture is missing"); every non-QB key now takes up to 4x its old cap
+        /// (at least 24). Pairs stay aligned (the A and B lists of a key fill in the same name order and are matched by name), the QA reject list still filters, the runtime draws through the no-repeat bag.
+        /// Quarterback keys keep their caps here (QB-MOCAP owns them in ArtLibraryBuilder.Qb.cs). <c>-pixOldCaps</c> restores the old caps.</summary>
+        static int Cap(Rule r)
+        {
+            if (OldCaps || r.max >= 400 || r.key.StartsWith("qb_") || r.key.StartsWith("pix_qb")) return r.max;
+            // the pre-snap stance pools keep their caps: a wider pool put stances with another facing / hand / foot into the line (FACE_* standing +35 % for WR / S / CB in the 40-play probe), and variety there does not need more takes
+            if ((r.key.StartsWith("stance_") && r.key != "stance_to_sprint") || r.key == "idle" || r.key == "idle_alt" || r.key == "dl_stance" || r.key == "ol_stance" || r.key.StartsWith("cb_idle")) return r.max;
+            return System.Math.Max(r.max * 4, 24);
+        }
+        /// <summary>v0.13 wave 2 (BULK-2): single-actor studio takes whose file name ends in _B (the day-3 OLINE_MAN_3 footwork) are not second actors: they register under their own key.</summary>
+        static readonly Regex SingleActorB = new Regex(@"^oline_man_3_stance_to_block_run_foot_work_left_\d+(_s\d+)?(_m)?_b$", RegexOptions.IgnoreCase);
+        static readonly bool OldCaps = Environment.GetCommandLineArgs().Contains("-pixOldCaps");
 
         // Matched against the normalised clip name (lowercase, "root|" and "<pack>__" prefixes stripped, "import_" stripped).
         // Order inside the table matters: the first rule that claims a clip wins for single-claim rules; paired (_a/_b) clips register
@@ -171,8 +185,8 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.TurnRight, @"^trans(ition)?_stand_idle_to_stand_idle_\d+_deg_right|^transition_walk_to_walk|^transitionwalkidle"),
             // QA-918: left turns exist only as mirrored right turns (see the "_m" block in BuildClips); the jog turns are man-turn-run material
 
-            new Rule(ArtKeys.Slowdown, @"slowdown"),
-            new Rule(ArtKeys.StanceToSprint, @"stance_to_sprint|^trans(ition)?_stand_idle_to_run"),
+            new Rule(ArtKeys.Slowdown, @"slowdown|^trans_run_to_ready_idle"),
+            new Rule(ArtKeys.StanceToSprint, @"stance_to_sprint|^trans(ition)?_stand_idle_to_run|^(runningback|linebacker)transition"),
             new Rule(ArtKeys.BackpedalToSprint, @"stance_to_backpedal"),
             new Rule(ArtKeys.ShuffleToSprint, @"^shuffle_to_sprint"),
             new Rule(ArtKeys.CutLeft, @"^avoid45degr"),
@@ -248,7 +262,7 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.CatchLow, @"^catchnormal.*low"),
             new Rule(ArtKeys.CatchSide, @"^catchnormalright"),
             new Rule(ArtKeys.CatchRun, @"^catch_run|^catchsnap|^catchnormal.*mid"),
-            new Rule(ArtKeys.FairCatch, @"fair_?catch"),
+            new Rule(ArtKeys.FairCatch, @"fair_?catch|^catchfair"),      // v0.13 (ANIMLIB-BULK): + the Motus CatchFairFrontCMid take
             new Rule(ArtKeys.Interception, @"^intnormal"),
             new Rule(ArtKeys.ManCoverage, @"man_coverage|^cornerbackshuffle"),
             new Rule(ArtKeys.ManTurnRun, @"jog_to_jog"),
@@ -346,9 +360,9 @@ namespace PixFootball.EditorTools
             new Rule(ArtKeys.Snapper, @"^long_snap", null, 4),     // QA-190/917: the centre snap (derived), not a QB fake handoff
             new Rule(ArtKeys.CatchDive, @"^bgs_dive_ball|^dive(short|stretch)withball|^avoid0degdive", null, 4),     // QA-915: a diving catch lays out, it is not a vertical jump
             new Rule(ArtKeys.InjuredIdle, @"ambient_injury_00[12]_a", null, 2),
-            new Rule(ArtKeys.DlRushRip, @"^blockescape(c|r)(stale|fail)_a$", null, 6),     // rip = the escape moves
-            new Rule(ArtKeys.PressJam, @"^blockhit(c|r)stale_a$", null, 4),                  // press jam = the first punch of the hit-block take
-            new Rule(ArtKeys.PushOob, @"^blockshovec(stale|pass)_a$", null, 4),             // push out of bounds = the shove take
+            new Rule(ArtKeys.DlRushRip, @"^blockescape(c|r)(stale|fail)_(a|b)$", null, 6),     // rip = the escape moves (v0.13 ANIMLIB-BULK: the _B actors too: they register under dl_rush_rip_b)
+            new Rule(ArtKeys.PressJam, @"^blockhit(c|r)stale_(a|b)$", null, 4),                  // press jam = the first punch of the hit-block take
+            new Rule(ArtKeys.PushOob, @"^block(shove|push)(c|r)(stale|pass)_(a|b)$", null, 4),             // push out of bounds = the shove take
             // v0.8 distinct per-position stances (QA-899..901). The mirrored copy ("_m") of a hand-down stance is the other-handed variant.
             new Rule(ArtKeys.StanceOl3ptR, @"^3pstance_aggressive_00[12](_m)?$", null, 4) { Raw = true },
             new Rule(ArtKeys.StanceOl3ptL, @"^3pstance_aggressive_00[12]_m$", null, 4) { Raw = true },
@@ -489,6 +503,8 @@ namespace PixFootball.EditorTools
                 // a long raw take that was cut into segments is replaced by them
                 candidates.RemoveAll(k => !k.Key.Contains("/Clean/") && cleanMap.ContainsKey(ClipCleaner.TaggedName(k.Value.name, "_s01")));
                 foreach (var kv in cleanMap) if (!used.Contains(kv.Key)) candidates.Add(kv.Value);
+                // v0.13 (BULK-2): a whole-take pair clip (RAW__*_A / _B) whose interaction windows exist (name_s01_A ...) is replaced by them: a 20 s pair never books and would fill the key
+                candidates.RemoveAll(k => k.Key.Contains("/Clean/") && k.Value.name.StartsWith("RAW__") && Regex.IsMatch(k.Value.name, "_[AB]$") && !Regex.IsMatch(k.Value.name, @"_s\d\d(_M)?_[AB]$") && cleanMap.ContainsKey(ClipCleaner.TaggedName(k.Value.name, "_s01")));
             }
             // v0.10.0 ANIMLIB: clips the QA score rejected (Docs/QA/v0100/animlib_rejects.txt) are not registered
             var rejects = LoadRejects();
@@ -514,7 +530,7 @@ namespace PixFootball.EditorTools
                         foreach (string mk in new[] { ArtKeys.CutLeft, ArtKeys.JukeLeft })
                         {
                             int mc; count.TryGetValue(mk, out mc);
-                            if (mc >= 6) continue;
+                            if (mc >= 24) continue;      // v0.13 (ANIMLIB-BULK): was 6
                             count[mk] = mc + 1;
                             lib.clips.Add(new ArtLibrary.ClipEntry { key = mk, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping });
                         }
@@ -523,19 +539,19 @@ namespace PixFootball.EditorTools
                     if (Regex.IsMatch(mn, @"^trans(ition)?_stand_idle_to_stand_idle_\d+_deg_right|^transition_walk_to_walk|^transitionwalkidle"))
                     {
                         int tc; count.TryGetValue(ArtKeys.TurnLeft, out tc);
-                        if (tc < 8) { count[ArtKeys.TurnLeft] = tc + 1; lib.clips.Add(new ArtLibrary.ClipEntry { key = ArtKeys.TurnLeft, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping }); }
+                        if (tc < 16) { count[ArtKeys.TurnLeft] = tc + 1; lib.clips.Add(new ArtLibrary.ClipEntry { key = ArtKeys.TurnLeft, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping }); }
                         continue;
                     }
                     n = mn;
                 }
-                foreach (var r in NewClipRules.Concat(ClipRules))
+                foreach (var r in BulkRules.Concat(QbRules).Concat(NewClipRules).Concat(ClipRules))      // v0.13: the ANIMLIB-BULK rules (ArtLibraryBuilder.Bulk.cs: the MC idles, the look-arounds the QB pattern would take) and the QB-MOCAP rules (ArtLibraryBuilder.Qb.cs) claim first
                 {
                     if (!r.inc.IsMatch(n)) continue;
                     if (r.exc != null && r.exc.IsMatch(n)) continue;
                     string key = r.key;
-                    if (Regex.IsMatch(n, @"(_b|_def)$") && !n.EndsWith("_ab")) key += "_b";
+                    if (Regex.IsMatch(n, @"(_b|_def)$") && !n.EndsWith("_ab") && !SingleActorB.IsMatch(n)) key += "_b";
                     int c; count.TryGetValue(key, out c);
-                    if (c >= r.max) { break; }
+                    if (c >= Cap(r)) { break; }
                     count[key] = c + 1;
                     lib.clips.Add(new ArtLibrary.ClipEntry { key = key, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping });
                     break;
@@ -544,9 +560,9 @@ namespace PixFootball.EditorTools
                 {
                     if (!ar.inc.IsMatch(ar.Raw ? an : n)) continue;
                     string akey = ar.key;
-                    if (Regex.IsMatch(n, @"(_b|_def)$") && !n.EndsWith("_ab")) akey += "_b";
+                    if (Regex.IsMatch(n, @"(_b|_def)$") && !n.EndsWith("_ab") && !SingleActorB.IsMatch(n)) akey += "_b";
                     int ac; count.TryGetValue(akey, out ac);
-                    if (ac >= ar.max) continue;
+                    if (ac >= Cap(ar)) continue;
                     count[akey] = ac + 1;
                     lib.clips.Add(new ArtLibrary.ClipEntry { key = akey, clip = kv.Value, source = pathLow.Substring(Root.Length + 1) + "#" + kv.Value.name, length = kv.Value.length, loop = kv.Value.isLooping });
                 }
@@ -559,6 +575,9 @@ namespace PixFootball.EditorTools
             const string path = "Docs/QA/v0100/animlib_rejects.txt";
             if (File.Exists(path))
                 foreach (string l in File.ReadAllLines(path)) { string t = l.Split('	')[0].Trim(); if (t.Length > 0 && !t.StartsWith("#")) set.Add(t); }
+            // v0.13 wave 2 (BULK-2): the engagement takes that sink the hips / put a hand under the turf / float both feet (EngageProbe)
+            if (File.Exists("Docs/QA/v0130/bulk2_engage_rejects.txt"))
+                foreach (string l in File.ReadAllLines("Docs/QA/v0130/bulk2_engage_rejects.txt")) { string t = l.Split('	')[0].Trim(); if (t.Length > 0 && !t.StartsWith("#")) set.Add(t); }
             return set;
         }
 

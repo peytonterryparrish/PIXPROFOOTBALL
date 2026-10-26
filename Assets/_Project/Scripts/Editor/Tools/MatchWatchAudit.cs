@@ -183,6 +183,7 @@ namespace PixFootball.EditorTools
 
         void SetupHooks()
         {
+            ClipsHook();      // v0.13.0 COVERAGE
             _dir.PlayStarted += sim =>
             {
                 _cur = new PlayRec { No = _dir.PlayNumber, Ctx = Ctx(), Kind = sim.Kind.ToString(), T0 = Time.time };
@@ -279,6 +280,8 @@ namespace PixFootball.EditorTools
             if (_gapBetweenPlays.Count > 0) { var l = _gapBetweenPlays.OrderBy(x => x).ToList(); sb.AppendLine("gap PlayFinished -> next PlayStarted n=" + l.Count + " min " + l[0].ToString("0.0", CI) + " median " + l[l.Count / 2].ToString("0.0", CI) + " p90 " + l[(int)(l.Count * 0.9)].ToString("0.0", CI) + " max " + l[l.Count - 1].ToString("0.0", CI)); }
             sb.AppendLine();
             sb.AppendLine(ExtraReport());
+            sb.AppendLine(ClipsReport());      // v0.13.0 COVERAGE
+            sb.AppendLine(StanceHeadReport());      // v0.13.0 STANCE-HEAD
             sb.AppendLine(AudioReport());
             File.WriteAllText(_out + "/summary.txt", sb.ToString());
             var fs = _dir != null && _dir.Flow != null ? _dir.Flow.State : null;

@@ -10,6 +10,8 @@ namespace PixFootball.Sim
     /// </summary>
     public sealed partial class Choreographer
     {
+        /// <summary>v0.13 wave 2 (BULK-2): the receiver's speed (m/s) and the defender's distance (yards) under which a catch is rolled as a duel.</summary>
+        public const float DuelMaxSpeed = 3.4f, DuelMaxGapYd = 1.5f;
         public static bool DebugNoDuel = Array.IndexOf(Environment.GetCommandLineArgs(), "-pixNoDuel") >= 0;
 
         readonly CatchResolver.DuelOutcome[] _duelOut = new CatchResolver.DuelOutcome[22];
@@ -29,11 +31,11 @@ namespace PixFootball.Sim
         {
             if (DebugNoDuel || r.Id < 1 || r.Id >= 11 || r.ControlledByUser) return;
             if (_byAgent[r.Id] != null && _duelBook[r.Id] == null) return;      // already in another take
-            if (r.Vel.Length * 0.9144f > 2.0f || f.At.Z > 3.0f) return;
+            if (r.Vel.Length * 0.9144f > DuelMaxSpeed || f.At.Z > 3.4f) return;      // v0.13 wave 2 (BULK-2): was 2.0 m/s / 3.0 m (31 booked windows, no duel drawn in a whole game)
             if (_duelOut[r.Id] == CatchResolver.DuelOutcome.None)
             {
                 // the defender on him (the same gate as the view's duel candidate: within a yard of where the receiver will be)
-                SimAgent d = null; float best = 1.0f;
+                SimAgent d = null; float best = DuelMaxGapYd;
                 for (int i = 11; i < 22; i++)
                 {
                     SimAgent c = S.Agents[i];

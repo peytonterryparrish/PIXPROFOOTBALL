@@ -69,6 +69,7 @@ namespace PixFootball.EditorTools
         {
             var lib = ArtLibrary.Load();
             var prefab = lib != null ? lib.Prefab(key) : null;
+            if (prefab == null) prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Licensed/PhotorealPlayer/Prefabs/" + StagePrefabName(key));   // v0.13.0: the shared ArtLibrary can lack the 12 roster keys (a library rebuild drops them): load the live prefab by path
             if (Arg("-pixBodyShotsStage", "0") == "1") prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_BodiesStage/Prefabs/" + StagePrefabName(key));
             if (prefab == null) return null;
             var g = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
@@ -77,7 +78,7 @@ namespace PixFootball.EditorTools
             pp.autoLod = false; pp.Init();
             var kit = PhotoPlayerQa.Kits[1];
             pp.SetTeamColors(kit.p, kit.s, kit.t);
-            if (Arg("-pixBodyShotsStage", "0") == "1") { PhotoBodiesStage.ApplyMaterialNumbers(pp.HelmetMaterial, pp.JerseyMaterial, pp.PantsMaterial); var tm = AssetDatabase.LoadAssetAtPath<Texture2D>(PhotoBodiesStage.TexDir + "/jersey_Team.png"); if (tm != null && pp.JerseyMaterial != null) pp.JerseyMaterial.SetTexture("_PixColorMask", tm); }
+            if (Arg("-pixBodyShotsStage", "0") == "1") { PhotoBodiesStage.ApplyMaterialNumbers(pp.HelmetMaterial, pp.JerseyMaterial, pp.PantsMaterial); var tm = AssetDatabase.LoadAssetAtPath<Texture2D>(PhotoBodiesStage.TexDir + "/jersey_Team.png"); if (tm != null && pp.JerseyMaterial != null) pp.JerseyMaterial.SetTexture("_PixColorMask", tm); if (Arg("-pixBodyShotsOldCloth", "0") != "1") PhotoBodiesStage.ApplyStageTextures(pp); }
             PhotoBody size = key.Contains("small") ? PhotoBody.Small : key.Contains("large") ? PhotoBody.Large : PhotoBody.Medium;
             pp.ApplyAppearance(PlayerAppearance.FromSeed(seed, size, size == PhotoBody.Large ? PlayerAppearance.RoleLine : PlayerAppearance.RoleSkill));
             var look = new JerseyLook { Number = number, HasNumber = true, Fill = kit.t, Trim = kit.s, Name = "ALDER", Wordmark = kit.wordmark, Dirt = default(DirtState) };
@@ -241,7 +242,7 @@ namespace PixFootball.EditorTools
         // ------------------------------------------------------------------------------------------------ metrics
         sealed class Cloud
         {
-            public Vector3[] v; public Vector3[] n; public int[] tris;
+            public Vector3[] v; public Vector3[] n; public int[] tris; public int LastIdx;
             Dictionary<long, List<int>> _grid; const float Cell = 0.03f;
             static long Key(int x, int y, int z) { return ((long)(x + 4096) << 40) | ((long)(y + 4096) << 20) | (long)(z + 4096); }
             static int C(float f) { return Mathf.FloorToInt(f / Cell); }
@@ -264,8 +265,8 @@ namespace PixFootball.EditorTools
                     List<int> l; if (!_grid.TryGetValue(Key(cx + x, cy + y, cz + z), out l)) continue;
                     foreach (int i in l) { float d = (v[i] - q).sqrMagnitude; if (d < best) { best = d; bi = i; } }
                 }
-                if (bi < 0) { sd = 0; dist = r; return false; }
-                sd = Vector3.Dot(q - v[bi], n[bi]); dist = Mathf.Sqrt(best);
+                if (bi < 0) { sd = 0; dist = r; LastIdx = -1; return false; }
+                LastIdx = bi; sd = Vector3.Dot(q - v[bi], n[bi]); dist = Mathf.Sqrt(best);
                 return true;
             }
         }
@@ -343,7 +344,7 @@ namespace PixFootball.EditorTools
                     jw = hi2 - lo2;
                 }
                 // ---- clipping across poses
-                string perClip = ""; int zoneVerts = 0, nPoses = 0; var padNew = new List<int>(); var skinNew = new List<int>(); int padPokeRest = 0;
+                int[,,] diag = Arg("-pixBodyShotsDiag", "0") == "1" ? new int[4, 3, 4] : null; int dbgN = 0; var dbg = new StringBuilder(); string perClip = ""; int zoneVerts = 0, nPoses = 0; var padNew = new List<int>(); var skinNew = new List<int>(); int padPokeRest = 0;
                 if (padRest != null)
                 {
                     var lua = an.GetBoneTransform(HumanBodyBones.LeftUpperArm).position; var rua = an.GetBoneTransform(HumanBodyBones.RightUpperArm).position;
@@ -364,7 +365,25 @@ namespace PixFootball.EditorTools
                             Pose(g, clip, clip.length * tf);
                             var P = Bake(pads, true); var J = Bake(jer, true); var A = Bake(arms, false);
                             var po = padOut(P, J, null); int pn = 0; for (int i = 0; i < po.Length; i++) if (po[i] && !restPadOut[i]) pn++;
-                            var sc = skinCov(A, J, P); int sn = 0; for (int k = 0; k < sc.Length; k++) if (restSkin[k] < -0.006f && sc[k] > 0.002f) sn++;
+                            var sc = skinCov(A, J, P); int sn = 0;
+                            for (int k = 0; k < sc.Length; k++) if (restSkin[k] < -0.006f && sc[k] > 0.002f)
+                            {
+                                sn++;
+                                if (diag != null)   // v0.13.0 BODIES-2: where do the remaining exposures sit (rest depth under the cloth x distance to the shoulder joint x how far out in the pose)
+                                {
+                                    float dpt = -restSkin[k]; int db = dpt < 0.008f ? 0 : dpt < 0.012f ? 1 : dpt < 0.020f ? 2 : 3;
+                                    var q0 = armRest.v[zone[k]]; float dj = Mathf.Min(Vector3.Distance(q0, lua), Vector3.Distance(q0, rua)); int jb = dj < 0.10f ? 0 : dj < 0.18f ? 1 : 2;
+                                    float ex = sc[k]; int eb = ex < 0.004f ? 0 : ex < 0.008f ? 1 : ex < 0.016f ? 2 : 3;
+                                    diag[db, jb, eb]++;
+                                    if (dbgN < 10 && eb == 3)
+                                    {
+                                        float sd0, d0; int i0, i1; jerRest.Signed(armRest.v[zone[k]], 0.08f, out sd0, out d0); i0 = jerRest.LastIdx; float sd1, d1; J.Signed(A.v[zone[k]], 0.08f, out sd1, out d1); i1 = J.LastIdx;
+                                        var wA = arms.sharedMesh.boneWeights[zone[k]]; var wJ = i0 >= 0 ? jer.sharedMesh.boneWeights[i0] : default(BoneWeight);
+                                        Func<SkinnedMeshRenderer, BoneWeight, string> wn = (r, w) => (w.weight0 > 0 ? r.bones[w.boneIndex0].name.Replace("rig:", "") + ":" + w.weight0.ToString("0.00") : "") + (w.weight1 > 0 ? " " + r.bones[w.boneIndex1].name.Replace("rig:", "") + ":" + w.weight1.ToString("0.00") : "");
+                                        dbg.AppendLine("      " + ck + "@" + tf + " v" + zone[k] + " restDepth " + F(dpt * 1000) + "mm joint " + F(dj * 100) + "cm | rest jersey nearest " + i0 + " (d " + F(d0 * 1000) + "mm sd " + F(sd0 * 1000) + ") pose nearest " + i1 + " (d " + F(d1 * 1000) + "mm sd " + F(sd1 * 1000) + ") | arm w [" + wn(arms, wA) + "] jersey w [" + wn(jer, wJ) + "]"); dbgN++;
+                                    }
+                                }
+                            }
                             padNew.Add(pn); skinNew.Add(sn); nPoses++; perClip += " " + ck + "@" + tf.ToString("0.00", CultureInfo.InvariantCulture) + "=" + pn + "/" + sn;
                         }
                     }
@@ -375,6 +394,8 @@ namespace PixFootball.EditorTools
                 txt.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-28} pads {1:0.000} x {2:0.000} x {3:0.000} m  vol {4:0.0} L  ({5} tris)  jersey width at pads {6:0.000}  | helmet missing: {7} | pad verts out of jersey at rest {8}, new in poses mean {9:0.0} max {10} | skin verts newly exposed mean {11:0.0} max {12} (zone {13})",
                     key, pw, pd, ph, pvol, pTris, jw, missing.Count == 0 ? "none" : string.Join(";", missing.ToArray()), padPokeRest, padNew.Count > 0 ? padNew.Average() : 0, padNew.Count > 0 ? padNew.Max() : 0, skinNew.Count > 0 ? skinNew.Average() : 0, skinNew.Count > 0 ? skinNew.Max() : 0, zoneVerts));
                 txt.AppendLine("   per pose (pad/skin): " + perClip);
+                if (diag != null) txt.Append(dbg.ToString());
+                if (diag != null) { var sb = new StringBuilder("   skin exposures [rest depth <8 / 8-12 / 12-20 / >20 mm][joint dist <10 / 10-18 / >18 cm] = counts by pose exposure <4 / 4-8 / 8-16 / >16 mm: "); for (int a = 0; a < 4; a++) for (int b = 0; b < 3; b++) sb.Append(" [" + a + "," + b + "]=" + diag[a, b, 0] + "/" + diag[a, b, 1] + "/" + diag[a, b, 2] + "/" + diag[a, b, 3]); txt.AppendLine(sb.ToString()); }
                 UnityEngine.Object.DestroyImmediate(g);
                 Debug.Log("[BodyShots] metrics " + key);
             }

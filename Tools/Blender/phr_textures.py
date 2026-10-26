@@ -14,6 +14,9 @@ import bmesh
 OUT = os.environ.get("PHR_TEX_OUT") or os.path.join(OUT_ASSET, "Textures", "Uniform")   # v0.12.0 BODIES: PHR_TEX_OUT writes to a private stage folder
 SLEEVE_BANDS = os.environ.get("PHR_SLEEVE_BANDS", "0") == "1"   # v0.12.0 BODIES: the sleeve-end bands land on the pad dome as black / white slabs (the jersey sleeve ends at the cap): off
 SZ = {"jersey": 2048, "pants": 2048, "socks": 1024}
+CLOTH = os.environ.get("PHR_CLOTH", "1") == "1"   # v0.13.0 BODIES-2: sculpted cloth folds / seams / panels / AO (phr3_cloth); PHR_CLOTH=0 gives the v0.12 maps
+if CLOTH:
+    import phr3_cloth as CL
 
 
 def island_edge(cov, width=3):
@@ -69,7 +72,10 @@ def finish(name, gray, team_g, team_b, normal, regions, cov, size):
 def jersey(arm, meshes):
     size = SZ["jersey"]
     o = meshes["jersey"]
-    pos, nrm, cov = bake_world(o, size)
+    if CLOTH:
+        pos, nrm, bd, cov = CL.bake_with_boundary(o, size)
+    else:
+        pos, nrm, cov = bake_world(o, size)
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
     ax = np.abs(x)
     # --- design masks
@@ -118,6 +124,14 @@ def jersey(arm, meshes):
     nA = height_to_normal(h, 9.0)
     nB = height_to_normal(0.35 * mesh * mesh_zone + 0.5 * rib * rib_zone, 1.2)
     normal = np.clip(nA + (nB - 0.5), 0, 1)
+    if CLOTH:
+        # v0.13.0 BODIES-2: the soft noise folds / dot lattice are replaced by the sculpted folds (phr3_cloth); the ribbed collar keeps its own bump
+        F = CL.jersey_fields(arm, pos, nrm, bd, cov, size)
+        nC = CL.phys_normal(F["h"], pos, cov, 1.0)
+        normal = np.clip(nC + (height_to_normal(0.5 * rib * rib_zone, 1.2) - 0.5), 0, 1)
+        gray = (0.80 + 0.03 * fft_noise(size, 1, 6, (1, 1), 21)) * F["ao"] * (1.0 - 0.05 * F["panel"])
+        gray *= 1.0 - 0.10 * smoothstep(0.30, 0.0, z - 1.12)
+        gray *= 1.0 - 0.06 * rib * rib_zone
     # --- dirt regions: B = front, A = back + shoulders
     front = smoothstep(0.35, 0.8, -nrm[..., 1]) * smoothstep(1.08, 1.16, z) * (1 - smoothstep(1.34, 1.46, z))
     back = smoothstep(0.35, 0.8, nrm[..., 1]) * smoothstep(1.08, 1.16, z)
@@ -150,7 +164,10 @@ def finish_noreg(name, gray, team_g, team_b, normal, cov, size):
 def pants(arm, meshes):
     size = SZ["pants"]
     o = meshes["pants"]
-    pos, nrm, cov = bake_world(o, size)
+    if CLOTH:
+        pos, nrm, bd, cov = CL.bake_with_boundary(o, size)
+    else:
+        pos, nrm, cov = bake_world(o, size)
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
     side = np.where(x > 0, 1.0, -1.0)
     outer = nrm[..., 0] * side            # +1 = pointing away from the body centre
@@ -176,6 +193,10 @@ def pants(arm, meshes):
     nA = height_to_normal(h, 8.0)
     nB = height_to_normal(0.25 * tw, 1.0)
     normal = np.clip(nA + (nB - 0.5), 0, 1)
+    if CLOTH:
+        F = CL.pants_fields(arm, pos, nrm, bd, cov, size)
+        normal = CL.phys_normal(F["h"], pos, cov, 1.0)
+        gray = (0.82 + 0.03 * fft_noise(size, 1, 6, (1, 1), 41)) * F["ao"]
     reg = np.zeros((size, size, 4))
     knees = smoothstep(0.80, 0.68, z) * smoothstep(0.1, 0.45, -nrm[..., 1])
     reg[..., 0] = knees
@@ -206,6 +227,23 @@ def socks(arm, meshes):
     reg = np.zeros((size, size, 4))
     save_regions(f"{OUT}/socks_Regions.png", reg, cov)
     finish_noreg("socks", gray, sec, ter, normal, cov, size)
+
+
+def armsleeve(arm, meshes):
+    """v0.13.0 BODIES-2: the compression sleeve gets elbow crook folds, wrist rings, biceps tension folds and a baked cavity on top of its existing fabric normal / grey (read from the live set, written to OUT)."""
+    live = os.path.join(OUT_ASSET, "Textures", "Uniform")
+    o = meshes["armsleeve"]
+    base_n = load(f"{live}/armsleeve_N.png", False)[..., :3]
+    base_g = load(f"{live}/armsleeve_Gray.png", True)[..., :3]
+    size = base_n.shape[0]
+    pos, nrm, cov = bake_world(o, size)
+    F = CL.sleeve_fields(arm, pos, nrm, cov, size)
+    nF = CL.phys_normal(F["h"], pos, cov, 1.0)
+    n = fill_dilate(CL.combine_normals(base_n, nF), cov, 24)
+    g = fill_dilate(np.clip(base_g * F["ao"][..., None], 0, 1), cov, 24)
+    save(f"{OUT}/armsleeve_N.png", n, False)
+    save(f"{OUT}/armsleeve_Gray.png", g, True)
+    print("wrote armsleeve", size)
 
 
 if __name__ == "__main__":

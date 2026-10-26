@@ -38,6 +38,7 @@ namespace PixFootball.Gameplay
         {
             get
             {
+                if (_qmOwn) return "Mocap";      // v0.13.0 QB-MOCAP
                 if (_qbPre != QbPre.None) return _qbPre.ToString();
                 if (_qtOn) return "Throw";
                 if (_qbSecure) return "Secure";
@@ -197,6 +198,7 @@ namespace PixFootball.Gameplay
         {
             get
             {
+                if (_qmMeshOn && _qbMeshEta >= 0f && _qbMeshEta <= QbSeqTiming.MeshExtendSeconds) return Mathf.SmoothStep(0f, 1f, 1f - _qbMeshEta / QbSeqTiming.MeshExtendSeconds);      // v0.13.0 QB-2: the mocap hand-off take steps him to the runner the same way
                 if (_qbMeshOn && _qbMeshEta >= 0f && _qbMeshEta <= QbSeqTiming.MeshExtendSeconds) return Mathf.SmoothStep(0f, 1f, 1f - _qbMeshEta / QbSeqTiming.MeshExtendSeconds);
                 if (_qbCarryOut) return 1f - Mathf.SmoothStep(0f, 1f, _qbCarryU * QbSeqTiming.MeshFollowSeconds / 0.25f);
                 return 0f;

@@ -108,7 +108,7 @@ namespace PixFootball.Gameplay
             float endA = Mathf.Min(Mathf.Min(pair.lengthA, s.MaxPlay), bk.ExitTA + 0.35f), endB = Mathf.Min(Mathf.Min(pair.lengthB, s.MaxPlay), bk.ExitTB + 0.35f);
             vc.Rig.Play(clipA, s.Start, Mathf.Max(endA, s.Start + 0.2f), rate, 0.14f, 0.35f, false, false, false, 0f, AnimKit.ImpactFloor);
             vt.Rig.Play(clipB, s.Start, Mathf.Max(endB, s.Start + 0.2f), rate, 0.14f, 0.35f, false, false, false, 0f, AnimKit.ImpactFloor);
-            _recent.Add(pair.clipA); if (_recent.Count > 6) _recent.RemoveAt(0);
+            _recent.Add(pair.clipA); if (_recent.Count > 40) _recent.RemoveAt(0);
             LastTake = "booked " + kind + " " + pair.clipA + " clip t=" + now.ToString("0.00");
             Vector3 pc = vc.transform.position;
             if (e.Tackle == TackleType.BigHit || kind == ContactKind.BigHit) Fire(pc, ImpactOf(e), true, carrier, tackler, false, s);

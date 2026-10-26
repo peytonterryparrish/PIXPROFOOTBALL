@@ -154,7 +154,7 @@ namespace PixFootball.Tests
                 }
                 // the padded jersey is broad: wider than the pad body alone would be, and the shoulders are wider than a 0.62 m player
                 var jb = ((SkinnedMeshRenderer)pp.parts.First(x => x.key == "Jersey").lods[0]).sharedMesh.bounds;
-                Assert.Greater(jb.size.x, 0.68f, p.name + " padded shoulder width");
+                Assert.Greater(jb.size.x, 0.62f, p.name + " padded shoulder width");     // v0.13 (BODIES-2): shoulders narrowed toward R1 (owner: "too broad"); Small measures 0.638 m, was > 0.68
                 var padb = ((SkinnedMeshRenderer)pp.parts.First(x => x.key == "Pads").lods[0]).sharedMesh.bounds;
                 Assert.LessOrEqual(padb.size.x, jb.size.x + 0.03f, p.name + " the jersey drapes over the pads (pads not wider than the jersey)");
             }

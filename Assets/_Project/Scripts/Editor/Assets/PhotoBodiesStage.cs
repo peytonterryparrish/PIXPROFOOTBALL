@@ -15,6 +15,8 @@ namespace PixFootball.EditorTools
     /// </summary>
     public static class PhotoBodiesStage
     {
+        /// <summary>Jersey / pants normal strength with the sculpted folds (v0.12: 0.5).</summary>
+        public static float ClothNormalScale = 1.0f;
         public const string Root = "Assets/_BodiesStage", MeshDir = Root + "/Meshes", PrefabDir = Root + "/Prefabs";
 
         static string StageModel(string size, string b) { return MeshDir + "/PHR_" + size + "_" + b + ".fbx"; }
@@ -23,6 +25,18 @@ namespace PixFootball.EditorTools
         public static void BuildStageBatch()
         {
             try { BuildStage(); } catch (Exception e) { Debug.LogError("[BodiesStage] " + e); }
+            EditorApplication.Exit(0);
+        }
+
+        /// <summary>Forces a re-import of the 15 stage FBX (after a change of the import step, e.g. PhotoUnderCloth) and rebuilds the stage prefabs.</summary>
+        public static void RebuildStageBatch()
+        {
+            try
+            {
+                foreach (string f in Directory.GetFiles(MeshDir, "PHR_*.fbx")) AssetDatabase.ImportAsset(f.Replace('\\', '/'), ImportAssetOptions.ForceUpdate);
+                BuildStage();
+            }
+            catch (Exception e) { Debug.LogError("[BodiesStage] " + e); }
             EditorApplication.Exit(0);
         }
 
@@ -54,6 +68,7 @@ namespace PixFootball.EditorTools
                 if (m == null) continue;
                 var fab = m.GetVector("_PixFabric"); fab.x = 52f; fab.y = 0.36f; m.SetVector("_PixFabric", fab);   // tiling 70 -> 52, strength 0.55 -> 0.36 (the dot grid on the numbers)
                 m.SetFloat("_SmoothnessRemapMax", 0.46f);
+                m.SetFloat("_NormalScale", ClothNormalScale);   // v0.13.0 BODIES-2: the baked folds are physical slopes (0.5 halved them)
             }
         }
 
@@ -65,11 +80,31 @@ namespace PixFootball.EditorTools
             AssetDatabase.Refresh();
             foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { TexDir }))
             {
-                var ti = AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(guid)) as TextureImporter; if (ti == null) continue;
-                ti.textureType = TextureImporterType.Default; ti.sRGBTexture = false; ti.alphaSource = TextureImporterAlphaSource.None; ti.maxTextureSize = 2048; ti.mipmapEnabled = true;
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var ti = AssetImporter.GetAtPath(path) as TextureImporter; if (ti == null) continue;
+                bool nrm = path.EndsWith("_N.png"), gray = path.EndsWith("_Gray.png");   // v0.13.0 BODIES-2: the cloth maps (normal, grey albedo) use the importer settings of the live ones
+                ti.textureType = nrm ? TextureImporterType.NormalMap : TextureImporterType.Default; ti.sRGBTexture = gray; ti.alphaSource = TextureImporterAlphaSource.None; ti.maxTextureSize = 2048; ti.mipmapEnabled = true;
                 ti.filterMode = FilterMode.Trilinear; ti.anisoLevel = 8; ti.textureCompression = TextureImporterCompression.CompressedHQ; ti.isReadable = false; ti.SaveAndReimport();
             }
         }
+
+        /// <summary>v0.13.0 BODIES-2: the stage cloth maps on the instance materials of one body (jersey, pants, compression sleeve), so stage renders and probes show the new uniform before the promotion.</summary>
+        public static void ApplyStageTextures(PhotoPlayer pp)
+        {
+            Action<Material, string> put = (m, part) =>
+            {
+                if (m == null) return;
+                var g = AssetDatabase.LoadAssetAtPath<Texture2D>(TexDir + "/" + part + "_Gray.png"); var n = AssetDatabase.LoadAssetAtPath<Texture2D>(TexDir + "/" + part + "_N.png");
+                if (g != null) { m.SetTexture("_BaseColorMap", g); m.SetTexture("_MainTex", g); }
+                if (n != null) m.SetTexture("_NormalMap", n);
+            };
+            put(pp.JerseyMaterial, "jersey"); put(pp.PantsMaterial, "pants");
+            var sl = pp.parts.FirstOrDefault(x => x != null && x.key == "SleeveR");
+            if (sl != null && sl.lods != null && sl.lods.Length > 0 && sl.lods[0] != null) put(sl.lods[0].sharedMaterial, "armsleeve");
+        }
+
+        /// <summary>Stage cloth maps that the promotion copies over the live ones (the importer settings of the live files stay).</summary>
+        public static readonly string[] ClothMaps = { "jersey_Team", "jersey_Gray", "jersey_N", "pants_Gray", "pants_N", "armsleeve_Gray", "armsleeve_N" };
 
         public static void PromoteBatch()
         {
@@ -93,8 +128,11 @@ namespace PixFootball.EditorTools
                     }
             }
             finally { AssetDatabase.StopAssetEditing(); }
-            string stageTeam = TexDir + "/jersey_Team.png", liveTeam = PhotoPlayerBuilder.TexDir + "/Uniform/jersey_Team.png";
-            if (File.Exists(stageTeam)) File.Copy(stageTeam, liveTeam, true);
+            foreach (string mname in ClothMaps)
+            {
+                string stageMap = TexDir + "/" + mname + ".png", liveMap = PhotoPlayerBuilder.TexDir + "/Uniform/" + mname + ".png";
+                if (File.Exists(stageMap)) File.Copy(stageMap, liveMap, true);
+            }
             AssetDatabase.Refresh();
             PhotoRosterV2.ConfigureModels(PhotoPlayerBuilder.MeshDir, "_");
             var pads = PhotoRosterV2.LoadPadMats(PhotoPlayerBuilder.MatDir);

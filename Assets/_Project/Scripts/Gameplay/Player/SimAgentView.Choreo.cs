@@ -75,6 +75,8 @@ namespace PixFootball.Gameplay
         /// <summary>v0.12.0 CONTACT: body speed (m/s) below which the stepper has the legs of an engaged / blocking body, a wrap, a get-off. QA: -pixStepCap sets the first one.</summary>
         public static float StepCap = ArgF("-pixStepCap", 5.5f), StepCapWrap = ArgF("-pixStepCapWrap", 5.5f), StepCapGetOff = 4.5f;
         float _getOffUntil = -1f;
+        /// <summary>v0.13.0 NATURAL-3 QA: -pixStepperOverMatcher lets the get-off stepper work over the matcher again.</summary>
+        static readonly bool MatcherKeepsGetOff = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixStepperOverMatcher") < 0;
         EngageStepper _stepper; Animator _stepperAnim; Vector3 _stepPrev; bool _stepPrevHave;
         public int EngageSteps { get { return _stepper != null ? _stepper.Steps : 0; } }
         public float EngageStepWeight { get { return _stepper != null ? _stepper.Weight : 0f; } }
@@ -95,6 +97,7 @@ namespace PixFootball.Gameplay
             float cap = EngageStepper.V011 ? ((getOff || stumble) ? 4.5f : 2.6f) : ((getOff || stumble) ? StepCapGetOff : (wrap ? StepCapWrap : StepCap));
             if (_stepper.Weight > 0.5f && !EngageStepper.V011) cap += 0.35f;
             bool active = !DebugNoChoreo && !NoEngageStep && !_engLocoOn && (engaged || wrap || getOff || stumble) && vel.magnitude < cap && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid;
+            if (active && getOff && !engaged && !wrap && !stumble && Mm != null && Mm.Layer > 0.5f && MatcherKeepsGetOff) active = false;      // v0.13.0 NATURAL-3 (hook): the matcher already has the legs of a body that runs out of a stance; the stepper set the feet down over its planted foot (up to 7 cm of creep, 2 m/s)
             { var fp = Motion != null ? Motion.Plant : null; if (fp != null && fp.Ok) _stepper.SetRest(fp.RestAnkleL, fp.RestAnkleR, fp.RestToeL, fp.RestToeR); }      // v0.12.0: planted feet are pressed onto the turf
             _stepper.Late(dt, active, vel, Forward, p.y, engaged || wrap);      // (contact = an engaged / blocking / wrapping body; the get-off and stumble windows keep the v0.11 stepping)
         }

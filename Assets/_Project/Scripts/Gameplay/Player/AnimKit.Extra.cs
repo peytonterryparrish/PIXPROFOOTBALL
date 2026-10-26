@@ -164,9 +164,10 @@ namespace PixFootball.Gameplay
             a = b = null;
             var l = Lib; if (l == null) return false;
             int n = l.ClipVariantCount(key); if (n == 0) { WarnMissing(key); return false; }
+            int s0 = ClipBag.Skip(key, seed) ? seed : ClipBag.Index(key, seed, n);      // v0.13 (ANIMLIB-BULK): the no-repeat bag's index
             for (int i = 0; i < n; i++)
             {
-                var ca = l.ClipVariant(key, seed + i);
+                var ca = l.ClipVariant(key, s0 + i);
                 if (ca.length > maxLength) continue;
                 var cb = TwinOf(key + "_b", ca);
                 if (cb == null) continue;

@@ -16,7 +16,8 @@ SRC_MAP = {"plastic": (0, 0), "strap": (1, 0), "fabric": (1, 1), "hrome": (2, 0)
 
 # fit parameters (pad frame -> R1 frame)
 # v0.12.0 BODIES: pads a little smaller (owner note 2): width sx 1.03 -> 0.93 (-10 %), depth sy 0.86 -> 0.82 (-5 %), height sz 0.88 -> 0.865 (-2 %), epaulet caps 0.45 -> 0.40 (volume about -20 %)
-FIT = dict(taper_x=0.78, taper_y=0.80, sx=0.93, sy=0.82, sz=0.865, dy=0.055, dz=1.055, cap_scale=0.40, cap_anchor=(0.30, 0.0, 0.58))
+# v0.13.0 BODIES-2: still too broad against R1 (jersey width at the shoulder joint 0.57 m: S / M / L 0.67 / 0.70 / 0.78 m): width sx 0.93 -> 0.80, caps 0.40 -> 0.34, upper-chest taper 0.78 -> 0.74, height 0.865 -> 0.85
+FIT = dict(taper_x=0.74, taper_y=0.80, sx=0.80, sy=0.82, sz=0.85, dy=0.055, dz=1.055, cap_scale=0.34, cap_anchor=(0.30, 0.0, 0.58))
 CLEAR = 0.007           # jersey clearance over the pad surface (m)
 
 

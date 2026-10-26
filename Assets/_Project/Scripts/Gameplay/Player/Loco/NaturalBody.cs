@@ -14,10 +14,14 @@ namespace PixFootball.Gameplay
     {
         /// <summary>QA: -pixNatOff switches the whole layer off (the v0.12.0 GAIT state); the others switch one part off.</summary>
         public static bool Enabled = true, NoSecondary, NoIdle, NoLook, NoTempo, NoFacing;
+        public static bool NoHeadAll = StanceRules.V012;      // v0.13.0: NoHeadAll = the v0.12 coverage of the head limit (-pixNatNoHeadAll)
+        /// <summary>v0.13.0 STANCE-HEAD: how far the head may turn over the chest (degrees, soft limit: linear to 80 % of it) and how fast it may turn (degrees per second). v0.12 had 70 / 650 (NaturalLook.NeckMax / NeckRate): head over chest p99 68.6 and the owner still saw heads cranked round.</summary>
+        public static float HeadMax = StanceRules.V012 ? 70f : 48f, HeadRate = StanceRules.V012 ? 650f : 380f;
 
         readonly Animator _an; readonly Transform _root;
         Transform _hips, _spine, _chest, _neck, _head, _lua, _rua, _lla, _rla;
         Vector3 _fHips, _fChest, _fHead;
+        Quaternion _hRelBind = Quaternion.identity; Vector3 _hAxis = Vector3.up;
         /// <summary>The bones were found and the bind pose captured.</summary>
         public bool Ok { get; private set; }
         public NaturalStyle Style = NaturalStyle.Neutral;
@@ -39,6 +43,8 @@ namespace PixFootball.Gameplay
             if (across.sqrMagnitude < 1e-6f) return;
             Vector3 fwd = Vector3.Cross(across.normalized, Vector3.up);      // the facing of the bind pose (BodyHeading.YawOfAcross uses the same convention)
             _fHips = Quaternion.Inverse(_hips.rotation) * fwd; _fChest = Quaternion.Inverse(_chest.rotation) * fwd; _fHead = Quaternion.Inverse(_head.rotation) * fwd;
+            _hRelBind = Quaternion.Inverse(_chest.rotation) * _head.rotation;      // v0.13.0: the head's bind orientation in the chest's frame, and the neck axis (chest to head) in the same frame
+            Vector3 up = _head.position - _chest.position; _hAxis = up.sqrMagnitude > 1e-6f ? Quaternion.Inverse(_chest.rotation) * up.normalized : Vector3.up;
             Ok = true;
         }
 
@@ -52,7 +58,25 @@ namespace PixFootball.Gameplay
         public float HeadYaw { get { return Ok ? YawOf(_head.rotation * _fHead) : 0f; } }
         /// <summary>Chest over pelvis and head over chest (degrees, + = to the right of the body).</summary>
         public float ChestOverPelvis { get { return Ok ? Mathf.DeltaAngle(PelvisYaw, ChestYaw) : 0f; } }
-        public float HeadOverChest { get { return Ok ? Mathf.DeltaAngle(ChestYaw, HeadYaw) : 0f; } }
+        public float HeadOverChest { get { return !Ok ? 0f : (StanceRules.V012 ? Mathf.DeltaAngle(ChestYaw, HeadYaw) : HeadTwist); } }
+        /// <summary>
+        /// v0.13.0 STANCE-HEAD: the turn of the head about the neck axis against the chest (degrees, + = to the right of the body; swing-twist of the head's rotation over the chest, the neck's own nod ignored).
+        /// The v0.12 measure was the difference of two world yaws of the bind-forward axes: for a bent-over body (a three-point lineman, the centre, a long snapper, a holder) those axes point at the turf and their yaw is noise, so the audit read 70 degrees
+        /// for 30 % of the line frames (and the limiter then twisted the head to the limit). The twist about the neck axis has no such singularity.
+        /// </summary>
+        public float HeadTwist
+        {
+            get
+            {
+                if (!Ok) return 0f;
+                Quaternion d = (Quaternion.Inverse(_chest.rotation) * _head.rotation) * Quaternion.Inverse(_hRelBind);
+                if (d.w < 0f) d = new Quaternion(-d.x, -d.y, -d.z, -d.w);
+                float s = d.x * _hAxis.x + d.y * _hAxis.y + d.z * _hAxis.z;
+                return Mathf.DeltaAngle(0f, 2f * Mathf.Atan2(s, d.w) * Mathf.Rad2Deg);
+            }
+        }
+        /// <summary>World axis of the neck (the chest's frame axis of the head) for rotating the head about it.</summary>
+        Vector3 NeckAxisWorld { get { return _chest.rotation * _hAxis; } }
         /// <summary>Head pitch of the bind-pose forward axis (degrees, + = looking down) for QA.</summary>
         public float HeadPitch { get { if (!Ok) return 0f; Vector3 v = _head.rotation * _fHead; return -Mathf.Asin(Mathf.Clamp(v.y, -1f, 1f)) * Mathf.Rad2Deg; } }
 
@@ -199,13 +223,15 @@ namespace PixFootball.Gameplay
             else _pc = chest;
             // the head over the chest: the gaze it had, inside the neck's range and rate
             float want = neck - dC;
-            float tn = NaturalLook.SoftLimit(want, NaturalLook.NeckMax);
-            float on = NaturalLook.Follow(_pn, tn, NaturalLook.NeckRate, dt); if (Mathf.Abs(tn - _pn) <= NaturalLook.NeckRate * dt) on = tn;
+            float tn = NaturalLook.SoftLimit(want, HeadMax);
+            float on = NaturalLook.Follow(_pn, tn, HeadRate, dt); if (Mathf.Abs(tn - _pn) <= HeadRate * dt) on = tn;
             float dN = on - neck;
             if (Mathf.Abs(dN) > 0.02f)
             {
-                if (_neck != null && _neck != _head) { _neck.rotation = Yaw(dN * 0.4f) * _neck.rotation; _head.rotation = Yaw(dN * 0.6f) * _head.rotation; }
-                else _head.rotation = Yaw(dN) * _head.rotation;
+                // v0.13.0: about the neck axis (about the vertical only when the v0.12 behaviour is asked for: for a bent-over body that axis lies in the turf)
+                Vector3 ax = StanceRules.V012 ? Vector3.up : NeckAxisWorld;
+                if (_neck != null && _neck != _head) { _neck.rotation = Quaternion.AngleAxis(dN * 0.4f, ax) * _neck.rotation; _head.rotation = Quaternion.AngleAxis(dN * 0.6f, ax) * _head.rotation; }
+                else _head.rotation = Quaternion.AngleAxis(dN, ax) * _head.rotation;
                 DbgLookNeck = dN;
             }
             _pn = on;

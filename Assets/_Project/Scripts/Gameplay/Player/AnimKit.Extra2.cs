@@ -11,6 +11,14 @@ namespace PixFootball.Gameplay
     /// </summary>
     public static partial class AnimKit
     {
+        /// <summary>v0.13 wave 2 (BULK-2): a pool and the pool of its second actors ("key_b"): the B takes of the studio's ambient pairs (the other man on the bench, the other coach, the other speaker) are single-person performances too. Even seeds draw A, odd seeds B; an empty one falls back to the other.</summary>
+        static AnimationClip PickEither(string key, int seed, float maxLen)
+        {
+            bool b = (seed & 1) == 1; int s = seed >> 1;
+            var c = ClipSelect.Pick(b ? key + "_b" : key, null, s, '?', maxLen);
+            return c ?? ClipSelect.Pick(b ? key : key + "_b", null, s, '?', maxLen);
+        }
+
         static AnimationClip PoolPick(string[] keys, int seed, float maxLen)
         {
             // one key per call, rotated by the seed: each key is a pool of its own, so all of them get played
@@ -23,9 +31,9 @@ namespace PixFootball.Gameplay
             return null;
         }
 
-        static readonly string[] CelebrateKeys = { "celebrate_td", "celebrate_td_2", "celebrate_td_all", "celebrate_td_3" };
-        static readonly string[] CheerKeys = { "cheer", "celebrate_big" };
-        static readonly string[] FrustrationKeys = { "frustration", "react_frustration" };
+        static readonly string[] CelebrateKeys = { "celebrate_td", "celebrate_td_2", "celebrate_td_all", "celebrate_td_3", "celebrate_td_mc" };      // v0.13 wave 2: + the MoCap Central dances
+        static readonly string[] CheerKeys = { "cheer", "celebrate_big", "cheer_mc" };      // v0.13 (ANIMLIB-BULK): + the MoCap Central crowd cheers (arms up, clap, fist shake, shout)
+        static readonly string[] FrustrationKeys = { "frustration", "react_frustration", "idle_mc_tired", "frustration_b", "react_frustration_b" };      // v0.13 (ANIMLIB-BULK): + hands on knees, heavy breathing, body ache
 
         /// <summary>Touchdown celebration with the whole Motus + BoNES set (about 30 clips instead of 8).</summary>
         public static ClipPlan CelebrateVaried(int seed)
@@ -42,10 +50,13 @@ namespace PixFootball.Gameplay
             return keys == null ? null : PoolPick(keys, seed, 14f);
         }
 
+        static readonly string[] SidelineKeys = { "idle_lively", "idle_mc_stand", "idle_look", "idle_mc_look", "idle_helmet", "idle_mc_tired", "idle_alt", "idle_mc_fidget", "warmup_stretch", "idle_mc_stand" };
+        static readonly string[] HuddleKeys = { "idle_lively", "idle_mc_stand", "idle_look", "idle_mc_tired", "idle_mc_stand", "idle_mc_look" };
+
         /// <summary>Sideline / huddle standing idles: lively fidgets, looking around, fixing the helmet, the generic idles.</summary>
         public static ClipPlan IdleVariantWide(int seed)
         {
-            var c = PoolPick(new[] { "idle_lively", "idle_look", "idle_helmet", "idle_alt" }, seed, 0f);
+            var c = PoolPick(SidelineKeys, seed, 0f);      // v0.13 (ANIMLIB-BULK): + the MoCap Central idles, tired / breathing, fidgets and warm-up stretches
             return c == null ? default(ClipPlan) : P(c, 0f, 0f, 1f, 0.4f, 0.4f, c.isLooping);
         }
 
@@ -98,15 +109,15 @@ namespace PixFootball.Gameplay
         /// <summary>The huddle stand: the authored huddle take for two of three players, the lively / look-around idles for the rest (seeded per player).</summary>
         public static AnimationClip HuddleClip(int seed)
         {
-            if (((seed % 3) + 3) % 3 != 2) return ClipSelect.Pick("huddle_idle", null, seed);
-            return PoolPick(new[] { "idle_lively", "idle_look" }, seed, 0f);
+            if (((seed % 3) + 3) % 3 == 0) return ClipSelect.Pick("huddle_idle", null, seed);      // v0.13 (ANIMLIB-BULK): one of three keeps the authored huddle stand (was two of three), the rest draw the wider pool
+            return PoolPick(HuddleKeys, seed, 0f);      // v0.13 (ANIMLIB-BULK): the MoCap Central stands / tired / look-around idles join the lively ones
         }
 
         /// <summary>Sideline coach idle: headset and clipboard stay; the third coach of every team plays the studio's coach ambient takes (loop-closed segments), a different one per team.</summary>
         public static AnimationClip CoachIdle(string role, int team, AnimationClip fallback)
         {
             if (role != "C2") return fallback;
-            var c = ClipSelect.Pick("coach_ambient", null, team * 3 + 1, '?', 12f);
+            var c = PickEither("coach_ambient", team * 3 + 1, 12f);
             return c != null && c.isLooping ? c : fallback;
         }
 
@@ -115,7 +126,7 @@ namespace PixFootball.Gameplay
         {
             if (seated)
             {
-                var b = ClipSelect.Pick("bench_sit", null, seed);
+                var b = PickEither("bench_sit", seed, 0f);
                 if (b != null) return P(b, 0f, 0f, 1f, 0.4f, 0.4f, true);
             }
             return IdleVariantWide(seed);

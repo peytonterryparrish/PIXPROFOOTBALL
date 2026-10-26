@@ -29,7 +29,7 @@ namespace PixFootball.EditorTools
         {
             ArtKeys.ContactTackle, ArtKeys.ContactSack, ArtKeys.ContactBigHit, ArtKeys.ContactCollision,
             ArtKeys.StiffArm, ArtKeys.Spin, ArtKeys.JukeRight, ArtKeys.JukeTempo, ArtKeys.JukeBox, ArtKeys.RockerStep, ArtKeys.Truck, ArtKeys.CatchContested,
-            ArtKeys.TackleSuccess, ArtKeys.TackleFail, ArtKeys.TackleBigHit
+            ArtKeys.TackleSuccess, ArtKeys.TackleFail, ArtKeys.TackleBigHit, ArtKeys.TackleStrip
         };
 
         struct Sample { public Vector3 root, hips; public float yaw; public float faceY; }

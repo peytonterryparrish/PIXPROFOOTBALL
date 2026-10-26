@@ -98,7 +98,7 @@ namespace PixFootball.Gameplay
         void LateStancePoseCore(float dt)
         {
             if (StanceLayer == null || !StanceLayer.Ok) return;
-            bool free = !DebugNoStancePose && !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid;
+            bool free = !DebugNoStancePose && !ContactDriven && !(Ragdoll != null && Ragdoll.Active) && Rig != null && Rig.Valid && !_qmOwn;      // v0.13.0 QB-MOCAP: a mocap window owns the quarterback
             StancePose target = default(StancePose); bool have = false, gait = false, throwing = false; float tau = 0.09f;
             float u;
             if (free && QbSeqPose(ref target, ref tau, ref gait)) { have = true; }      // v0.10.0 QB: the choreographed sequence poses (survey, crouch ...)

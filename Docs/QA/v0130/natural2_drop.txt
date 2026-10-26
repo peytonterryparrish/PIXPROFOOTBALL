@@ -1,0 +1,5 @@
+# base-set takes of the v0.12 database dropped by the per-take QA (MotionDbBuilder -pixMmDrop @file)
+Jog_Runningk
+MOB1_Run_L_Loop
+MOB1_Stand_Relaxed_To_Jog_L45_Fwd
+Run_Jog_Forward

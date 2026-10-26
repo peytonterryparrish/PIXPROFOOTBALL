@@ -25,12 +25,12 @@ namespace PixFootball.Tests
                 foreach (var sz in new[] { PlayerSize.Small, PlayerSize.Medium, PlayerSize.Large })
                 {
                     var s = NaturalStyle.For(id, sz, PlayerRole.DB);
-                    Assert.That(s.Tempo, Is.InRange(0.91f, 1.09f)); Assert.That(s.ArmSwing, Is.InRange(0.8f, 1.35f)); Assert.GreaterOrEqual(s.Counter, 0.9f); Assert.LessOrEqual(s.Counter, 1.6f);
+                    Assert.That(s.Tempo, Is.InRange(0.87f, 1.13f)); Assert.That(s.ArmSwing, Is.InRange(0.8f, 1.35f)); Assert.GreaterOrEqual(s.Counter, 0.9f); Assert.LessOrEqual(s.Counter, 1.6f);
                     Assert.That(s.HeadStab, Is.InRange(0.45f, 0.9f)); Assert.That(s.Posture, Is.InRange(-4f, 5f)); Assert.That(s.BreathHz, Is.InRange(0.18f, 0.36f)); Assert.That(s.ShiftPeriod, Is.InRange(5f, 11.5f));
                     tMin = Mathf.Min(tMin, s.Tempo); tMax = Mathf.Max(tMax, s.Tempo); aMin = Mathf.Min(aMin, s.ArmSwing); aMax = Mathf.Max(aMax, s.ArmSwing); cMin = Mathf.Min(cMin, s.Counter);
                 }
             }
-            Assert.Greater(tMax - tMin, 0.08f, "tempo spreads over the roster"); Assert.Greater(aMax - aMin, 0.3f, "arm swing spreads over the roster");
+            Assert.Greater(tMax - tMin, 0.10f, "tempo spreads over the roster"); Assert.Greater(aMax - aMin, 0.3f, "arm swing spreads over the roster");
         }
 
         [Test]

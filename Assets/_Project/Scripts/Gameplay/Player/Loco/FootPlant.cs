@@ -30,10 +30,10 @@ namespace PixFootball.Gameplay
             public float RestAnkle, RestToe, Reach, Away, Corr, Resid, WHeel, WBall, HoldAbs; public Vector3 ToeHold; public bool YawHold;
             public Vector3 LocalLat = Vector3.right, LocalFwd = Vector3.forward; public bool HaveAxes;
             public Vector3 ShinAxis = Vector3.up, FootAxis = Vector3.up; public Quaternion ShinBind = Quaternion.identity, FootBind = Quaternion.identity; public bool HaveTwist; public float YawOut; public bool YawHave;
-            public Vector3 Target; public float Press; public Vector2 CorrVec; public float Age; public float Slip; public Vector2 PrevH, PrevB, PrevWH, PrevWB; public float Lift; public float HoldT;
+            public Vector3 EndIk, EndFin, GPrevE, GPrevT; public bool GuardHave;  public float PrimS; public Vector3 Target; public float Press; public Vector2 CorrVec, CorrOut; public float Age; public float Slip; public Vector2 PrevH, PrevB, PrevWH, PrevWB; public float Lift; public float HoldT;
         }
 
-        struct Pt { public bool Planted; public Vector2 Anchor; public float Ramp, Away, H0; public bool Spent; }
+        struct Pt { public bool Planted; public Vector2 Anchor, Carry; public float Ramp, Away, H0; public bool Spent; }
         readonly Foot _l = new Foot { Left = true }, _r = new Foot();
         readonly Animator _anim; Transform _hips;
         float _hipDrop, _dip, _prevSpeed, _flightDrop, _hipsMean; bool _meanHave;
@@ -64,6 +64,24 @@ namespace PixFootball.Gameplay
         public float SlipLeft { get { return _l.Slip; } }
         public float SlipRight { get { return _r.Slip; } }
         public float LiftLeft { get { return _l.Lift; } }
+        public float LiftRight { get { return _r.Lift; } }
+        /// <summary>QA (v0.13.0 NATURAL-3): weights and plant state of the heel (ankle) and ball (toe) points.</summary>
+        public float WHeelLeft { get { return _l.WHeel; } }
+        public float WBallLeft { get { return _l.WBall; } }
+        public float WHeelRight { get { return _r.WHeel; } }
+        public float WBallRight { get { return _r.WBall; } }
+        public Vector2 AnchorHeelLeft { get { return _l.H.Anchor; } }
+        public Vector2 AnchorBallLeft { get { return _l.B.Anchor; } }
+        public Vector2 AnchorHeelRight { get { return _r.H.Anchor; } }
+        public Vector2 AnchorBallRight { get { return _r.B.Anchor; } }
+        public Vector3 EndIkLeft { get { return _l.EndIk; } }
+        public Vector3 EndIkRight { get { return _r.EndIk; } }
+        public Vector3 EndFinLeft { get { return _l.EndFin; } }
+        public Vector3 EndFinRight { get { return _r.EndFin; } }
+        public Vector3 TargetLeft { get { return _l.Target; } }
+        public Vector3 TargetRight { get { return _r.Target; } }
+        public int PointsLeft { get { return (_l.H.Planted ? 1 : 0) + (_l.B.Planted ? 2 : 0); } }
+        public int PointsRight { get { return (_r.H.Planted ? 1 : 0) + (_r.B.Planted ? 2 : 0); } }
         public float PressLeft { get { return _l.Press; } }
         public float ResidLeft { get { return _l.Resid; } }
         public float ResidRight { get { return _r.Resid; } }
@@ -81,6 +99,14 @@ namespace PixFootball.Gameplay
         /// <summary>The contact hints are frame-accurate (motion matching tags every source frame): a planted point holds until its hint ends instead of letting go when the animated foot rises or runs ahead of its anchor; only the heel still lets go when it lifts.</summary>
         public bool HintAuthority;
         /// <summary>QA / tuning (batch): height below which a hinted point may plant, heel fade on, lift of the matcher's swing feet on.</summary>
+        /// <summary>v0.13.0 NATURAL-3 QA switches: swing-foot clearance measured from the (possibly sunk) animated sole, lift released on touchdown (-pixFpNoSwingClear, -pixFpNoLandDrop).</summary>
+        /// <summary>v0.13.0 NATURAL-3: a heel (ball) that lands while the ball (heel) is already held is anchored where the lock SHOWS it (animated point + the correction the foot carries), not where the animation has it: with two anchors that disagree by the correction (0.2-0.3 m) the average target made the whole planted foot creep at 0.5-2 m/s. QA: -pixFpNoConsistent.</summary>
+        /// <summary>Seconds a point takes to reach full lock weight after it lands (QA: -pixFpRampIn; v0.9 value 0.03).</summary>
+        public static float RampIn = ArgFp("-pixFpRampIn", 0.03f);
+        static float ArgFp(string n, float d) { var a = System.Environment.GetCommandLineArgs(); int i = System.Array.IndexOf(a, n); float v; return i >= 0 && i + 1 < a.Length && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : d; }
+        public static bool PrimaryLock = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixFpNoPrimary") < 0;
+        public static bool ConsistentAnchors = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixFpNoConsistent") < 0;
+        public static bool SwingClear = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixFpNoSwingClear") < 0, LandDrop = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixFpNoLandDrop") < 0;
         public static float EnterHinted = 0.13f, BallReleaseH = 9f, FlightDrop = 0.04f, PeakFlatten = 0.45f; public static bool HeelFade = false, MmLift = true, FadeRel = true, Pivot = true, YawHoldOn = true, RiseOn = false; public static float HeelShare = 1f;
         /// <summary>The legs of the playing take point along the pelvis heading whatever way the body travels (strafes, back-pedals, the orientation warp): the knee / foot polish aims at the pelvis heading instead of the travel direction.</summary>
         public bool BodyLine;
@@ -149,7 +175,8 @@ namespace PixFootball.Gameplay
                 // let go smoothly; nothing is bent while the legs are not ours
                 _l.Planted = _r.Planted = false; _l.H.Planted = _l.B.Planted = _r.H.Planted = _r.B.Planted = false; _l.H.Ramp = _l.B.Ramp = _r.H.Ramp = _r.B.Ramp = 0f; _l.W = Mathf.MoveTowards(_l.W, 0f, dt / 0.05f); _r.W = Mathf.MoveTowards(_r.W, 0f, dt / 0.05f);
                 _hipDrop = Mathf.MoveTowards(_hipDrop, 0f, dt / 0.15f); _dip = 0f; _flightDrop = 0f; _meanHave = false; _l.Have = _r.Have = false; _l.Corr = _r.Corr = 0f;
-                _prevSpeed = Speed;
+                _l.EndFin = _l.End.position; _r.EndFin = _r.End.position;
+            _prevSpeed = Speed;
                 if (_l.W <= 0.001f && _r.W <= 0.001f && _hipDrop <= 0.001f) return;
             }
             _engaged = true;
@@ -186,10 +213,41 @@ namespace PixFootball.Gameplay
             Vector3 line = LineOf(u);
 
             Leg(_l, wp, line); Leg(_r, wp, line);
+            _l.EndIk = _l.End.position; _r.EndIk = _r.End.position;
             _l.Resid = (_l.Target - _l.End.position).magnitude; _r.Resid = (_r.Target - _r.End.position).magnitude;
             if (wp > 0.001f) { FootFix(_l, line, wp, dt); FootFix(_r, line, wp, dt); if (Pivot && HintAuthority) { KeepToe(_l); KeepToe(_r); } } else { _l.YawHave = _r.YawHave = false; }
 
+            if (GuardOn && HintAuthority && moving && !ActionMode && !DebugNoIK) { Guard(_l, gy, dt); Guard(_r, gy, dt); } else { _l.GuardHave = _r.GuardHave = false; }
+            _l.EndFin = _l.End.position; _r.EndFin = _r.End.position;
             _prevSpeed = Speed;
+        }
+
+        /// <summary>
+        /// v0.13.0 NATURAL-3: last word on a swing foot, on the final pose of the legs: a foot that is not held (lock weight under 0.5) and sweeps over the turf faster than 1 m/s with its sole less than <see cref="GuardClear"/> (8 cm: above the 7 cm at which the audits stop calling a foot planted) above it
+        /// is lifted clear (two-bone IK, the same knee). Whatever put it there (a sunk swing pose, a take switch, a late contact tag, the inertializer's offset) a runner's foot does not skid along the grass at jog speed.
+        /// QA: -pixFpNoGuard.
+        /// </summary>
+        public static bool GuardOn = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-pixFpNoGuard") < 0;
+        public static float GuardClear = ArgFp("-pixFpGuardClear", 0.08f);
+        /// <summary>QA: frames in which the guard lifted a foot.</summary>
+        public int GuardHits;
+        void Guard(Foot f, float gy, float dt)
+        {
+            Vector3 e = f.End.position, t = f.Toe != null ? f.Toe.position : e;
+            if (f.GuardHave && dt > 1e-4f)
+            {
+                float se = new Vector2(e.x - f.GPrevE.x, e.z - f.GPrevE.z).magnitude / dt, st = new Vector2(t.x - f.GPrevT.x, t.z - f.GPrevT.z).magnitude / dt;
+                float c = Mathf.Min(t.y - gy, e.y - gy - 0.09f);      // the contact height the audits read: the toe bone, or the ankle above its resting height
+                float held = 0f;      // (a held foot is slow: the speed gate is the exemption, a lock that is still ramping in does not excuse a fast foot)
+                if (Mathf.Min(se, st) > 1.0f && c < GuardClear)
+                {
+                    float du = (GuardClear - c) * (1f - held);
+                    Vector3 pole = f.Lower.position - (f.Upper.position + e) * 0.5f; if (pole.sqrMagnitude < 1e-8f) pole = Vector3.forward;
+                    LimbIK.Apply(f.Upper, f.Lower, f.End, e + Vector3.up * du, pole, 1f);
+                    e = f.End.position; t = f.Toe != null ? f.Toe.position : e; GuardHits++;
+                }
+            }
+            f.GPrevE = e; f.GPrevT = t; f.GuardHave = true;
         }
 
         int HoldHint(Foot f, int hint, int other, float dt)
@@ -223,8 +281,8 @@ namespace PixFootball.Gameplay
                 float sH = f.PrevB != Vector2.zero && dt > 1e-4f ? (pH - f.PrevH).magnitude / dt : 99f, sB = f.PrevB != Vector2.zero && dt > 1e-4f ? (pT - f.PrevB).magnitude / dt : 99f;
                 cH = contact && sH < (f.H.Planted ? 1.6f : 0.6f); cB = contact && sB < (f.B.Planted ? 1.6f : 0.6f);
             }
-            StepPoint(ref f.H, hH, pH + shiftH, cH, enterH, dt, hinted, u, true);
-            StepPoint(ref f.B, hT, pT + shiftT, cB, enterH, dt, hinted, u, false);
+            StepPoint(ref f.H, hH, pH + shiftH, cH, enterH, dt, hinted, u, true, ConsistentAnchors && f.B.Planted ? f.CorrOut : Vector2.zero);
+            StepPoint(ref f.B, hT, pT + shiftT, cB, enterH, dt, hinted, u, false, ConsistentAnchors && f.H.Planted ? f.CorrOut : Vector2.zero);
             bool was = f.Planted;
 
             f.Planted = f.H.Planted || f.B.Planted;
@@ -240,12 +298,19 @@ namespace PixFootball.Gameplay
             f.WHeel = wH; f.WBall = wB;
             float wt = wH + wB, wmax = Mathf.Max(wH, wB);
             Vector2 corr = Vector2.zero;
-            if (wt > 1e-4f) { float wHc = wH * HeelBias, wc = wHc + wB; if (wc > 1e-4f) corr = ((f.H.Anchor - (pH + shiftH)) * wHc + (f.B.Anchor - (pT + shiftT)) * wB) / wc; else corr = ((f.H.Anchor - (pH + shiftH)) * wH + (f.B.Anchor - (pT + shiftT)) * wB) / wt; }
+            f.PrimS = 0f;
+            if (PrimaryLock && HintAuthority && !ActionMode && wH > 1e-4f && wB > 1e-4f)
+            {
+                // v0.13.0 NATURAL-3: foot locking on ONE point: the stronger of heel and ball is held exactly (the ankle at the heel anchor, or the ball at its anchor with the foot rolling over it), the other follows the animated foot; averaging two anchors that the animation moves apart (the foot pitches in the roll-over) crept the whole foot at 0.5-2 m/s
+                float s = Ramp01(0.55f, 0.9f, wH / wmax);
+                corr = (f.H.Anchor - (pH + shiftH)) * s + (f.B.Anchor - (pT + shiftT)) * (1f - s); f.PrimS = s;
+            }
+            else if (wt > 1e-4f) { float wHc = wH * HeelBias, wc = wHc + wB; if (wc > 1e-4f) corr = ((f.H.Anchor - (pH + shiftH)) * wHc + (f.B.Anchor - (pT + shiftT)) * wB) / wc; else corr = ((f.H.Anchor - (pH + shiftH)) * wH + (f.B.Anchor - (pT + shiftT)) * wB) / wt; }
             f.CorrVec = corr;
             if (corr.magnitude > 0.30f) corr = corr.normalized * 0.30f;
             f.W = wmax;
             float w = wmax * Strength;
-            f.Corr = corr.magnitude * w;
+            f.Corr = corr.magnitude * w; f.CorrOut = f.Planted ? corr * w : Vector2.zero;      // v0.13.0 NATURAL-3: the correction the foot is shown with (the point that lands second is anchored where it is SHOWN)
             // the unplanted part of the foot still follows the stride warp
             Vector2 shift = (shiftH + shiftT) * 0.5f;
             Vector2 xz = shift * (1f - w) + (shift + corr) * w;
@@ -257,30 +322,32 @@ namespace PixFootball.Gameplay
             if (moving && dt > 1e-4f && f.PrevB != Vector2.zero && slipW > 0.05f) { float sH = Vector2.Dot((pH + shiftH - f.PrevWH) / dt, u), sB = Vector2.Dot((pT + shiftT - f.PrevWB) / dt, u); f.Slip = (sH * wH + sB * wB) / slipW; } else f.Slip = 0f;
             f.PrevH = pH; f.PrevB = pT; f.PrevWH = pH + shiftH; f.PrevWB = pT + shiftT;
             float need = moving && !ActionMode ? (HintAuthority && MmLift ? Mathf.Clamp((vSole - 0.4f) * 0.07f, 0f, 0.085f) : Mathf.Clamp((vSole - 0.5f) * 0.05f, 0f, 0.06f)) : 0f;      // a swing foot that skims the turf is lifted clear in proportion to how fast it moves over it (more with the matcher: its swing feet pass 2-4 cm up)
-            float wantLift = Mathf.Max(0f, need - Mathf.Max(0f, sole)) * (1f - w);
+            bool mmLift = HintAuthority && MmLift;
+            float wantLift = Mathf.Max(0f, need - (mmLift && SwingClear ? sole : Mathf.Max(0f, sole))) * (1f - w);      // v0.13.0 NATURAL-3: a swing foot ends NEED above the turf also when the animated pose has it sunk (Run_Medium_Run: the lowered pose puts the passing foot 7 cm in the turf, the old lift of 8.5 cm left it 1.5 cm up: 3 frames of a planted-looking foot at 7 m/s)
+            wantLift = Mathf.Min(wantLift, 0.20f);
             if (HintAuthority && moving && !ActionMode && sole < 0f) wantLift = Mathf.Max(wantLift, (-sole + 0.004f) * (1f - w));      // a swing foot never sinks into the turf (the pose of the first frames after a hand-back sits low)
-            f.Lift = Mathf.MoveTowards(f.Lift, wantLift, (wantLift > f.Lift ? (HintAuthority && MmLift ? 6.0f : 3.0f) : 0.35f) * dt);
+            f.Lift = Mathf.MoveTowards(f.Lift, wantLift, (wantLift > f.Lift ? (mmLift ? 6.0f : 3.0f) : 0.35f + (mmLift && LandDrop ? 3.0f * w : 0f)) * dt);      // v0.13.0 NATURAL-3: a foot that has touched down lets go of its lift at once (the lift decayed at 0.35 m/s: the planted foot hovered 6-10 cm up for 0.15 s, the hover is what slid and flew)
             f.Target = new Vector3(A.x + xz.x, A.y + press + f.Lift, A.z + xz.y);
             f.Press = press;
         }
 
-        void StepPoint(ref Pt p, float h, Vector2 pw, bool contact, float enterH, float dt, bool hinted, Vector2 u, bool heel)
+        void StepPoint(ref Pt p, float h, Vector2 pw, bool contact, float enterH, float dt, bool hinted, Vector2 u, bool heel, Vector2 carry)
         {
             if (!p.Planted)
             {
                 if (!contact) p.Spent = false;
-                if (contact && !p.Spent && h < enterH) { p.Planted = true; p.Anchor = pw; p.Away = 0f; p.H0 = h; }
+                if (contact && !p.Spent && h < enterH) { p.Planted = true; p.Anchor = pw + carry; p.Carry = carry; p.Away = 0f; p.H0 = h; }
             }
             else
             {
-                p.Away = (p.Anchor - pw).magnitude;
+                p.Away = (p.Anchor - p.Carry - pw).magnitude;
                 // the animation starts the swing: the point rises, or it runs ahead of its anchor (the hint of the phase markers only says where the take puts the lift-off)
-                float ahead = Vector2.Dot(pw - p.Anchor, u);
+                float ahead = Vector2.Dot(pw - (p.Anchor - p.Carry), u);
                 bool auth = HintAuthority && hinted && !ActionMode;
                 bool release = !contact || (auth ? ((heel && h > p.H0 + 0.035f) || (!heel && h > p.H0 + BallReleaseH)) : (h > p.H0 + 0.035f || (ActionMode ? p.Away > 0.10f : ahead > 0.05f))) || p.Away > 0.32f;
                 if (release) { p.Planted = false; p.Spent = contact; }
             }
-            p.Ramp = Mathf.MoveTowards(p.Ramp, p.Planted ? 1f : 0f, dt / (p.Planted ? 0.03f : 0.06f));
+            p.Ramp = Mathf.MoveTowards(p.Ramp, p.Planted ? 1f : 0f, dt / (p.Planted ? RampIn : 0.06f));
         }
 
         /// <summary>How far the hips must drop for this leg to reach its target (0 = it reaches).</summary>
@@ -345,7 +412,7 @@ namespace PixFootball.Gameplay
         {
             if (f.Toe == null || !f.Planted) return;
             float wt = f.WHeel + f.WBall; if (wt < 0.05f) return;
-            float k = Mathf.Clamp01(f.WBall / wt) * Mathf.Clamp01(f.W);
+            float k = Mathf.Clamp01(f.WBall / wt) * Mathf.Clamp01(f.W) * (1f - f.PrimS);      // (a held heel keeps the ankle where the lock put it)
             Vector3 d = f.ToeHold - f.Toe.position; d.y = 0f;
             if (d.sqrMagnitude < 1e-8f || k < 0.01f) return;
             if (d.magnitude > 0.08f) d = d.normalized * 0.08f;

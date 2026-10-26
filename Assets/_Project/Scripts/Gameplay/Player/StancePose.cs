@@ -121,21 +121,39 @@ namespace PixFootball.Gameplay
                         p.RHand = HandMode.Ground; p.RPos = new Vector3(0.20f, 0f, 0.18f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.10f, 0.04f);
                         p.MaxLean = 112f;
                     }
-                    else if (spec.Ol == 1)
+                    else if (StanceRules.V012 && spec.Ol == 1)
                     {
-                        // v0.10.0 (note 9): the tackles sit a little more upright, in a chair, the forearms resting on the thighs; the tell is only a few degrees of lean
+                        // v0.10.0 (note 9), kept for -pixV012Stance: both forearms on the thighs, no hand on the turf
                         p.Hips = 0.89f; p.HipsZ = -0.20f; p.Lean = 46f + 4f * tell; p.Bend = 5f; p.Neck = 18f; p.HeadPitch = 6f;
                         p.RX = 0.21f; p.RZ = -0.28f; p.LX = -0.21f; p.LZ = -0.10f; p.ToeOut = 4f; p.RHeel = 0.035f; p.LHeel = 0.02f;
                         p.RHand = HandMode.Thigh; p.RPos = new Vector3(0f, 0.085f, 0.03f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.085f, 0.03f);
                         p.MaxLean = 62f;
                     }
-                    else if (spec.Ol == 2)
+                    else if (StanceRules.V012 && spec.Ol == 2)
                     {
-                        // v0.10.0 (note 9): the guards are lower than the tackles, hips back, the forearm laid on the thigh; still no hand on the turf
                         p.Hips = 0.82f; p.HipsZ = -0.27f; p.Lean = 66f + 4f * tell; p.Bend = 5f; p.Neck = 26f; p.HeadPitch = 8f;
                         p.RX = 0.23f; p.RZ = -0.34f; p.LX = -0.23f; p.LZ = -0.12f; p.ToeOut = 4f; p.RHeel = 0.04f; p.LHeel = 0.025f;
                         p.RHand = HandMode.Thigh; p.RPos = new Vector3(0f, 0.065f, 0.07f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.065f, 0.07f);
                         p.MaxLean = 80f;
+                    }
+                    else if (spec.Ol == 1)
+                    {
+                        // v0.13.0 STANCE-HEAD: the owner's note 9 (v0.10: "tackles more upright with an arm on the thigh") was built as BOTH forearms on the thighs and no hand on the turf (74 % of the OL snapshots of v0.12 had the lowest hand at 0.66 m,
+                        // 0 % of them were a three-point). A three-point has ONE hand down (image 98) and the free arm on the thigh; the tackle is the highest of the line (hips over the guards', back at about 60 to 70 degrees), the tell is a few degrees of lean.
+                        p.Hips = 0.80f; p.HipsZ = -0.30f; p.Lean = 70f + 4f * tell; p.Bend = 4f; p.Neck = 38f; p.HeadPitch = -4f;
+                        p.RX = 0.24f; p.RZ = -0.44f; p.LX = -0.23f; p.LZ = -0.16f; p.ToeOut = 4f; p.RHeel = 0.04f; p.LHeel = 0.03f;
+                        p.RHand = HandMode.Ground; p.RPos = new Vector3(0.20f, 0f, 0.22f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.10f, 0.04f);
+                        p.MaxLean = 100f;
+                        p.HipsZ += -0.04f * -tell; p.RPos.z += 0.03f * tell;
+                    }
+                    else if (spec.Ol == 2)
+                    {
+                        // v0.13.0 STANCE-HEAD: the guard sits lower than the tackle (hips back, back flatter), one hand down, the free forearm on the thigh
+                        p.Hips = 0.76f; p.HipsZ = -0.33f; p.Lean = 80f + 4f * tell; p.Bend = 4f; p.Neck = 42f; p.HeadPitch = -5f;
+                        p.RX = 0.25f; p.RZ = -0.47f; p.LX = -0.24f; p.LZ = -0.18f; p.ToeOut = 4f; p.RHeel = 0.04f; p.LHeel = 0.03f;
+                        p.RHand = HandMode.Ground; p.RPos = new Vector3(0.20f, 0f, 0.21f); p.LHand = HandMode.Thigh; p.LPos = new Vector3(0f, 0.10f, 0.04f);
+                        p.MaxLean = 104f;
+                        p.HipsZ += -0.04f * -tell; p.RPos.z += 0.03f * tell;
                     }
                     else
                     {

@@ -20,6 +20,7 @@ namespace PixFootball.Gameplay
             if (System.Array.IndexOf(args, "-pixNatNoLook") >= 0) NaturalBody.NoLook = true;
             if (System.Array.IndexOf(args, "-pixNatNoTempo") >= 0) NaturalBody.NoTempo = true;
             if (System.Array.IndexOf(args, "-pixNatNoFacing") >= 0) NaturalBody.NoFacing = true;
+            if (System.Array.IndexOf(args, "-pixNatNoHeadAll") >= 0) NaturalBody.NoHeadAll = true;
         }
 
 
@@ -64,6 +65,17 @@ namespace PixFootball.Gameplay
             }
         }
 
+        /// <summary>v0.13.0: every action but the exempt ones (throws, tackles, dives, get-ups, the ground) keeps its head inside <see cref="NaturalBody.HeadMax"/>.</summary>
+        static bool HeadLimited(AgentAction a)
+        {
+            switch (a)
+            {
+                case AgentAction.Throw: case AgentAction.TackleWrapUp: case AgentAction.TackleBigHit: case AgentAction.TackleShoestring: case AgentAction.TackleDive: case AgentAction.TackleGang:
+                case AgentAction.Tackled: case AgentAction.Dive: case AgentAction.GetUp: case AgentAction.Fallen: case AgentAction.Slide: return false;
+                default: return true;
+            }
+        }
+
         /// <summary>LateUpdate, on the final pose of a free body: the look stays inside the limits and rates of <see cref="NaturalLook"/>.</summary>
         void NaturalLookLate(float dt)
         {
@@ -80,9 +92,13 @@ namespace PixFootball.Gameplay
                         neck = true; chest = !StanceLayerOn && Role != PlayerRole.OL && Role != PlayerRole.DL && Role != PlayerRole.QB; break;
                     case AgentAction.Block: case AgentAction.Engaged: case AgentAction.Shed: case AgentAction.Catch: case AgentAction.Jump:
                         neck = true; break;      // the chest twist is the move; the head still stays within a neck's range
+                    case AgentAction.Handoff: case AgentAction.Juke: case AgentAction.Spin: case AgentAction.StiffArm: case AgentAction.Truck: case AgentAction.Hurdle: case AgentAction.Celebrate: case AgentAction.Kick: case AgentAction.Stumble:
+                        if (!NaturalBody.NoHeadAll) neck = true; break;      // v0.13.0 STANCE-HEAD: these had no look limit at all in v0.12 (only throws, tackles, dives and get-ups are exempt)
                     default: break;
                 }
             }
+            else if (!NaturalBody.NoHeadAll && !(Ragdoll != null && Ragdoll.Active) && HeadLimited(_lastAction))
+                neck = true;      // v0.13.0 STANCE-HEAD: the authored contact takes (hand fights, pair catches) turn the head over the chest by 80 degrees and more: head only, the take keeps its chest and arms
             Nat.LookLimit(dt, chest, neck);
         }
 

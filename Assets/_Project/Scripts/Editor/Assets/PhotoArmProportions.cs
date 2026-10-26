@@ -16,7 +16,7 @@ namespace PixFootball.EditorTools
     public sealed class PhotoArmProportions : AssetPostprocessor
     {
         /// <summary>Bump to re-import the bodies (the importer version hash and the one-time check below).</summary>
-        public const int Version = 5;
+        public const int Version = 6;   // v0.13.0 BODIES-2: 6 = PhotoUnderCloth (skin under the jersey and the pads follow the cloth weights)
         /// <summary>Upper arm length over forearm length after the step (human 1.2 to 1.3).</summary>
         public static float UpperToForearm = 1.25f;
         /// <summary>On since v0.10.0 round 2: the import step, the 15 prefabs (SyncPrefabs) and the helper-bone driver (BodyHelperBones) go together; BodiesTests checks that every prefab bone sits where its mesh's bind pose says.</summary>
@@ -28,7 +28,7 @@ namespace PixFootball.EditorTools
         {
             if (!Enabled) return;
             string p = assetPath.Replace('\\', '/');
-            if (!p.Contains("/PhotorealPlayer/Meshes/PHR_") || !p.EndsWith(".fbx")) return;
+            if ((!p.Contains("/PhotorealPlayer/Meshes/PHR_") && !p.Contains("/_BodiesStage/Meshes/PHR_")) || !p.EndsWith(".fbx")) return;   // v0.13.0 BODIES-2: the private stage folder gets the same import step as the live bodies
             string report = Apply(root, UpperToForearm);
             if (report.Length > 0) Debug.Log("[PhotoArm] " + p + ": " + report);
         }
@@ -108,6 +108,7 @@ namespace PixFootball.EditorTools
                 report.Insert(0, side + " upper arm " + L.ToString("0.000") + " -> " + want.ToString("0.000") + " m | ");
             }
             report.Append(AddHelpers(root, smrs));
+            report.Append(PhotoUnderCloth.Apply(root, smrs));   // v0.13.0 BODIES-2
             return report.ToString();
         }
 

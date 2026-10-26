@@ -495,9 +495,10 @@ namespace PixFootball.EditorTools
             var root = new GameObject("MmTake").transform; const float dt = 1f / 60f;
             var sb = new StringBuilder("## per-take treadmill (every looping take alone, WR body; speed = ground speed of the take times the factor)\n\n| take | travel angle | speed m/s (x take) | stride warp / rate | planted mean | inner 60% | QB-metric slide mean / p50 (n) | flight (both toes > 10 cm) | contacts/s | hips bob | foot drift along travel (inner stance, + = forward) |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
             var calib = new StringBuilder("name,size,trim,events\n");
+            var csv = new StringBuilder("name,mul,target,warp,rate,planted,inner,slide,slideP50,n,flight,cadence,drift\n");
             for (int ci = 0; ci < db.clips.Count; ci++)
             {
-                var c = db.clips[ci]; if (!c.loop) continue;
+                var c = db.clips[ci]; if (!c.loop && (c.kind & MotionDb.TransitionKinds) != 0) continue;      // v0.13.0 NATURAL-2: the slices that do not close play like loops too
                 if (c.name.EndsWith("_M") && LocoShots.Arg("-pixLocoMirror", "0") != "1") continue;      // the mirrored twin differs by a few hundredths only
                 if (only.Length > 0 && !only.Any(w => c.name.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0)) continue;
                 foreach (float mul in muls)
@@ -509,7 +510,7 @@ namespace PixFootball.EditorTools
                     var mm = view.Mm; if (mm == null) { Destroy(view.gameObject); break; }
                     mm.ForceClip = ci;
                     var h = new AnimHints { Seed = 5, Side = 'C' };
-                    Vector3 dir = Quaternion.Euler(0f, c.angle, 0f) * Vector3.forward; float target = Mathf.Max(2.0f, c.speed * view.GaitLegScale * mul), sp = 0f; Vector3 pos = Vector3.zero;
+                    Vector3 dir = Quaternion.Euler(0f, c.angle, 0f) * Vector3.forward; float target = Mathf.Max(float.Parse(LocoShots.Arg("-pixLocoMinSpeed", "2"), System.Globalization.CultureInfo.InvariantCulture), c.speed * view.GaitLegScale * mul), sp = 0f; Vector3 pos = Vector3.zero;
                     var frames = new List<Frm>(); var wl = new List<float>(); var rl = new List<float>(); float t = 0f;
                     for (int f = 0; f < 600; f++)
                     {
@@ -522,6 +523,7 @@ namespace PixFootball.EditorTools
                     var st = Measure(frames, dt, dir);
                     int fl = 0; foreach (var fr in frames) if (fr.ToeHL > 0.10f && fr.ToeHR > 0.10f) fl++;
                     sb.AppendLine("| " + c.name + " | " + c.angle.ToString("0") + " | " + target.ToString("0.0") + " (x" + mul.ToString("0.00") + ") | " + Mean(wl).ToString("0.00") + " / " + Mean(rl).ToString("0.00") + " | " + Mean(st.WinSpeed).ToString("0.00") + " | " + Mean(st.InnerSpeed).ToString("0.00") + " | " + Mean(st.QbSlide).ToString("0.00") + " / " + Pct(st.QbSlide, 0.5f).ToString("0.00") + " (" + st.QbSlide.Count + ") | " + (frames.Count > 0 ? (fl / (float)frames.Count).ToString("0.00") : "-") + " | " + Mean(st.Cadence).ToString("0.0") + " | " + Mean(st.Bob).ToString("0.000") + " | " + Mean(st.Fwd).ToString("+0.00;-0.00") + " |");
+                    { var ic = System.Globalization.CultureInfo.InvariantCulture; csv.AppendLine(c.name + "," + mul.ToString("0.00", ic) + "," + target.ToString("0.00", ic) + "," + Mean(wl).ToString("0.00", ic) + "," + Mean(rl).ToString("0.00", ic) + "," + Mean(st.WinSpeed).ToString("0.00", ic) + "," + Mean(st.InnerSpeed).ToString("0.00", ic) + "," + Mean(st.QbSlide).ToString("0.000", ic) + "," + Pct(st.QbSlide, 0.5f).ToString("0.000", ic) + "," + st.QbSlide.Count + "," + (frames.Count > 0 ? fl / (float)frames.Count : 0f).ToString("0.00", ic) + "," + Mean(st.Cadence).ToString("0.00", ic) + "," + Mean(st.Fwd).ToString("0.000", ic)); }      // v0.13.0 NATURAL-2: mmtake.csv for the per-take QA
                     if (Mathf.Approximately(mul, 1f) && st.Fwd.Count >= 4 && target > 1.5f) { float drift = Mean(st.Fwd); calib.AppendLine(c.name + ",1," + Mathf.Clamp(target / Mathf.Max(0.5f * target, target - drift), 0.6f, 1.6f).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) + ",0"); }
                     Destroy(view.gameObject); yield return null;
                 }
@@ -529,6 +531,7 @@ namespace PixFootball.EditorTools
             if (LocoShots.Arg("-pixLocoCalibOut", "0") == "1") File.WriteAllText(MotionDbBuilder.CalibPath, calib.ToString());      // trim = the ground speed the database believes / the one the planted foot shows (the builder divides the take speed by it)
             MotionMatcher.LearnEnabled = learn0;
             Destroy(root.gameObject);
+            File.WriteAllText(_out + "/mmtake.csv", csv.ToString());
             _posText += sb.ToString() + "\n";
         }
 

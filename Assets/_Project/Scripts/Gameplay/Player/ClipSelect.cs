@@ -59,7 +59,10 @@ namespace PixFootball.Gameplay
             return res;
         }
 
-        /// <summary>Seeded pick among the best candidates (highest QA score within 8 points of the best). Null when the key has nothing usable.</summary>
+        /// <summary>v0.13 (ANIMLIB-BULK): how far under the best QA score of a key a take may be and still be drawn (was 8). Every candidate already passed <see cref="Query"/> (not rejected, score >= <see cref="MinScore"/>).</summary>
+        public static float Window = 20f;
+
+        /// <summary>Pick among the best candidates (QA score within <see cref="Window"/> points of the best), least used first (<see cref="ClipBag"/>), ties by the seed. Null when the key has nothing usable.</summary>
         public static AnimationClip Pick(string key, PlayerRole? role, int seed, char entryFoot = '?', float maxLen = 0f)
         {
             var q = Query(key, role, entryFoot, maxLen);
@@ -69,8 +72,10 @@ namespace PixFootball.Gameplay
             var sc = new float[q.Count];
             for (int i = 0; i < q.Count; i++) { var e = Tag(q[i]); sc[i] = e != null ? e.score : 70f; best = Mathf.Max(best, sc[i]); }
             var pool = new List<AnimationClip>();
-            for (int i = 0; i < q.Count; i++) if (sc[i] >= best - 8f) pool.Add(q[i]);
-            return pool[((seed % pool.Count) + pool.Count) % pool.Count];
+            bool stance = ClipBag.IsStancePool(key);      // v0.13 wave 2 (BULK-2): the pre-snap stance pools keep the old window (8) and the seed pick
+            for (int i = 0; i < q.Count; i++) if (sc[i] >= best - (stance ? 8f : Window)) pool.Add(q[i]);
+            if (stance) return pool[((seed % pool.Count) + pool.Count) % pool.Count];
+            return ClipBag.Draw("cs:" + key + (role.HasValue ? RoleName(role.Value) : ""), seed, pool);
         }
 
         /// <summary>Best candidate whose root travel direction (degrees from the facing, + = right) is closest to dirDeg and whose speed is closest to speed (m/s).</summary>

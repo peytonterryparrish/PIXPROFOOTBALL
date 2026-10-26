@@ -39,9 +39,9 @@ namespace PixFootball.Tests
             Assert.Less(t.Lean, g.Lean, "the tackle is the more upright");
             Assert.Less(g.Lean, c.Lean, "the centre is the lowest, back flat");
             Assert.GreaterOrEqual(c.Lean, 90f, "centre: back flat");
-            Assert.Less(t.Lean, 60f, "tackle: a little more upright than the old three-point");
-            // arms on the thighs for tackles and guards, hands on the ball for the centre
-            foreach (var p in new[] { t, g }) { Assert.AreEqual(HandMode.Thigh, p.RHand); Assert.AreEqual(HandMode.Thigh, p.LHand); }
+            Assert.Less(t.Lean, 75f, "tackle: a little more upright than the deep three-point");      // v0.13.0 STANCE-HEAD: was 60 with both arms on the thighs
+            // v0.13.0 STANCE-HEAD: a true three-point for tackles and guards (one hand on the turf, the free arm on the thigh), both hands on the ball for the centre
+            foreach (var p in new[] { t, g }) { Assert.AreEqual(HandMode.Ground, p.RHand); Assert.AreEqual(HandMode.Thigh, p.LHand); }
             Assert.AreEqual(HandMode.Anchor, c.RHand); Assert.AreEqual(HandMode.Anchor, c.LHand, "both hands on the ball");
             Assert.Less(c.RY, 0.3f, "the ball is on the turf");
         }
